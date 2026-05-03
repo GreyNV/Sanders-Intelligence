@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sanders Collection — Inventory Executive Brief</title>
+<style>
+:root{--bg:#0f1117;--surf:#1e2235;--surf2:#252b40;--border:#2d3452;--text:#e2e8f0;--muted:#64748b;--muted2:#94a3b8;--red:#ef4444;--yellow:#f59e0b;--purple:#a78bfa;--green:#10b981;--blue:#60a5fa;--accent:#6366f1;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;}
+
+/* Header */
+.hdr{padding:28px 40px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-end;}
+.hdr-left h1{font-size:20px;font-weight:700;letter-spacing:-.3px;}
+.hdr-left .sub{font-size:12px;color:var(--muted);margin-top:4px;}
+.hdr-right{text-align:right;}
+.hdr-right .date{font-size:12px;color:var(--muted);}
+.hdr-right .badge{display:inline-block;background:rgba(99,102,241,.15);color:#a5b4fc;border:1px solid rgba(99,102,241,.3);font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;margin-top:4px;}
+
+/* Main layout */
+.page{max-width:960px;margin:0 auto;padding:32px 40px 60px;}
+
+/* Section labels */
+.section-label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:600;margin-bottom:12px;}
+
+/* Health bar */
+.health-wrap{background:var(--surf);border:1px solid var(--border);border-radius:12px;padding:20px 24px;margin-bottom:28px;}
+.health-bar{height:12px;border-radius:6px;display:flex;overflow:hidden;margin:12px 0 14px;}
+.hb-ok{background:var(--green);}.hb-ex{background:var(--purple);}.hb-su{background:rgba(167,139,250,.45);}.hb-risk{background:var(--red);}
+.health-legend{display:flex;gap:24px;flex-wrap:wrap;}
+.hl-item{display:flex;align-items:center;gap:7px;font-size:12px;}
+.hl-dot{width:10px;height:10px;border-radius:2px;flex-shrink:0;}
+.hl-val{font-weight:700;color:var(--text);}
+.hl-pct{color:var(--muted);font-size:11px;}
+.health-note{font-size:11px;color:var(--muted);margin-top:12px;padding-top:12px;border-top:1px solid var(--border);}
+
+/* KPI row */
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px;}
+.kpi{background:var(--surf);border:1px solid var(--border);border-radius:10px;padding:16px 18px;}
+.kpi-label{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);font-weight:600;}
+.kpi-val{font-size:26px;font-weight:700;margin:6px 0 3px;line-height:1;}
+.kpi-sub{font-size:11px;color:var(--muted2);}
+.kpi.red .kpi-val{color:var(--red);}
+.kpi.yellow .kpi-val{color:var(--yellow);}
+.kpi.purple .kpi-val{color:var(--purple);}
+.kpi.green .kpi-val{color:var(--green);}
+
+/* Actions */
+.actions{margin-bottom:28px;}
+.action-card{border-radius:10px;padding:20px 24px;margin-bottom:12px;display:flex;gap:20px;align-items:flex-start;}
+.action-card.urgent{background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.25);}
+.action-card.thisweek{background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.25);}
+.action-card.strategic{background:rgba(167,139,250,.07);border:1px solid rgba(167,139,250,.25);}
+.action-icon{font-size:22px;flex-shrink:0;margin-top:1px;}
+.action-body{flex:1;}
+.action-header{display:flex;align-items:baseline;gap:10px;margin-bottom:6px;}
+.action-tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;padding:2px 8px;border-radius:4px;}
+.tag-urgent{background:rgba(239,68,68,.2);color:#fca5a5;}
+.tag-week{background:rgba(245,158,11,.2);color:#fcd34d;}
+.tag-strategic{background:rgba(167,139,250,.2);color:#c4b5fd;}
+.action-title{font-size:14px;font-weight:600;color:var(--text);}
+.action-body p{font-size:13px;color:var(--muted2);line-height:1.6;}
+.action-body p strong{color:var(--text);}
+.action-body .drill{display:inline-block;margin-top:10px;font-size:11px;color:var(--accent);text-decoration:none;border:1px solid rgba(99,102,241,.3);border-radius:5px;padding:4px 10px;background:rgba(99,102,241,.08);}
+.action-body .drill:hover{background:rgba(99,102,241,.15);}
+.action-numbers{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;}
+.an{background:rgba(255,255,255,.05);border-radius:6px;padding:6px 12px;text-align:center;}
+.an .av{font-size:18px;font-weight:700;}
+.an .al{font-size:10px;color:var(--muted);margin-top:1px;}
+.urgent .an .av{color:var(--red);}
+.thisweek .an .av{color:var(--yellow);}
+.strategic .an .av{color:var(--purple);}
+
+/* Inbound wave */
+.inbound-section{background:var(--surf);border:1px solid var(--border);border-radius:12px;padding:20px 24px;margin-bottom:28px;}
+.inbound-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;}
+.inbound-header h3{font-size:14px;font-weight:600;}
+.inbound-header .total{font-size:12px;color:var(--muted);}
+.wave-bars{display:flex;align-items:flex-end;gap:6px;height:80px;margin-bottom:10px;}
+.wave-month{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;}
+.wave-bar-wrap{width:100%;display:flex;align-items:flex-end;justify-content:center;}
+.wave-bar{width:80%;border-radius:3px 3px 0 0;min-height:3px;transition:opacity .15s;}
+.wave-bar.peak{background:var(--accent);}
+.wave-bar.normal{background:rgba(99,102,241,.35);}
+.wave-label{font-size:10px;color:var(--muted);text-align:center;}
+.wave-val{font-size:9px;color:var(--muted2);text-align:center;}
+.wave-note{font-size:12px;color:var(--muted2);margin-top:4px;padding-top:12px;border-top:1px solid var(--border);}
+.wave-note strong{color:var(--text);}
+
+/* Footer links */
+.footer{border-top:1px solid var(--border);padding-top:20px;display:flex;gap:12px;flex-wrap:wrap;}
+.footer-label{font-size:11px;color:var(--muted);flex-basis:100%;margin-bottom:4px;}
+.footer a{display:inline-flex;align-items:center;gap:6px;background:var(--surf);border:1px solid var(--border);border-radius:7px;padding:8px 14px;font-size:12px;color:var(--muted2);text-decoration:none;}
+.footer a:hover{border-color:var(--accent);color:var(--text);}
+.footer a .ico{font-size:14px;}
+
+@media(max-width:680px){
+  .page{padding:20px 18px 40px;}
+  .hdr{padding:20px 18px 16px;flex-direction:column;gap:8px;align-items:flex-start;}
+  .kpi-row{grid-template-columns:1fr 1fr;}
+  .wave-val{display:none;}
+}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="hdr-left">
+    <h1>Sanders Collection — Inventory Brief</h1>
+    <div class="sub">Executive summary &nbsp;·&nbsp; Based on Netstock export, open POs, and demand forecasts</div>
+  </div>
+  <div class="hdr-right">
+    <div class="date">April 28, 2026</div>
+    <div class="badge">For Review</div>
+  </div>
+</div>
+
+<div class="page">
+
+  <!-- Portfolio Health -->
+  <div class="section-label">Portfolio Health</div>
+  <div class="health-wrap">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:13px;font-weight:600;">Total Inventory Value: <span style="color:var(--text)">$27.1M</span></span>
+      <span style="font-size:12px;color:var(--muted);">12,799 active SKUs &nbsp;·&nbsp; Location 182 — Glenshaw</span>
+    </div>
+    <div class="health-bar">
+      <div class="hb-ok" style="width:9.3%"></div>
+      <div class="hb-ex" style="width:65.5%"></div>
+      <div class="hb-su" style="width:21.3%"></div>
+      <div class="hb-risk" style="width:3.9%"></div>
+    </div>
+    <div class="health-legend">
+      <div class="hl-item"><div class="hl-dot" style="background:var(--green)"></div><span class="hl-val">$2.5M</span><span class="hl-pct">9.3% — Healthy (OK)</span></div>
+      <div class="hl-item"><div class="hl-dot" style="background:var(--purple)"></div><span class="hl-val">$17.7M</span><span class="hl-pct">65.5% — Excess Stock</span></div>
+      <div class="hl-item"><div class="hl-dot" style="background:rgba(167,139,250,.45)"></div><span class="hl-val">$5.8M</span><span class="hl-pct">21.3% — Surplus Orders</span></div>
+      <div class="hl-item"><div class="hl-dot" style="background:var(--red)"></div><span class="hl-val">$1.1M</span><span class="hl-pct">3.9% — At Risk / Stocked Out</span></div>
+    </div>
+    <div class="health-note">Healthy benchmark is 60–120 days of supply on hand. Current median for excess inventory is <strong>411 days</strong>. Over 85% of portfolio value is sitting in inventory that exceeds what demand justifies.</div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpi-row">
+    <div class="kpi red">
+      <div class="kpi-label">Stocked Out</div>
+      <div class="kpi-val">525</div>
+      <div class="kpi-sub">SKUs · $1.1M value at risk</div>
+    </div>
+    <div class="kpi yellow">
+      <div class="kpi-label">Backorders</div>
+      <div class="kpi-val">82,753</div>
+      <div class="kpi-sub">units unfulfilled · 698 SKUs</div>
+    </div>
+    <div class="kpi purple">
+      <div class="kpi-label">Capital Tied in Excess</div>
+      <div class="kpi-val">$23.5M</div>
+      <div class="kpi-sub">excess + surplus inventory</div>
+    </div>
+    <div class="kpi green">
+      <div class="kpi-label">Inbound (2026 POs)</div>
+      <div class="kpi-val">953K</div>
+      <div class="kpi-sub">units · bulk arriving May–Jul</div>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="section-label">Actions Required</div>
+  <div class="actions">
+
+    <div class="action-card urgent">
+      <div class="action-icon">🔴</div>
+      <div class="action-body">
+        <div class="action-header">
+          <span class="action-tag tag-urgent">Immediate</span>
+          <span class="action-title">525 SKUs stocked out — 82,753 units of orders can't be fulfilled</span>
+        </div>
+        <p>Active backorders across 698 SKUs. For <strong>most of these, inbound POs are already on the way</strong> — $7M in critical shipments arriving May through July. However, a subset has no inbound scheduled at all. Recommended orders total <strong>$1.3M</strong> for items with no coverage. The At Risk tab in the detailed dashboard isolates which SKUs have zero inbound pending.</p>
+        <div class="action-numbers">
+          <div class="an"><div class="av">525</div><div class="al">Stocked Out SKUs</div></div>
+          <div class="an"><div class="av">750</div><div class="al">Potential Stockout</div></div>
+          <div class="an"><div class="av">$1.3M</div><div class="al">Rec. Orders</div></div>
+          <div class="an"><div class="av">$7M</div><div class="al">Critical Inbound</div></div>
+        </div>
+        <a class="drill" href="inventory_intelligence_dashboard.html">→ View At Risk &amp; Backorders detail</a>
+      </div>
+    </div>
+
+    <div class="action-card thisweek">
+      <div class="action-icon">🟡</div>
+      <div class="action-body">
+        <div class="action-header">
+          <span class="action-tag tag-week">This Week</span>
+          <span class="action-title">$4M in inbound POs heading to already over-ordered SKUs</span>
+        </div>
+        <p>Of the 953K units arriving on open POs, <strong>1,307 PO lines worth $4M</strong> are going to SKUs the system already flags as surplus or excess. These will deepen the overstock problem. Procurement needs to contact suppliers <strong>before the May–June wave lands</strong> to negotiate delays or redirects. The Inbound Intelligence tab lists every line with the supplier name, order number, ETA, and recommended action.</p>
+        <div class="action-numbers">
+          <div class="an"><div class="av">20</div><div class="al">Postpone Lines ($56K)</div></div>
+          <div class="an"><div class="av">1,287</div><div class="al">Review Lines ($4M)</div></div>
+          <div class="an"><div class="av">May–Jun</div><div class="al">Window to Act</div></div>
+        </div>
+        <a class="drill" href="inventory_intelligence_dashboard.html">→ View Inbound Intelligence</a>
+      </div>
+    </div>
+
+    <div class="action-card strategic">
+      <div class="action-icon">🟣</div>
+      <div class="action-body">
+        <div class="action-header">
+          <span class="action-tag tag-strategic">Strategic</span>
+          <span class="action-title">$23.5M in excess capital — destocking plan needed</span>
+        </div>
+        <p>85% of portfolio value is in inventory that exceeds demand justification, with a <strong>median of 411 days of supply</strong> on excess items. This is a structural issue requiring a destocking strategy: promotions, liquidation, or supplier returns where possible. The Overstock tab shows the full breakdown by category and brand, sorted by dollar exposure. The top 10 categories account for the majority of the excess value.</p>
+        <div class="action-numbers">
+          <div class="an"><div class="av">$17.7M</div><div class="al">Excess Stock</div></div>
+          <div class="an"><div class="av">$5.8M</div><div class="al">Surplus Orders</div></div>
+          <div class="an"><div class="av">411</div><div class="al">Median Days</div></div>
+          <div class="an"><div class="av">5,168</div><div class="al">Excess SKUs</div></div>
+        </div>
+        <a class="drill" href="inventory_intelligence_dashboard.html">→ View Overstock detail</a>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Inbound Wave -->
+  <div class="section-label">Inbound Pipeline</div>
+  <div class="inbound-section">
+    <div class="inbound-header">
+      <h3>Open PO Units by Expected Arrival Month</h3>
+      <div class="total">953,027 total units on open POs (2026)</div>
+    </div>
+    <div class="wave-bars" id="waveBars"></div>
+    <div class="wave-note">
+      <strong>550K units arriving in June alone.</strong> The May–July window represents ~94% of all inbound volume.
+      If any of these shipments are delayed, stockout risk increases significantly.
+      If they all arrive on schedule, items already flagged as surplus will be severely overstocked.
+      Procurement and logistics need to be aligned on this window now.
+    </div>
+  </div>
+
+  <!-- Drill-down links -->
+  <div class="footer">
+    <div class="footer-label">Detailed Dashboards — for purchasing manager &amp; inventory manager analysis</div>
+    <a href="inventory_dashboard.html"><span class="ico">📦</span>Inventory Health Dashboard</a>
+    <a href="inventory_intelligence_dashboard.html"><span class="ico">🔍</span>Inventory Intelligence (At Risk · Overstock · Backorders · Inbound)</a>
+    <a href="purchasing_dashboard.html"><span class="ico">📊</span>Purchasing &amp; Supply Coverage</a>
+  </div>
+
+</div>
+
+<script>
+// Draw inbound wave bars
+const pipeline = {
+  labels: ['Apr','May','Jun','Jul','Aug','Sep'],
+  months: ['2026-04','2026-05','2026-06','2026-07','2026-08','2026-09'],
+  data: [18546, 205706, 550464, 140304, 13338, 290]
+};
+const peak = ['2026-05','2026-06','2026-07'];
+const maxVal = Math.max(...pipeline.data);
+const container = document.getElementById('waveBars');
+container.innerHTML = pipeline.labels.map((label, i) => {
+  const pct = Math.max((pipeline.data[i] / maxVal) * 100, 2);
+  const isPeak = peak.includes(pipeline.months[i]);
+  const valStr = pipeline.data[i] >= 1000 ? Math.round(pipeline.data[i]/1000)+'K' : pipeline.data[i];
+  return `<div class="wave-month">
+    <div class="wave-bar-wrap" style="height:70px;">
+      <div class="wave-bar ${isPeak?'peak':'normal'}" style="height:${pct}%"></div>
+    </div>
+    <div class="wave-label">${label}</div>
+    <div class="wave-val">${valStr}</div>
+  </div>`;
+}).join('');
+</script>
+</body>
+</html>

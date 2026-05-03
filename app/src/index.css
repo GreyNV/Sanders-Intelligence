@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-bg text-text1 font-sans text-sm antialiased;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-text2;
+  }
+}
+
+@layer components {
+  /* ── Cards ── */
+  .card {
+    @apply bg-surface border border-border rounded-xl p-5;
+  }
+
+  /* ── Inputs ── */
+  .input {
+    @apply bg-surface border border-border text-text1 rounded-lg px-3 py-2 text-sm
+           outline-none focus:border-accent transition-colors placeholder:text-text2;
+  }
+
+  .select {
+    @apply bg-surface border border-border text-text1 rounded-lg px-3 py-2 text-sm
+           outline-none focus:border-accent transition-colors cursor-pointer;
+  }
+
+  /* ── Buttons ── */
+  .btn {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
+           transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-white hover:bg-accent/90;
+  }
+  .btn-secondary {
+    @apply btn bg-surface2 border border-border text-text1 hover:border-accent hover:text-accent;
+  }
+  .btn-danger {
+    @apply btn bg-danger/10 border border-danger/30 text-danger hover:bg-danger/20;
+  }
+  .btn-ghost {
+    @apply btn text-text2 hover:text-text1 hover:bg-surface2;
+  }
+
+  /* ── Table ── */
+  .tbl-wrap {
+    @apply border border-border rounded-xl overflow-auto max-h-[560px] bg-surface;
+  }
+  .tbl {
+    @apply w-full border-collapse text-[13px];
+  }
+  .tbl thead th {
+    @apply sticky top-0 bg-surface px-3 py-2.5 text-left text-[11px] uppercase tracking-wider
+           text-text2 border-b border-border whitespace-nowrap cursor-pointer select-none z-10;
+  }
+  .tbl thead th:hover {
+    @apply text-text1;
+  }
+  .tbl tbody td {
+    @apply px-3 py-2 border-b border-border/50 align-middle;
+  }
+  .tbl tbody tr:hover td {
+    @apply bg-accent/5;
+  }
+  .tbl tbody tr:last-child td {
+    @apply border-b-0;
+  }
+}
