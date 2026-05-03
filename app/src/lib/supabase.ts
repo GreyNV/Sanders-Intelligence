@@ -13,7 +13,7 @@ export const supabase = createClient(url, key, {
   auth: {
     // Bypass the navigator.locks API — avoids NavigatorLockAcquireTimeoutError
     // when multiple auth operations race on startup. Safe for single-tab use.
-    lock: async (_name: string, _acquireTimeout: number, fn: () => Promise<unknown>) => fn(),
+    lock: async <R>(_name: string, _acquireTimeout: number, fn: () => Promise<R>): Promise<R> => fn(),
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: false,
