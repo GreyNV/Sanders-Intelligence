@@ -64,8 +64,8 @@ export default function InventoryBrowser() {
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
-      const av = (a as Record<string,unknown>)[sortKey]
-      const bv = (b as Record<string,unknown>)[sortKey]
+      const av = (a as unknown as Record<string,unknown>)[sortKey]
+      const bv = (b as unknown as Record<string,unknown>)[sortKey]
       if (typeof av === 'number' && typeof bv === 'number') {
         return sortAsc ? av - bv : bv - av
       }
