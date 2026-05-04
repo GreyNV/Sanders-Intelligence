@@ -14,18 +14,30 @@ async function fetchLatestUploadMeta() {
   return data
 }
 
-/** Fetch all inventory records for the latest upload */
+/** Fetch ALL inventory records for the latest upload, paginating past Supabase's 1000-row cap */
 async function fetchInventoryRecords(): Promise<InventoryRecord[]> {
   const meta = await fetchLatestUploadMeta()
   if (!meta) return []
 
-  const { data, error } = await supabase
-    .from('inventory_records')
-    .select('*')
-    .eq('upload_id', meta.id)
+  const PAGE_SIZE = 1000
+  const all: InventoryRecord[] = []
+  let from = 0
 
-  if (error) throw error
-  return (data ?? []) as InventoryRecord[]
+  while (true) {
+    const { data, error } = await supabase
+      .from('inventory_records')
+      .select('*')
+      .eq('upload_id', meta.id)
+      .range(from, from + PAGE_SIZE - 1)
+
+    if (error) throw error
+    if (!data || data.length === 0) break
+    all.push(...(data as InventoryRecord[]))
+    if (data.length < PAGE_SIZE) break   // last page
+    from += PAGE_SIZE
+  }
+
+  return all
 }
 
 export function useInventory() {

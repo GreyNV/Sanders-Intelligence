@@ -46,12 +46,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // SIGNED_IN / SIGNED_OUT / TOKEN_REFRESHED etc.
     // We keep loading=true until the first event fully resolves (including profile fetch).
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        // Set loading=true at the START of every auth event so guards always
-        // wait for the profile fetch to complete before making routing decisions.
-        // Without this, after the initial INITIAL_SESSION (no user) sets loading=false,
-        // a subsequent SIGNED_IN event races: session is set but profile is still null,
-        // causing HomeRedirect to bounce back to /login.
+      async (event, session) => {
+        // TOKEN_REFRESHED / USER_UPDATED fire silently in the background (e.g. on tab focus).
+        // Do NOT set loading=true for these — it unmounts the AppShell and can break routing.
+        if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+          setSession(session)
+          setSupabaseUser(session?.user ?? null)
+          if (session?.user) await loadProfile(session.user.id)
+          return
+        }
+
+        // For INITIAL_SESSION, SIGNED_IN, SIGNED_OUT: gate routing behind loading=true
+        // so RequireAuth / HomeRedirect never see a half-resolved auth state.
         setLoading(true)
         setSession(session)
         setSupabaseUser(session?.user ?? null)
