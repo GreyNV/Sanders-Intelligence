@@ -47,6 +47,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // We keep loading=true until the first event fully resolves (including profile fetch).
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
+        // Set loading=true at the START of every auth event so guards always
+        // wait for the profile fetch to complete before making routing decisions.
+        // Without this, after the initial INITIAL_SESSION (no user) sets loading=false,
+        // a subsequent SIGNED_IN event races: session is set but profile is still null,
+        // causing HomeRedirect to bounce back to /login.
+        setLoading(true)
         setSession(session)
         setSupabaseUser(session?.user ?? null)
         if (session?.user) {
@@ -54,8 +60,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
           setProfile(null)
         }
-        // Only mark loading done AFTER profile is resolved — this prevents
-        // HomeRedirect from bouncing to /login before the profile arrives.
         setLoading(false)
       }
     )
