@@ -1,6 +1,9 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { supabase } from '@/lib/supabase'
 import Login from '@/pages/Login'
+import ResetPassword from '@/pages/ResetPassword'
 import AppShell from '@/components/layout/AppShell'
 import ActionCenter from '@/pages/purchasing/ActionCenter'
 import InventoryBrowser from '@/pages/purchasing/InventoryBrowser'
@@ -11,6 +14,20 @@ import TasksPage from '@/pages/tasks/TasksPage'
 import UsersPage from '@/pages/admin/UsersPage'
 import UploadsPage from '@/pages/admin/UploadsPage'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
+
+/** Listens for PASSWORD_RECOVERY auth events and redirects to the reset page */
+function AuthRedirectHandler() {
+  const navigate = useNavigate()
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        navigate('/reset-password', { replace: true })
+      }
+    })
+    return () => subscription.unsubscribe()
+  }, [navigate])
+  return null
+}
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { session, loading } = useAuth()
@@ -40,44 +57,48 @@ export default function App() {
   const { session } = useAuth()
 
   return (
-    <Routes>
-      <Route path="/login" element={session ? <Navigate to="/" replace /> : <Login />} />
+    <>
+      <AuthRedirectHandler />
+      <Routes>
+        <Route path="/login" element={session ? <Navigate to="/" replace /> : <Login />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
-      <Route element={<RequireAuth><AppShell /></RequireAuth>}>
-        <Route index element={<HomeRedirect />} />
+        <Route element={<RequireAuth><AppShell /></RequireAuth>}>
+          <Route index element={<HomeRedirect />} />
 
-        {/* Purchasing */}
-        <Route path="/purchasing/action-center" element={
-          <RoleGuard allow={['admin', 'purchasing']}><ActionCenter /></RoleGuard>
-        } />
-        <Route path="/purchasing/inventory" element={
-          <RoleGuard allow={['admin', 'purchasing']}><InventoryBrowser /></RoleGuard>
-        } />
-        <Route path="/purchasing/inbound" element={
-          <RoleGuard allow={['admin', 'purchasing']}><InboundPipeline /></RoleGuard>
-        } />
+          {/* Purchasing */}
+          <Route path="/purchasing/action-center" element={
+            <RoleGuard allow={['admin', 'purchasing']}><ActionCenter /></RoleGuard>
+          } />
+          <Route path="/purchasing/inventory" element={
+            <RoleGuard allow={['admin', 'purchasing']}><InventoryBrowser /></RoleGuard>
+          } />
+          <Route path="/purchasing/inbound" element={
+            <RoleGuard allow={['admin', 'purchasing']}><InboundPipeline /></RoleGuard>
+          } />
 
-        {/* C-Suite */}
-        <Route path="/executive" element={
-          <RoleGuard allow={['admin', 'csuite']}><ExecutiveSummary /></RoleGuard>
-        } />
-        <Route path="/executive/departments" element={
-          <RoleGuard allow={['admin', 'csuite']}><DepartmentOverview /></RoleGuard>
-        } />
+          {/* C-Suite */}
+          <Route path="/executive" element={
+            <RoleGuard allow={['admin', 'csuite']}><ExecutiveSummary /></RoleGuard>
+          } />
+          <Route path="/executive/departments" element={
+            <RoleGuard allow={['admin', 'csuite']}><DepartmentOverview /></RoleGuard>
+          } />
 
-        {/* Tasks — accessible to all roles */}
-        <Route path="/tasks" element={<TasksPage />} />
+          {/* Tasks — accessible to all roles */}
+          <Route path="/tasks" element={<TasksPage />} />
 
-        {/* Admin */}
-        <Route path="/admin/users" element={
-          <RoleGuard allow={['admin']}><UsersPage /></RoleGuard>
-        } />
-        <Route path="/admin/uploads" element={
-          <RoleGuard allow={['admin', 'purchasing']}><UploadsPage /></RoleGuard>
-        } />
-      </Route>
+          {/* Admin */}
+          <Route path="/admin/users" element={
+            <RoleGuard allow={['admin']}><UsersPage /></RoleGuard>
+          } />
+          <Route path="/admin/uploads" element={
+            <RoleGuard allow={['admin', 'purchasing']}><UploadsPage /></RoleGuard>
+          } />
+        </Route>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
   )
 }
