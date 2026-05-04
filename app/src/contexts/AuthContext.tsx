@@ -41,15 +41,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    // Initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session)
-      setSupabaseUser(session?.user ?? null)
-      if (session?.user) await loadProfile(session.user.id)
-      setLoading(false)
-    })
-
-    // Listen for auth changes
+    // Use onAuthStateChange as the single source of truth.
+    // It fires immediately with INITIAL_SESSION on mount, then again on
+    // SIGNED_IN / SIGNED_OUT / TOKEN_REFRESHED etc.
+    // We keep loading=true until the first event fully resolves (including profile fetch).
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         setSession(session)
@@ -59,6 +54,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
           setProfile(null)
         }
+        // Only mark loading done AFTER profile is resolved — this prevents
+        // HomeRedirect from bouncing to /login before the profile arrives.
+        setLoading(false)
       }
     )
 
