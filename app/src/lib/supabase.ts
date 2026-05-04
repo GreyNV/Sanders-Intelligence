@@ -11,6 +11,9 @@ if (!url || !key) {
 
 export const supabase = createClient(url, key, {
   auth: {
+    // Bypass navigator.locks — prevents NavigatorLockAcquireTimeoutError that
+    // blocks auth initialization when the lock is held by another operation.
+    lock: async <R>(_name: string, _acquireTimeout: number, fn: () => Promise<R>): Promise<R> => fn(),
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
