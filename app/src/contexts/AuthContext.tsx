@@ -29,11 +29,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .eq('is_active', true)
       .single()
 
-    if (error || !data) {
-      setProfile(null)
-    } else {
+    if (!error && data) {
+      // Only update profile on success — transient fetch failures (e.g. on tab focus)
+      // must not wipe the profile and cause a blank page.
       setProfile(data as AppUser)
     }
+    // On error: keep the existing profile value. Profile is only cleared explicitly
+    // on SIGNED_OUT (see onAuthStateChange handler below).
   }
 
   async function refreshProfile() {

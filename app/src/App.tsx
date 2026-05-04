@@ -49,8 +49,11 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 function RoleGuard({ allow, children }: { allow: string[]; children: React.ReactNode }) {
-  const { profile } = useAuth()
-  if (!profile) return null
+  const { profile, loading } = useAuth()
+  // Show spinner while profile is in-flight rather than returning null (blank page).
+  // This covers the brief window between a TOKEN_REFRESHED / SIGNED_IN event and
+  // the profile fetch completing.
+  if (loading || !profile) return <div className="flex h-screen items-center justify-center"><LoadingSpinner size="lg" /></div>
   if (!allow.includes(profile.role)) return <Navigate to="/" replace />
   return <>{children}</>
 }
@@ -58,8 +61,9 @@ function RoleGuard({ allow, children }: { allow: string[]; children: React.React
 /** Redirect to the right home page based on role */
 function HomeRedirect() {
   const { profile, loading } = useAuth()
-  if (loading) return <div className="flex h-screen items-center justify-center"><LoadingSpinner size="lg" /></div>
-  if (!profile) return <Navigate to="/login" replace />
+  // Keep showing spinner until profile is confirmed — prevents a premature
+  // navigate-to-login when loading=false but profile hasn't arrived yet.
+  if (loading || !profile) return <div className="flex h-screen items-center justify-center"><LoadingSpinner size="lg" /></div>
   if (profile.role === 'csuite') return <Navigate to="/executive" replace />
   if (profile.role === 'admin')  return <Navigate to="/purchasing/action-center" replace />
   return <Navigate to="/purchasing/action-center" replace />
