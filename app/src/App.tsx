@@ -15,10 +15,22 @@ import UsersPage from '@/pages/admin/UsersPage'
 import UploadsPage from '@/pages/admin/UploadsPage'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 
-/** Listens for PASSWORD_RECOVERY auth events and redirects to the reset page */
+/**
+ * Handles auth redirects for two flows:
+ *  1. Password recovery  — Supabase fires PASSWORD_RECOVERY auth event
+ *  2. New user invite    — Supabase processes the invite token via detectSessionInUrl
+ *                          and fires SIGNED_IN, but the URL hash still contains type=invite
+ *                          at mount time, so we read it before Supabase clears it.
+ */
 function AuthRedirectHandler() {
   const navigate = useNavigate()
   useEffect(() => {
+    // Invite link: check hash fragment on mount (e.g. #access_token=...&type=invite)
+    const hashParams = new URLSearchParams(window.location.hash.slice(1))
+    if (hashParams.get('type') === 'invite') {
+      navigate('/reset-password?mode=invite', { replace: true })
+    }
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY') {
         navigate('/reset-password', { replace: true })
