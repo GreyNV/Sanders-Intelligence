@@ -30,12 +30,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .single()
 
     if (!error && data) {
-      // Only update profile on success — transient fetch failures (e.g. on tab focus)
-      // must not wipe the profile and cause a blank page.
       setProfile(data as AppUser)
     }
-    // On error: keep the existing profile value. Profile is only cleared explicitly
-    // on SIGNED_OUT (see onAuthStateChange handler below).
+    // On error: keep existing profile — transient failures must not blank the page.
+    // Profile is only explicitly cleared on SIGNED_OUT.
   }
 
   async function refreshProfile() {
@@ -43,36 +41,67 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    // Use onAuthStateChange as the single source of truth.
-    // It fires immediately with INITIAL_SESSION on mount, then again on
-    // SIGNED_IN / SIGNED_OUT / TOKEN_REFRESHED etc.
-    // We keep loading=true until the first event fully resolves (including profile fetch).
+    // loading=true is ONLY used for the initial page load.
+    // After the first auth event resolves, loading is set to false and never raised again.
+    // Subsequent events (SIGNED_IN on login, TOKEN_REFRESHED on tab focus, etc.) update
+    // state silently — RoleGuard and HomeRedirect handle the brief profile=null window
+    // with a spinner rather than a navigation.
+    //
+    // This prevents the freeze: if any event fires on tab switch and loadProfile hangs,
+    // the UI keeps showing the last known state instead of locking behind loading=true.
+
+    let initialized = false
+
+    // Safety valve — if auth doesn't resolve within 8 s (e.g. lock contention in a
+    // weird browser state), unblock the UI so the user isn't stuck on a spinner forever.
+    const safetyTimer = setTimeout(() => {
+      if (!initialized) {
+        initialized = true
+        setLoading(false)
+      }
+    }, 8000)
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        // TOKEN_REFRESHED / USER_UPDATED fire silently in the background (e.g. on tab focus).
-        // Do NOT set loading=true for these — it unmounts the AppShell and can break routing.
-        if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        if (!initialized) {
+          // ── First event (INITIAL_SESSION) ──────────────────────────────────
+          // Gate the UI while we resolve the initial auth state.
           setSession(session)
           setSupabaseUser(session?.user ?? null)
-          if (session?.user) await loadProfile(session.user.id)
+          try {
+            if (session?.user) {
+              await loadProfile(session.user.id)
+            } else {
+              setProfile(null)
+            }
+          } finally {
+            // Always unblock, even if loadProfile threw or timed out.
+            initialized = true
+            clearTimeout(safetyTimer)
+            setLoading(false)
+          }
           return
         }
 
-        // For INITIAL_SESSION, SIGNED_IN, SIGNED_OUT: gate routing behind loading=true
-        // so RequireAuth / HomeRedirect never see a half-resolved auth state.
-        setLoading(true)
+        // ── All subsequent events ──────────────────────────────────────────
+        // Update state silently — never set loading=true after initial load.
         setSession(session)
         setSupabaseUser(session?.user ?? null)
+
         if (session?.user) {
           await loadProfile(session.user.id)
-        } else {
+        } else if (event === 'SIGNED_OUT') {
+          // Explicit sign-out only — clear profile so RequireAuth redirects to login.
           setProfile(null)
         }
-        setLoading(false)
+        // Any other no-session event: keep existing profile to avoid blank pages.
       }
     )
 
-    return () => subscription.unsubscribe()
+    return () => {
+      subscription.unsubscribe()
+      clearTimeout(safetyTimer)
+    }
   }, [])
 
   async function signIn(email: string, password: string) {
