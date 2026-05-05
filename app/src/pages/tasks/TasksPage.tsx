@@ -5,7 +5,7 @@ import TaskModal from '@/components/tasks/TaskModal'
 import Badge, { priorityVariant, taskStatusVariant } from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { fmtDate, isOverdue } from '@/lib/utils'
-import { Plus, Trash2, CheckCircle, Circle, Clock, AlertCircle } from 'lucide-react'
+import { Plus, Trash2, CheckCircle, Circle, Clock, AlertCircle, Pencil } from 'lucide-react'
 import { Task, TaskStatus } from '@/types'
 
 const STATUS_COLS: { key: TaskStatus; label: string; icon: React.ReactNode }[] = [
@@ -27,9 +27,10 @@ export default function TasksPage() {
   const { data: tasks = [], isLoading } = useTasks()
   const updateStatus = useUpdateTaskStatus()
   const deleteTask   = useDeleteTask()
-  const [modal, setModal]   = useState(false)
+  const [modal, setModal]       = useState(false)
+  const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [deptFilter, setDeptFilter] = useState('all')
-  const [view, setView]     = useState<'board' | 'list'>('list')
+  const [view, setView]         = useState<'board' | 'list'>('list')
 
   if (isLoading) return <PageLoader />
 
@@ -64,10 +65,18 @@ export default function TasksPage() {
               <div className="text-[11px] text-text2 mt-0.5 line-clamp-2">{task.description}</div>
             )}
           </div>
+          <button
+            onClick={() => setEditingTask(task)}
+            className="p-1 text-text2 hover:text-accent transition-colors flex-shrink-0"
+            title="Edit task"
+          >
+            <Pencil size={13} />
+          </button>
           {canDelete && (
             <button
               onClick={() => deleteTask.mutate(task.id)}
               className="p-1 text-text2 hover:text-danger transition-colors flex-shrink-0"
+              title="Delete task"
             >
               <Trash2 size={13} />
             </button>
@@ -166,6 +175,13 @@ export default function TasksPage() {
       )}
 
       {modal && <TaskModal open={modal} onClose={() => setModal(false)} />}
+      {editingTask && (
+        <TaskModal
+          open={!!editingTask}
+          task={editingTask}
+          onClose={() => setEditingTask(null)}
+        />
+      )}
     </div>
   )
 }

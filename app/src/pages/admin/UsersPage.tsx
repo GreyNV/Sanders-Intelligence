@@ -4,8 +4,9 @@ import Modal from '@/components/ui/Modal'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import { AppUser, UserRole } from '@/types'
-import { UserPlus, CheckCircle, XCircle, Edit2 } from 'lucide-react'
+import { UserPlus, CheckCircle, XCircle, Edit2, KeyRound } from 'lucide-react'
 import { fmtDate } from '@/lib/utils'
+import { supabase } from '@/lib/supabase'
 
 const ROLES: UserRole[]    = ['purchasing', 'csuite', 'admin']
 const DEPARTMENTS          = ['purchasing', 'warehouse', 'marketing', 'operations', 'other']
@@ -17,6 +18,18 @@ export default function UsersPage() {
 
   const [inviteModal, setInviteModal] = useState(false)
   const [editUser, setEditUser]       = useState<AppUser | null>(null)
+  const [resetSent, setResetSent]     = useState<string | null>(null)   // userId whose reset email just sent
+  const [resetLoading, setResetLoading] = useState<string | null>(null) // userId currently sending
+
+  async function handleResetPassword(user: AppUser) {
+    setResetLoading(user.id)
+    await supabase.auth.resetPasswordForEmail(user.email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    })
+    setResetLoading(null)
+    setResetSent(user.id)
+    setTimeout(() => setResetSent(null), 4000)
+  }
 
   // Invite form state
   const [email, setEmail]   = useState('')
@@ -93,6 +106,19 @@ export default function UsersPage() {
                       className="btn-ghost text-xs py-1 px-2"
                     >
                       <Edit2 size={12} /> Edit
+                    </button>
+                    <button
+                      onClick={() => handleResetPassword(user)}
+                      disabled={resetLoading === user.id}
+                      className="btn-ghost text-xs py-1 px-2"
+                      title="Send password reset email"
+                    >
+                      {resetLoading === user.id
+                        ? <LoadingSpinner size="sm" />
+                        : resetSent === user.id
+                          ? <><KeyRound size={12} className="text-success" /> Sent!</>
+                          : <><KeyRound size={12} /> Reset PW</>
+                      }
                     </button>
                     <button
                       onClick={() => handleToggleActive(user)}

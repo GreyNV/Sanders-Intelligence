@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { supabase } from '@/lib/supabase'
+import { supabase, initialUrlAuthType } from '@/lib/supabase'
 import Login from '@/pages/Login'
 import ResetPassword from '@/pages/ResetPassword'
 import AppShell from '@/components/layout/AppShell'
@@ -17,20 +17,25 @@ import LoadingSpinner from '@/components/ui/LoadingSpinner'
 
 /**
  * Handles auth redirects for two flows:
- *  1. Password recovery  — Supabase fires PASSWORD_RECOVERY auth event
- *  2. New user invite    — Supabase processes the invite token via detectSessionInUrl
- *                          and fires SIGNED_IN, but the URL hash still contains type=invite
- *                          at mount time, so we read it before Supabase clears it.
+ *
+ * 1. New user invite (type=invite)
+ *    Supabase processes and REMOVES the #access_token hash inside createClient(),
+ *    which runs at module-import time — before any React component mounts.
+ *    We capture the hash type in supabase.ts (initialUrlAuthType) before that
+ *    happens, and use it here to redirect to the set-password page.
+ *
+ * 2. Password recovery (type=recovery)
+ *    Supabase fires a PASSWORD_RECOVERY auth event, which we catch below.
  */
 function AuthRedirectHandler() {
   const navigate = useNavigate()
   useEffect(() => {
-    // Invite link: check hash fragment on mount (e.g. #access_token=...&type=invite)
-    const hashParams = new URLSearchParams(window.location.hash.slice(1))
-    if (hashParams.get('type') === 'invite') {
+    // Invite: use the pre-captured type (hash is already gone by now)
+    if (initialUrlAuthType === 'invite') {
       navigate('/reset-password?mode=invite', { replace: true })
     }
 
+    // Recovery: Supabase fires a dedicated auth event we can listen for
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY') {
         navigate('/reset-password', { replace: true })

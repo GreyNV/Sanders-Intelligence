@@ -70,6 +70,29 @@ export function useUpdateTaskStatus() {
   })
 }
 
+export function useUpdateTask() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, values }: { id: string; values: Partial<TaskFormValues> }) => {
+      const { error } = await supabase
+        .from('tasks')
+        .update({
+          title:       values.title,
+          description: values.description ?? null,
+          priority:    values.priority,
+          due_date:    values.due_date ?? null,
+          assigned_to: values.assigned_to ?? null,
+          sku_code:    values.sku_code ?? null,
+          department:  values.department,
+          updated_at:  new Date().toISOString(),
+        })
+        .eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+  })
+}
+
 export function useDeleteTask() {
   const qc = useQueryClient()
   return useMutation({

@@ -1,30 +1,55 @@
-import { useState, FormEvent } from 'react'
+import { useState, useEffect, FormEvent } from 'react'
 import Modal from '@/components/ui/Modal'
-import { useCreateTask } from '@/hooks/useTasks'
+import { useCreateTask, useUpdateTask } from '@/hooks/useTasks'
 import { useUsers } from '@/hooks/useUsers'
 import { useAuth } from '@/contexts/AuthContext'
-import { TaskPriority } from '@/types'
+import { Task, TaskPriority } from '@/types'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 
 interface TaskModalProps {
   open: boolean
   onClose: () => void
+  task?: Task          // when provided → edit mode
   prefillSku?: string
   prefillTitle?: string
 }
 
-export default function TaskModal({ open, onClose, prefillSku = '', prefillTitle = '' }: TaskModalProps) {
+export default function TaskModal({ open, onClose, task, prefillSku = '', prefillTitle = '' }: TaskModalProps) {
   const { profile }  = useAuth()
   const { data: users = [] } = useUsers()
   const createTask = useCreateTask()
+  const updateTask = useUpdateTask()
 
-  const [title, setTitle]         = useState(prefillTitle)
+  const isEdit = !!task
+
+  const [title, setTitle]         = useState('')
   const [description, setDesc]    = useState('')
   const [priority, setPriority]   = useState<TaskPriority>('medium')
   const [dueDate, setDueDate]     = useState('')
   const [assignedTo, setAssigned] = useState('')
-  const [skuCode, setSkuCode]     = useState(prefillSku)
+  const [skuCode, setSkuCode]     = useState('')
   const [error, setError]         = useState<string | null>(null)
+
+  // Reset/initialise fields whenever the modal opens or switches between tasks
+  useEffect(() => {
+    if (!open) return
+    if (task) {
+      setTitle(task.title)
+      setDesc(task.description ?? '')
+      setPriority(task.priority)
+      setDueDate(task.due_date ?? '')
+      setAssigned(task.assigned_to ?? '')
+      setSkuCode(task.sku_code ?? '')
+    } else {
+      setTitle(prefillTitle)
+      setDesc('')
+      setPriority('medium')
+      setDueDate('')
+      setAssigned('')
+      setSkuCode(prefillSku)
+    }
+    setError(null)
+  }, [open, task?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const deptUsers = users.filter(u =>
     u.is_active && (u.department === profile?.department || profile?.role === 'admin')
@@ -34,24 +59,33 @@ export default function TaskModal({ open, onClose, prefillSku = '', prefillTitle
     e.preventDefault()
     if (!title.trim()) { setError('Title is required'); return }
     setError(null)
+
+    const values = {
+      title: title.trim(),
+      description,
+      priority,
+      due_date: dueDate,
+      assigned_to: assignedTo,
+      sku_code: skuCode,
+      department: task?.department ?? profile?.department ?? 'purchasing',
+    }
+
     try {
-      await createTask.mutateAsync({
-        title: title.trim(),
-        description,
-        priority,
-        due_date: dueDate,
-        assigned_to: assignedTo,
-        sku_code: skuCode,
-        department: profile?.department ?? 'purchasing',
-      })
+      if (isEdit) {
+        await updateTask.mutateAsync({ id: task!.id, values })
+      } else {
+        await createTask.mutateAsync(values)
+      }
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create task')
+      setError(err instanceof Error ? err.message : isEdit ? 'Failed to update task' : 'Failed to create task')
     }
   }
 
+  const isPending = createTask.isPending || updateTask.isPending
+
   return (
-    <Modal open={open} onClose={onClose} title="New Task">
+    <Modal open={open} onClose={onClose} title={isEdit ? 'Edit Task' : 'New Task'}>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-xs font-medium text-text2 mb-1.5">Title *</label>
@@ -105,8 +139,8 @@ export default function TaskModal({ open, onClose, prefillSku = '', prefillTitle
 
         <div className="flex gap-2 justify-end pt-1">
           <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
-          <button type="submit" disabled={createTask.isPending} className="btn-primary">
-            {createTask.isPending ? <LoadingSpinner size="sm" /> : 'Create Task'}
+          <button type="submit" disabled={isPending} className="btn-primary">
+            {isPending ? <LoadingSpinner size="sm" /> : isEdit ? 'Save Changes' : 'Create Task'}
           </button>
         </div>
       </form>
