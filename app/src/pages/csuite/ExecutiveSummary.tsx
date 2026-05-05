@@ -60,22 +60,54 @@ export default function ExecutiveSummary() {
         <p className="text-text2 text-sm mt-0.5">Inventory health overview — all figures from the latest upload</p>
       </div>
 
-      {/* Health Bar */}
-      <div className="card mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-text2">Inventory Health</span>
-          <span className="text-sm font-semibold text-text1">{healthPct}% OK</span>
+      {/* Health Bars */}
+      <div className="card mb-6 space-y-5">
+        {/* SKU Health Bar */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-text2">Inventory Health — SKUs</span>
+            <span className="text-sm font-semibold text-text1">{healthPct}% OK</span>
+          </div>
+          <div className="flex h-3 rounded-full overflow-hidden mb-3">
+            <div style={{ width: `${(kpis.okCount / kpis.totalSkus) * 100}%` }} className="bg-success" />
+            <div style={{ width: `${(kpis.excessCount / kpis.totalSkus) * 100}%` }} className="bg-accent" />
+            <div style={{ width: `${(kpis.atRiskCount / kpis.totalSkus) * 100}%` }} className="bg-danger" />
+          </div>
+          <div className="flex gap-6 text-xs text-text2">
+            <span><span className="inline-block w-2 h-2 rounded-sm bg-success mr-1.5" />OK — {fmtNumber(kpis.okCount)} SKUs</span>
+            <span><span className="inline-block w-2 h-2 rounded-sm bg-accent mr-1.5" />Excess — {fmtNumber(kpis.excessCount)} SKUs</span>
+            <span><span className="inline-block w-2 h-2 rounded-sm bg-danger mr-1.5" />At Risk — {fmtNumber(kpis.atRiskCount)} SKUs</span>
+          </div>
         </div>
-        <div className="flex h-3 rounded-full overflow-hidden mb-3">
-          <div style={{ width: `${(kpis.okCount / kpis.totalSkus) * 100}%` }} className="bg-success" />
-          <div style={{ width: `${(kpis.excessCount / kpis.totalSkus) * 100}%` }} className="bg-accent" />
-          <div style={{ width: `${(kpis.atRiskCount / kpis.totalSkus) * 100}%` }} className="bg-danger" />
-        </div>
-        <div className="flex gap-6 text-xs text-text2">
-          <span><span className="inline-block w-2 h-2 rounded-sm bg-success mr-1.5" />OK — {fmtNumber(kpis.okCount)} SKUs</span>
-          <span><span className="inline-block w-2 h-2 rounded-sm bg-accent mr-1.5" />Excess — {fmtNumber(kpis.excessCount)} SKUs</span>
-          <span><span className="inline-block w-2 h-2 rounded-sm bg-danger mr-1.5" />At Risk — {fmtNumber(kpis.atRiskCount)} SKUs</span>
-        </div>
+
+        <div className="border-t border-surface2" />
+
+        {/* $ Value Health Bar */}
+        {(() => {
+          const totalVal = statusValueBreakdown.reduce((s, r) => s + r.value, 0)
+          const okVal     = statusValueBreakdown[0].value
+          const excessVal = statusValueBreakdown[1].value
+          const riskVal   = statusValueBreakdown[2].value
+          const okValPct  = totalVal > 0 ? Math.round((okVal / totalVal) * 100) : 0
+          return (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-text2">Inventory Health — Value ($)</span>
+                <span className="text-sm font-semibold text-text1">{okValPct}% OK</span>
+              </div>
+              <div className="flex h-3 rounded-full overflow-hidden mb-3">
+                <div style={{ width: totalVal > 0 ? `${(okVal / totalVal) * 100}%` : '0%' }} className="bg-success" />
+                <div style={{ width: totalVal > 0 ? `${(excessVal / totalVal) * 100}%` : '0%' }} className="bg-accent" />
+                <div style={{ width: totalVal > 0 ? `${(riskVal / totalVal) * 100}%` : '0%' }} className="bg-danger" />
+              </div>
+              <div className="flex gap-6 text-xs text-text2">
+                <span><span className="inline-block w-2 h-2 rounded-sm bg-success mr-1.5" />OK — {fmtCurrency(okVal)}</span>
+                <span><span className="inline-block w-2 h-2 rounded-sm bg-accent mr-1.5" />Excess — {fmtCurrency(excessVal)}</span>
+                <span><span className="inline-block w-2 h-2 rounded-sm bg-danger mr-1.5" />At Risk — {fmtCurrency(riskVal)}</span>
+              </div>
+            </div>
+          )
+        })()}
       </div>
 
       {/* KPI Row */}
