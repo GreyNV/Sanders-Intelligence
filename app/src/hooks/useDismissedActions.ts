@@ -76,7 +76,7 @@ export function useRestoreAction() {
   return useMutation({
     mutationFn: async ({ product_code, action_type }: { product_code: string; action_type: 'at_risk' | 'backorder' }) => {
       // Admins can delete any; others only their own (enforced by RLS)
-      const query = supabase
+      let query = supabase
         .from('dismissed_actions')
         .delete()
         .eq('product_code', product_code)
@@ -84,7 +84,7 @@ export function useRestoreAction() {
 
       // Non-admins: add own-user filter (RLS also enforces this, belt + suspenders)
       if (profile?.role !== 'admin') {
-        query.eq('dismissed_by', profile!.id)
+        query = query.eq('dismissed_by', profile!.id)
       }
 
       const { error } = await query

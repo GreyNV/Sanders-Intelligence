@@ -190,7 +190,7 @@ export default function ActionCenter() {
                           {dismissedAtRisk.has(r.product_code) ? (
                             <button
                               onClick={() => restoreAction.mutate({ product_code: r.product_code, action_type: 'at_risk' })}
-                              className="btn-ghost text-[11px] py-1 px-2 text-text2"
+                              className="btn-ghost text-[11px] py-1 px-2 text-text2 flex items-center gap-1"
                               title="Restore alert"
                             >
                               <RotateCcw size={12} /> Restore
@@ -198,7 +198,7 @@ export default function ActionCenter() {
                           ) : (
                             <button
                               onClick={() => setDismissTarget({ record: r, actionType: 'at_risk' })}
-                              className="btn-ghost text-[11px] py-1 px-2"
+                              className="btn-ghost text-[11px] py-1 px-2 flex items-center gap-1"
                               title="Snooze or archive this alert"
                             >
                               <EyeOff size={12} /> Snooze
@@ -206,7 +206,7 @@ export default function ActionCenter() {
                           )}
                           <button
                             onClick={() => openTaskForSku(r)}
-                            className="btn-ghost text-[11px] py-1 px-2"
+                            className="btn-ghost text-[11px] py-1 px-2 flex items-center gap-1"
                             title="Create task"
                           >
                             <Plus size={12} /> Task
@@ -290,14 +290,14 @@ export default function ActionCenter() {
                         {dismissedBackorder.has(r.product_code) ? (
                           <button
                             onClick={() => restoreAction.mutate({ product_code: r.product_code, action_type: 'backorder' })}
-                            className="btn-ghost text-[11px] py-1 px-2 text-text2"
+                            className="btn-ghost text-[11px] py-1 px-2 text-text2 flex items-center gap-1"
                           >
                             <RotateCcw size={12} /> Restore
                           </button>
                         ) : (
                           <button
                             onClick={() => setDismissTarget({ record: r, actionType: 'backorder' })}
-                            className="btn-ghost text-[11px] py-1 px-2"
+                            className="btn-ghost text-[11px] py-1 px-2 flex items-center gap-1"
                           >
                             <EyeOff size={12} /> Snooze
                           </button>
