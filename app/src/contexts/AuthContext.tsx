@@ -31,9 +31,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (!error && data) {
       setProfile(data as AppUser)
+    } else if (error?.code === 'PGRST116') {
+      // PGRST116 = no rows returned — user is deactivated or removed.
+      // Clear profile so RoleGuard/HomeRedirect can detect and sign them out.
+      setProfile(null)
     }
-    // On error: keep existing profile — transient failures must not blank the page.
-    // Profile is only explicitly cleared on SIGNED_OUT.
+    // Any other error (network, timeout, etc.): keep existing profile —
+    // transient failures must not blank the page. Profile is only explicitly
+    // cleared on SIGNED_OUT or confirmed deactivation (PGRST116).
   }
 
   async function refreshProfile() {

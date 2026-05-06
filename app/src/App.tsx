@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase, initialUrlAuthType } from '@/lib/supabase'
 import Login from '@/pages/Login'
@@ -53,11 +53,23 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+/** Detects deactivated-user state (session exists, auth resolved, no profile) and signs out. */
+function useDeactivatedSignOut() {
+  const { profile, loading, session, signOut } = useAuth()
+  const signingOut = useRef(false)
+  useEffect(() => {
+    if (!loading && session && !profile && !signingOut.current) {
+      signingOut.current = true
+      signOut()
+    }
+  }, [loading, session, profile, signOut])
+}
+
 function RoleGuard({ allow, children }: { allow: string[]; children: React.ReactNode }) {
   const { profile, loading } = useAuth()
+  useDeactivatedSignOut()
   // Show spinner while profile is in-flight rather than returning null (blank page).
-  // This covers the brief window between a TOKEN_REFRESHED / SIGNED_IN event and
-  // the profile fetch completing.
+  // If loading=false + profile=null + session, useDeactivatedSignOut fires signOut().
   if (loading || !profile) return <div className="flex h-screen items-center justify-center"><LoadingSpinner size="lg" /></div>
   if (!allow.includes(profile.role)) return <Navigate to="/" replace />
   return <>{children}</>
@@ -66,6 +78,7 @@ function RoleGuard({ allow, children }: { allow: string[]; children: React.React
 /** Redirect to the right home page based on role */
 function HomeRedirect() {
   const { profile, loading } = useAuth()
+  useDeactivatedSignOut()
   // Keep showing spinner until profile is confirmed — prevents a premature
   // navigate-to-login when loading=false but profile hasn't arrived yet.
   if (loading || !profile) return <div className="flex h-screen items-center justify-center"><LoadingSpinner size="lg" /></div>

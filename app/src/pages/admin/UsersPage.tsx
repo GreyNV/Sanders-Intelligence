@@ -23,12 +23,17 @@ export default function UsersPage() {
 
   async function handleResetPassword(user: AppUser) {
     setResetLoading(user.id)
-    await supabase.auth.resetPasswordForEmail(user.email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    })
-    setResetLoading(null)
-    setResetSent(user.id)
-    setTimeout(() => setResetSent(null), 4000)
+    try {
+      await supabase.auth.resetPasswordForEmail(user.email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      })
+      setResetSent(user.id)
+      setTimeout(() => setResetSent(null), 4000)
+    } catch {
+      // resetPasswordForEmail rarely throws — silently clear loading
+    } finally {
+      setResetLoading(null)
+    }
   }
 
   // Invite form state
