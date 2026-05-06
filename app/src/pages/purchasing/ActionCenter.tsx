@@ -1,31 +1,63 @@
 import { useState } from 'react'
 import { useAtRiskItems, useBackorderItems, useInventoryKPIs } from '@/hooks/useInventory'
+import { useDismissedSet, useDismissAction, useRestoreAction } from '@/hooks/useDismissedActions'
 import { useTasks } from '@/hooks/useTasks'
 import KPICard from '@/components/ui/KPICard'
+import Modal from '@/components/ui/Modal'
 import Badge, { statusVariant, priorityVariant, taskStatusVariant } from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import TaskModal from '@/components/tasks/TaskModal'
 import { fmtNumber, fmtCurrency, fmtDate, isOverdue } from '@/lib/utils'
-import { AlertTriangle, ShoppingCart, Clock, DollarSign, Plus, ChevronRight } from 'lucide-react'
+import { AlertTriangle, ShoppingCart, Clock, DollarSign, Plus, ChevronRight, AlertCircle, EyeOff, RotateCcw } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { InventoryRecord } from '@/types'
+
+interface DismissTarget { record: InventoryRecord; actionType: 'at_risk' | 'backorder' }
 
 export default function ActionCenter() {
   const { data: atRisk = [],    isLoading: l1 } = useAtRiskItems()
   const { data: backorders = [], isLoading: l2 } = useBackorderItems()
   const kpis = useInventoryKPIs()
   const { data: tasks = [] }                     = useTasks()
+  const dismissedAtRisk    = useDismissedSet('at_risk')
+  const dismissedBackorder = useDismissedSet('backorder')
+  const dismissAction  = useDismissAction()
+  const restoreAction  = useRestoreAction()
   const [taskModal, setTaskModal]                = useState(false)
   const [prefillSku, setPrefillSku]              = useState<InventoryRecord | null>(null)
+  const [dismissTarget, setDismissTarget]        = useState<DismissTarget | null>(null)
+  const [dismissDays, setDismissDays]            = useState<string>('7')
+  const [dismissReason, setDismissReason]        = useState('')
+  const [showDismissed, setShowDismissed]        = useState(false)
   const navigate = useNavigate()
 
   const openTasks = tasks.filter(t => t.status !== 'done' && t.status !== 'cancelled')
+
+  const visibleAtRisk    = showDismissed ? atRisk    : atRisk.filter(r => !dismissedAtRisk.has(r.product_code))
+  const visibleBackorders = showDismissed ? backorders : backorders.filter(r => !dismissedBackorder.has(r.product_code))
 
   if (l1 || l2 || kpis.isLoading) return <PageLoader />
 
   function openTaskForSku(record: InventoryRecord) {
     setPrefillSku(record)
     setTaskModal(true)
+  }
+
+  async function handleDismiss() {
+    if (!dismissTarget) return
+    const days = parseInt(dismissDays)
+    const dismissed_until = isNaN(days) || dismissDays === 'permanent'
+      ? null
+      : new Date(Date.now() + days * 86400000).toISOString().slice(0, 10)
+    await dismissAction.mutateAsync({
+      product_code:    dismissTarget.record.product_code,
+      action_type:     dismissTarget.actionType,
+      dismissed_until,
+      reason:          dismissReason || undefined,
+    })
+    setDismissTarget(null)
+    setDismissReason('')
+    setDismissDays('7')
   }
 
   return (
@@ -74,10 +106,22 @@ export default function ActionCenter() {
             <AlertTriangle size={15} className="text-danger" />
             Attention Required
             <span className="text-xs font-normal text-text2">— potential stockouts with recommended orders</span>
+            {dismissedAtRisk.size > 0 && (
+              <span className="text-[11px] text-text2 bg-surface2 px-2 py-0.5 rounded-full">
+                {dismissedAtRisk.size} snoozed
+              </span>
+            )}
           </h2>
-          <button onClick={() => navigate('/purchasing/inventory')} className="btn-ghost text-xs">
-            View all inventory <ChevronRight size={13} />
-          </button>
+          <div className="flex gap-2">
+            {dismissedAtRisk.size > 0 && (
+              <button onClick={() => setShowDismissed(v => !v)} className="btn-ghost text-xs">
+                {showDismissed ? 'Hide snoozed' : 'Show snoozed'}
+              </button>
+            )}
+            <button onClick={() => navigate('/purchasing/inventory')} className="btn-ghost text-xs">
+              View all inventory <ChevronRight size={13} />
+            </button>
+          </div>
         </div>
 
         <div className="tbl-wrap">
@@ -95,18 +139,23 @@ export default function ActionCenter() {
                 <th>Backorders</th>
                 <th>Status</th>
                 <th></th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
-              {atRisk.length === 0 ? (
-                <tr><td colSpan={11} className="py-10 text-center text-text2">No at-risk items — great job!</td></tr>
+              {visibleAtRisk.length === 0 ? (
+                <tr><td colSpan={12} className="py-10 text-center text-text2">No at-risk items — great job!</td></tr>
               ) : (
-                atRisk
+                visibleAtRisk
                   .sort((a, b) => a.days_on_hand - b.days_on_hand)
                   .slice(0, 100)
                   .map(r => (
                     <tr key={r.id}>
-                      <td className="font-mono text-[11px] text-accent">{r.product_code}</td>
+                      <td
+                        className="font-mono text-[11px] text-accent cursor-pointer hover:underline"
+                        onClick={() => navigate(`/purchasing/inventory?search=${encodeURIComponent(r.product_code)}`)}
+                        title="Open in Inventory Browser"
+                      >{r.product_code}</td>
                       <td className="max-w-[260px]">
                         <span className="block truncate text-text1" title={r.description}>{r.description}</span>
                       </td>
@@ -126,15 +175,43 @@ export default function ActionCenter() {
                           : <span className="text-text2">—</span>
                         }
                       </td>
-                      <td><Badge variant={statusVariant(r.status)} value={r.status} /></td>
                       <td>
-                        <button
-                          onClick={() => openTaskForSku(r)}
-                          className="btn-ghost text-[11px] py-1 px-2"
-                          title="Create task"
-                        >
-                          <Plus size={12} /> Task
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <Badge variant={statusVariant(r.status)} value={r.status} />
+                          {(r.status === 'Excess stock' || r.status === 'Surplus orders') && r.unsatisfied_customer_orders_units > 0 && (
+                            <span title="Data quality: item is excess stock but also has backorders — verify source data">
+                              <AlertCircle size={13} className="text-warning" />
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="flex gap-1">
+                          {dismissedAtRisk.has(r.product_code) ? (
+                            <button
+                              onClick={() => restoreAction.mutate({ product_code: r.product_code, action_type: 'at_risk' })}
+                              className="btn-ghost text-[11px] py-1 px-2 text-text2"
+                              title="Restore alert"
+                            >
+                              <RotateCcw size={12} /> Restore
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setDismissTarget({ record: r, actionType: 'at_risk' })}
+                              className="btn-ghost text-[11px] py-1 px-2"
+                              title="Snooze or archive this alert"
+                            >
+                              <EyeOff size={12} /> Snooze
+                            </button>
+                          )}
+                          <button
+                            onClick={() => openTaskForSku(r)}
+                            className="btn-ghost text-[11px] py-1 px-2"
+                            title="Create task"
+                          >
+                            <Plus size={12} /> Task
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -153,6 +230,11 @@ export default function ActionCenter() {
           <Clock size={15} className="text-warning" />
           Open Backorders
           <span className="text-xs font-normal text-text2">— unsatisfied customer orders</span>
+          {dismissedBackorder.size > 0 && (
+            <span className="text-[11px] text-text2 bg-surface2 px-2 py-0.5 rounded-full">
+              {dismissedBackorder.size} snoozed
+            </span>
+          )}
         </h2>
 
         <div className="tbl-wrap">
@@ -167,18 +249,23 @@ export default function ActionCenter() {
                 <th>Backorder Value</th>
                 <th>On Order</th>
                 <th>Status</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
-              {backorders.length === 0 ? (
-                <tr><td colSpan={8} className="py-10 text-center text-text2">No open backorders</td></tr>
+              {visibleBackorders.length === 0 ? (
+                <tr><td colSpan={9} className="py-10 text-center text-text2">No open backorders</td></tr>
               ) : (
-                backorders
+                visibleBackorders
                   .sort((a, b) => b.unsatisfied_customer_orders_value - a.unsatisfied_customer_orders_value)
                   .slice(0, 50)
                   .map(r => (
                     <tr key={r.id}>
-                      <td className="font-mono text-[11px] text-accent">{r.product_code}</td>
+                      <td
+                        className="font-mono text-[11px] text-accent cursor-pointer hover:underline"
+                        onClick={() => navigate(`/purchasing/inventory?search=${encodeURIComponent(r.product_code)}`)}
+                        title="Open in Inventory Browser"
+                      >{r.product_code}</td>
                       <td className="max-w-[260px]">
                         <span className="block truncate" title={r.description}>{r.description}</span>
                       </td>
@@ -189,7 +276,33 @@ export default function ActionCenter() {
                       </td>
                       <td className="tabular-nums">{fmtCurrency(r.unsatisfied_customer_orders_value)}</td>
                       <td className="tabular-nums">{fmtNumber(r.on_order)}</td>
-                      <td><Badge variant={statusVariant(r.status)} value={r.status} /></td>
+                      <td>
+                        <div className="flex items-center gap-1">
+                          <Badge variant={statusVariant(r.status)} value={r.status} />
+                          {(r.status === 'Excess stock' || r.status === 'Surplus orders') && (
+                            <span title="Data quality: item has backorders but is flagged as excess — verify source data">
+                              <AlertCircle size={13} className="text-warning" />
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        {dismissedBackorder.has(r.product_code) ? (
+                          <button
+                            onClick={() => restoreAction.mutate({ product_code: r.product_code, action_type: 'backorder' })}
+                            className="btn-ghost text-[11px] py-1 px-2 text-text2"
+                          >
+                            <RotateCcw size={12} /> Restore
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => setDismissTarget({ record: r, actionType: 'backorder' })}
+                            className="btn-ghost text-[11px] py-1 px-2"
+                          >
+                            <EyeOff size={12} /> Snooze
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))
               )}
@@ -246,6 +359,55 @@ export default function ActionCenter() {
           prefillSku={prefillSku?.product_code}
           prefillTitle={prefillSku ? `Order: ${prefillSku.description}` : ''}
         />
+      )}
+
+      {/* Snooze / Archive Modal */}
+      {dismissTarget && (
+        <Modal
+          open={!!dismissTarget}
+          onClose={() => setDismissTarget(null)}
+          title={`Snooze alert — ${dismissTarget.record.product_code}`}
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-text2 truncate">{dismissTarget.record.description}</p>
+
+            <div>
+              <label className="block text-xs font-medium text-text2 mb-1.5">Snooze duration</label>
+              <select
+                className="select w-full"
+                value={dismissDays}
+                onChange={e => setDismissDays(e.target.value)}
+              >
+                <option value="3">3 days</option>
+                <option value="7">7 days</option>
+                <option value="14">14 days</option>
+                <option value="30">30 days</option>
+                <option value="permanent">Permanently (known / intentional)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-text2 mb-1.5">Reason (optional)</label>
+              <input
+                className="input w-full"
+                placeholder="e.g. Liquidation in progress, PO placed manually…"
+                value={dismissReason}
+                onChange={e => setDismissReason(e.target.value)}
+              />
+            </div>
+
+            <div className="flex gap-2 justify-end pt-1">
+              <button onClick={() => setDismissTarget(null)} className="btn-secondary">Cancel</button>
+              <button
+                onClick={handleDismiss}
+                disabled={dismissAction.isPending}
+                className="btn-primary"
+              >
+                {dismissDays === 'permanent' ? 'Archive alert' : `Snooze ${dismissDays}d`}
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   )

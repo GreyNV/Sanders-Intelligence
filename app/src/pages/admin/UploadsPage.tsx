@@ -1,17 +1,54 @@
 import { useRef, useState } from 'react'
 import { useUploads, useUploadCSV } from '@/hooks/useUploads'
+import { fetchInventoryForUpload } from '@/hooks/useInventory'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import { fmtDate, fmtNumber } from '@/lib/utils'
-import { Upload, CheckCircle, XCircle, Clock, AlertTriangle } from 'lucide-react'
+import { Upload, CheckCircle, XCircle, Clock, AlertTriangle, Download } from 'lucide-react'
+import { InventoryRecord } from '@/types'
+
+function recordsToCsv(records: InventoryRecord[]): string {
+  if (records.length === 0) return ''
+  const headers = Object.keys(records[0]).filter(k => k !== 'id' && k !== 'upload_id')
+  const rows = records.map(r =>
+    headers.map(h => {
+      const v = (r as unknown as Record<string, unknown>)[h]
+      const s = v == null ? '' : String(v)
+      return s.includes(',') || s.includes('"') || s.includes('\n')
+        ? `"${s.replace(/"/g, '""')}"` : s
+    }).join(',')
+  )
+  return [headers.join(','), ...rows].join('\n')
+}
+
+function downloadCsv(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href = url; a.download = filename; a.click()
+  URL.revokeObjectURL(url)
+}
 
 export default function UploadsPage() {
   const { data: uploads = [], isLoading } = useUploads()
   const uploadCSV = useUploadCSV()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [dragOver, setDragOver] = useState(false)
-  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [dragOver, setDragOver]         = useState(false)
+  const [uploadError, setUploadError]   = useState<string | null>(null)
   const [uploadSuccess, setUploadSuccess] = useState(false)
+  const [downloading, setDownloading]   = useState<string | null>(null) // upload id being downloaded
+
+  async function handleDownload(uploadId: string, filename: string, uploadedAt: string) {
+    setDownloading(uploadId)
+    try {
+      const records = await fetchInventoryForUpload(uploadId)
+      const csv     = recordsToCsv(records)
+      const date    = uploadedAt.slice(0, 10)
+      downloadCsv(csv, `inventory_${date}_${filename}`)
+    } finally {
+      setDownloading(null)
+    }
+  }
 
   async function handleFile(file: File) {
     if (!file.name.toLowerCase().endsWith('.csv')) {
@@ -106,11 +143,12 @@ export default function UploadsPage() {
               <th>Rows</th>
               <th>Status</th>
               <th>Notes</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             {uploads.length === 0 ? (
-              <tr><td colSpan={6} className="py-10 text-center text-text2">No uploads yet</td></tr>
+              <tr><td colSpan={7} className="py-10 text-center text-text2">No uploads yet</td></tr>
             ) : (
               uploads.map(u => (
                 <tr key={u.id}>
@@ -130,6 +168,21 @@ export default function UploadsPage() {
                     </div>
                   </td>
                   <td className="text-xs text-text2 max-w-[200px] truncate">{u.notes ?? '—'}</td>
+                  <td>
+                    {u.status === 'complete' && (
+                      <button
+                        onClick={() => handleDownload(u.id, u.filename, u.uploaded_at)}
+                        disabled={downloading === u.id}
+                        className="btn-ghost text-xs py-1 px-2 flex items-center gap-1"
+                        title="Download inventory data as CSV"
+                      >
+                        {downloading === u.id
+                          ? <LoadingSpinner size="sm" />
+                          : <><Download size={12} /> CSV</>
+                        }
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))
             )}

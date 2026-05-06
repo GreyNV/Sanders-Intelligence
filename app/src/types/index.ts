@@ -29,7 +29,7 @@ export interface Upload {
 
 // ─── Inventory ───────────────────────────────────────────────────────────────
 
-export type InventoryStatus = 'Ok' | 'Excess stock' | 'Potential s/o'
+export type InventoryStatus = 'Ok' | 'Excess stock' | 'Potential s/o' | 'Stocked out' | 'Surplus orders' | 'New item'
 
 export interface InventoryRecord {
   id: string

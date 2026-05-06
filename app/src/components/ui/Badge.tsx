@@ -1,12 +1,14 @@
 import { cn } from '@/lib/utils'
 
-type BadgeVariant = 'ok' | 'excess' | 'stockout' | 'todo' | 'in_progress' | 'done' | 'cancelled' |
+type BadgeVariant = 'ok' | 'excess' | 'stockout' | 'surplus' | 'new_item' | 'todo' | 'in_progress' | 'done' | 'cancelled' |
                    'low' | 'medium' | 'high' | 'urgent' | 'neutral' | 'info'
 
 const styles: Record<BadgeVariant, string> = {
   ok:          'bg-success/15 text-success',
   excess:      'bg-accent/15 text-accent',
   stockout:    'bg-danger/15 text-danger',
+  surplus:     'bg-warning/15 text-warning',
+  new_item:    'bg-surface2 text-text2',
   todo:        'bg-border text-text2',
   in_progress: 'bg-accent/15 text-accent',
   done:        'bg-success/15 text-success',
@@ -20,13 +22,16 @@ const styles: Record<BadgeVariant, string> = {
 }
 
 const labels: Partial<Record<string, string>> = {
-  'Ok': 'OK',
-  'Excess stock': 'Excess',
-  'Potential s/o': 'At Risk',
-  'todo': 'To Do',
-  'in_progress': 'In Progress',
-  'done': 'Done',
-  'cancelled': 'Cancelled',
+  'Ok':             'OK',
+  'Excess stock':   'Excess',
+  'Potential s/o':  'At Risk',
+  'Stocked out':    'Stocked Out',
+  'Surplus orders': 'Surplus Orders',
+  'New item':       'New Item',
+  'todo':           'To Do',
+  'in_progress':    'In Progress',
+  'done':           'Done',
+  'cancelled':      'Cancelled',
 }
 
 interface BadgeProps {
@@ -46,9 +51,12 @@ export default function Badge({ variant, children, value }: BadgeProps) {
 
 /** Map inventory status string → Badge variant */
 export function statusVariant(status: string): BadgeVariant {
-  if (status === 'Ok') return 'ok'
-  if (status === 'Excess stock') return 'excess'
-  if (status === 'Potential s/o') return 'stockout'
+  if (status === 'Ok')             return 'ok'
+  if (status === 'Excess stock')   return 'excess'
+  if (status === 'Potential s/o')  return 'stockout'
+  if (status === 'Stocked out')    return 'stockout'
+  if (status === 'Surplus orders') return 'surplus'
+  if (status === 'New item')       return 'new_item'
   return 'neutral'
 }
 

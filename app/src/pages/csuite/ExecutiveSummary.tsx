@@ -3,43 +3,57 @@ import KPICard from '@/components/ui/KPICard'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { fmtNumber, fmtCurrency } from '@/lib/utils'
 import {
-  PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from 'recharts'
 import { AlertTriangle, TrendingUp, Package, DollarSign, Clock } from 'lucide-react'
 import { useMemo } from 'react'
 import { groupBy } from '@/lib/utils'
+import { useNavigate } from 'react-router-dom'
 
 export default function ExecutiveSummary() {
   const { data: records = [], isLoading } = useInventory()
   const kpis = useInventoryKPIs()
+  const navigate = useNavigate()
 
-  const statusBreakdown = useMemo(() => {
-    const grouped = groupBy(records, r => r.status)
-    return [
-      { name: 'OK',         value: grouped['Ok']?.length ?? 0,              fill: '#4caf87' },
-      { name: 'Excess',     value: grouped['Excess stock']?.length ?? 0,    fill: '#6c8aff' },
-      { name: 'At Risk',    value: grouped['Potential s/o']?.length ?? 0,   fill: '#e05c7a' },
-    ]
-  }, [records])
-
+  // $ value breakdown — groups matching KPI buckets (Stocked out → At Risk, Surplus orders → Excess)
   const statusValueBreakdown = useMemo(() => [
-    { name: 'OK',     value: records.filter(r => r.status === 'Ok').reduce((s, r) => s + r.on_hand_value, 0),           fill: '#4caf87' },
-    { name: 'Excess', value: records.filter(r => r.status === 'Excess stock').reduce((s, r) => s + r.on_hand_value, 0), fill: '#6c8aff' },
-    { name: 'At Risk',value: records.filter(r => r.status === 'Potential s/o').reduce((s, r) => s + r.on_hand_value, 0),fill: '#e05c7a' },
+    {
+      name: 'OK', statusFilter: 'Ok',
+      value: records.filter(r => r.status === 'Ok').reduce((s, r) => s + r.on_hand_value, 0),
+      fill: '#4caf87',
+    },
+    {
+      name: 'Excess', statusFilter: 'Excess stock',
+      value: records.filter(r => r.status === 'Excess stock' || r.status === 'Surplus orders').reduce((s, r) => s + r.on_hand_value, 0),
+      fill: '#6c8aff',
+    },
+    {
+      name: 'At Risk', statusFilter: 'Potential s/o',
+      value: records.filter(r => r.status === 'Potential s/o' || r.status === 'Stocked out').reduce((s, r) => s + r.on_hand_value, 0),
+      fill: '#e05c7a',
+    },
+    {
+      name: 'New Items', statusFilter: 'New item',
+      value: records.filter(r => r.status === 'New item').reduce((s, r) => s + r.on_hand_value, 0),
+      fill: '#8890b5',
+    },
   ], [records])
 
   // Top 10 at-risk by recommended order value
   const topRisk = useMemo(() =>
     records
-      .filter(r => r.status === 'Potential s/o')
+      .filter(r => r.status === 'Potential s/o' || r.status === 'Stocked out')
       .sort((a, b) => b.recommended_order_value - a.recommended_order_value)
       .slice(0, 10),
   [records])
 
   // Top brands by excess value
   const brandExcess = useMemo(() => {
-    const grouped = groupBy(records.filter(r => r.status === 'Excess stock'), r => r.brand_name)
+    const grouped = groupBy(
+      records.filter(r => r.status === 'Excess stock' || r.status === 'Surplus orders'),
+      r => r.brand_name
+    )
     return Object.entries(grouped)
       .map(([brand, items]) => ({
         brand,
@@ -51,7 +65,11 @@ export default function ExecutiveSummary() {
 
   if (isLoading) return <PageLoader />
 
-  const healthPct = kpis.totalSkus > 0 ? Math.round((kpis.okCount / kpis.totalSkus) * 100) : 0
+  const totalVal   = statusValueBreakdown.reduce((s, r) => s + r.value, 0)
+  const okVal      = statusValueBreakdown[0].value
+  const excessVal  = statusValueBreakdown[1].value
+  const riskVal    = statusValueBreakdown[2].value
+  const okValPct   = totalVal > 0 ? Math.round((okVal / totalVal) * 100) : 0
 
   return (
     <div>
@@ -60,54 +78,46 @@ export default function ExecutiveSummary() {
         <p className="text-text2 text-sm mt-0.5">Inventory health overview — all figures from the latest upload</p>
       </div>
 
-      {/* Health Bars */}
-      <div className="card mb-6 space-y-5">
-        {/* SKU Health Bar */}
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-text2">Inventory Health — SKUs</span>
-            <span className="text-sm font-semibold text-text1">{healthPct}% OK</span>
-          </div>
-          <div className="flex h-3 rounded-full overflow-hidden mb-3">
-            <div style={{ width: `${(kpis.okCount / kpis.totalSkus) * 100}%` }} className="bg-success" />
-            <div style={{ width: `${(kpis.excessCount / kpis.totalSkus) * 100}%` }} className="bg-accent" />
-            <div style={{ width: `${(kpis.atRiskCount / kpis.totalSkus) * 100}%` }} className="bg-danger" />
-          </div>
-          <div className="flex gap-6 text-xs text-text2">
-            <span><span className="inline-block w-2 h-2 rounded-sm bg-success mr-1.5" />OK — {fmtNumber(kpis.okCount)} SKUs</span>
-            <span><span className="inline-block w-2 h-2 rounded-sm bg-accent mr-1.5" />Excess — {fmtNumber(kpis.excessCount)} SKUs</span>
-            <span><span className="inline-block w-2 h-2 rounded-sm bg-danger mr-1.5" />At Risk — {fmtNumber(kpis.atRiskCount)} SKUs</span>
-          </div>
+      {/* $ Value Health Bar */}
+      <div className="card mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-text2">Inventory Health — Value ($)</span>
+          <span className="text-sm font-semibold text-text1">{okValPct}% OK</span>
         </div>
-
-        <div className="border-t border-surface2" />
-
-        {/* $ Value Health Bar */}
-        {(() => {
-          const totalVal = statusValueBreakdown.reduce((s, r) => s + r.value, 0)
-          const okVal     = statusValueBreakdown[0].value
-          const excessVal = statusValueBreakdown[1].value
-          const riskVal   = statusValueBreakdown[2].value
-          const okValPct  = totalVal > 0 ? Math.round((okVal / totalVal) * 100) : 0
-          return (
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-text2">Inventory Health — Value ($)</span>
-                <span className="text-sm font-semibold text-text1">{okValPct}% OK</span>
-              </div>
-              <div className="flex h-3 rounded-full overflow-hidden mb-3">
-                <div style={{ width: totalVal > 0 ? `${(okVal / totalVal) * 100}%` : '0%' }} className="bg-success" />
-                <div style={{ width: totalVal > 0 ? `${(excessVal / totalVal) * 100}%` : '0%' }} className="bg-accent" />
-                <div style={{ width: totalVal > 0 ? `${(riskVal / totalVal) * 100}%` : '0%' }} className="bg-danger" />
-              </div>
-              <div className="flex gap-6 text-xs text-text2">
-                <span><span className="inline-block w-2 h-2 rounded-sm bg-success mr-1.5" />OK — {fmtCurrency(okVal)}</span>
-                <span><span className="inline-block w-2 h-2 rounded-sm bg-accent mr-1.5" />Excess — {fmtCurrency(excessVal)}</span>
-                <span><span className="inline-block w-2 h-2 rounded-sm bg-danger mr-1.5" />At Risk — {fmtCurrency(riskVal)}</span>
-              </div>
-            </div>
-          )
-        })()}
+        <div className="flex h-3 rounded-full overflow-hidden mb-3 cursor-pointer">
+          <div
+            style={{ width: totalVal > 0 ? `${(okVal / totalVal) * 100}%` : '0%' }}
+            className="bg-success hover:opacity-80 transition-opacity"
+            title="OK — click to filter"
+            onClick={() => navigate('/purchasing/inventory?status=Ok')}
+          />
+          <div
+            style={{ width: totalVal > 0 ? `${(excessVal / totalVal) * 100}%` : '0%' }}
+            className="bg-accent hover:opacity-80 transition-opacity"
+            title="Excess — click to filter"
+            onClick={() => navigate('/purchasing/inventory?status=Excess+stock')}
+          />
+          <div
+            style={{ width: totalVal > 0 ? `${(riskVal / totalVal) * 100}%` : '0%' }}
+            className="bg-danger hover:opacity-80 transition-opacity"
+            title="At Risk — click to filter"
+            onClick={() => navigate('/purchasing/inventory?status=Potential+s%2Fo')}
+          />
+        </div>
+        <div className="flex gap-6 text-xs text-text2">
+          <span
+            className="cursor-pointer hover:text-text1 transition-colors"
+            onClick={() => navigate('/purchasing/inventory?status=Ok')}
+          ><span className="inline-block w-2 h-2 rounded-sm bg-success mr-1.5" />OK — {fmtCurrency(okVal)}</span>
+          <span
+            className="cursor-pointer hover:text-text1 transition-colors"
+            onClick={() => navigate('/purchasing/inventory?status=Excess+stock')}
+          ><span className="inline-block w-2 h-2 rounded-sm bg-accent mr-1.5" />Excess — {fmtCurrency(excessVal)}</span>
+          <span
+            className="cursor-pointer hover:text-text1 transition-colors"
+            onClick={() => navigate('/purchasing/inventory?status=Potential+s%2Fo')}
+          ><span className="inline-block w-2 h-2 rounded-sm bg-danger mr-1.5" />At Risk — {fmtCurrency(riskVal)}</span>
+        </div>
       </div>
 
       {/* KPI Row */}
@@ -150,28 +160,55 @@ export default function ExecutiveSummary() {
 
       {/* Charts */}
       <div className="grid grid-cols-2 gap-5 mb-6">
+        {/* $ Value Pie Chart — clickable segments */}
         <div className="card">
-          <h3 className="text-[13px] font-semibold mb-4">SKU Status Distribution</h3>
+          <h3 className="text-[13px] font-semibold mb-1">Inventory Value Distribution ($)</h3>
+          <p className="text-[11px] text-text2 mb-3">Click a segment to open filtered view</p>
           <ResponsiveContainer width="100%" height={200}>
             <PieChart>
-              <Pie data={statusBreakdown} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
-                {statusBreakdown.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
+              <Pie
+                data={statusValueBreakdown.filter(d => d.value > 0)}
+                dataKey="value"
+                nameKey="name"
+                cx="50%"
+                cy="50%"
+                outerRadius={75}
+                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                labelLine={false}
+                cursor="pointer"
+                onClick={(entry) => navigate(`/purchasing/inventory?status=${encodeURIComponent(entry.statusFilter)}`)}
+              >
+                {statusValueBreakdown.filter(d => d.value > 0).map((entry, i) => (
+                  <Cell key={i} fill={entry.fill} />
+                ))}
               </Pie>
               <Tooltip
                 contentStyle={{ background: '#1a1d27', border: '1px solid #2e3250', borderRadius: 8 }}
-                formatter={(v: number) => [fmtNumber(v), 'SKUs']}
+                formatter={(v: number) => [fmtCurrency(v), 'Value']}
               />
             </PieChart>
           </ResponsiveContainer>
         </div>
 
+        {/* Excess Value by Brand — clickable bars */}
         <div className="card">
-          <h3 className="text-[13px] font-semibold mb-4">Excess Value by Brand (Top 8)</h3>
+          <h3 className="text-[13px] font-semibold mb-1">Excess Value by Brand (Top 8)</h3>
+          <p className="text-[11px] text-text2 mb-3">Click a bar to open filtered view</p>
           {brandExcess.length === 0 ? (
             <div className="text-center py-10 text-text2 text-sm">No excess stock</div>
           ) : (
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={brandExcess} layout="vertical" margin={{ left: 20, right: 0 }}>
+              <BarChart
+                data={brandExcess}
+                layout="vertical"
+                margin={{ left: 20, right: 0 }}
+                onClick={(data) => {
+                  if (data?.activePayload?.[0]) {
+                    const brand = data.activePayload[0].payload.brand
+                    navigate(`/purchasing/inventory?status=Excess+stock&brand=${encodeURIComponent(brand)}`)
+                  }
+                }}
+              >
                 <CartesianGrid strokeDasharray="3 3" stroke="#2e3250" horizontal={false} />
                 <XAxis type="number" tick={{ fill: '#8890b5', fontSize: 10 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
                 <YAxis type="category" dataKey="brand" tick={{ fill: '#8890b5', fontSize: 10 }} width={80} />
@@ -179,7 +216,7 @@ export default function ExecutiveSummary() {
                   contentStyle={{ background: '#1a1d27', border: '1px solid #2e3250', borderRadius: 8 }}
                   formatter={(v: number) => [fmtCurrency(v), 'Excess Value']}
                 />
-                <Bar dataKey="excessValue" fill="#6c8aff" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="excessValue" fill="#6c8aff" radius={[0, 4, 4, 0]} cursor="pointer" />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -197,7 +234,12 @@ export default function ExecutiveSummary() {
             <div className="card text-center py-8 text-text2">No at-risk items — inventory health is good</div>
           ) : (
             topRisk.map(r => (
-              <div key={r.id} className="card flex items-center gap-4 border-l-2 border-danger">
+              <div
+                key={r.id}
+                className="card flex items-center gap-4 border-l-2 border-danger cursor-pointer hover:bg-surface2/50 transition-colors"
+                onClick={() => navigate(`/purchasing/inventory?search=${encodeURIComponent(r.product_code)}`)}
+                title="Click to view in Inventory Browser"
+              >
                 <div className="flex-1 min-w-0">
                   <div className="text-[13px] font-medium text-text1 truncate">{r.description}</div>
                   <div className="text-[11px] text-text2 mt-0.5">

@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useInventory, useInventoryKPIs } from '@/hooks/useInventory'
 import KPICard from '@/components/ui/KPICard'
 import Badge, { statusVariant } from '@/components/ui/Badge'
@@ -6,7 +7,7 @@ import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { fmtNumber, fmtCurrency } from '@/lib/utils'
 import { Search } from 'lucide-react'
 
-const STATUS_OPTIONS    = ['All', 'Ok', 'Excess stock', 'Potential s/o']
+const STATUS_OPTIONS    = ['All', 'Ok', 'Excess stock', 'Surplus orders', 'Potential s/o', 'Stocked out', 'New item']
 const CLASS_OPTIONS     = ['All', 'A', 'B', 'C', 'X', 'S']
 const VELOCITY_OPTIONS  = ['All', 'H', 'M', 'L', 'X']
 const PAGE_SIZE         = 100
@@ -14,12 +15,19 @@ const PAGE_SIZE         = 100
 export default function InventoryBrowser() {
   const { data: records = [], isLoading } = useInventory()
   const kpis = useInventoryKPIs()
+  const location = useLocation()
 
-  const [search, setSearch]       = useState('')
-  const [status, setStatus]       = useState('All')
+  // Pre-fill filters from URL params (used by chart drill-throughs and SKU links)
+  const urlParams   = new URLSearchParams(location.search)
+  const initStatus  = urlParams.get('status') ?? 'All'
+  const initSearch  = urlParams.get('search') ?? ''
+  const initBrand   = urlParams.get('brand')  ?? 'All'
+
+  const [search, setSearch]       = useState(initSearch)
+  const [status, setStatus]       = useState(initStatus)
   const [cls, setCls]             = useState('All')
   const [velocity, setVelocity]   = useState('All')
-  const [brand, setBrand]         = useState('All')
+  const [brand, setBrand]         = useState(initBrand)
   const [page, setPage]           = useState(0)
   const [sortKey, setSortKey]     = useState<string>('days_on_hand')
   const [sortAsc, setSortAsc]     = useState(true)
@@ -132,7 +140,8 @@ export default function InventoryBrowser() {
               <SortTh col="days_on_hand"  label="Days OH" />
               <th>Status</th>
               <SortTh col="recommended_order"       label="Rec. Order" />
-              <SortTh col="average_sales"           label="Avg Sales" />
+              <SortTh col="average_sales"           label="Avg/mo" />
+              <th>Avg/day</th>
               <SortTh col="on_order"                label="On Order" />
               <SortTh col="unsatisfied_customer_orders_units" label="Backorders" />
               <SortTh col="cost_price"              label="Cost" />
@@ -142,7 +151,7 @@ export default function InventoryBrowser() {
           </thead>
           <tbody>
             {paged.length === 0 ? (
-              <tr><td colSpan={13} className="py-10 text-center text-text2">No records match filters</td></tr>
+              <tr><td colSpan={14} className="py-10 text-center text-text2">No records match filters</td></tr>
             ) : (
               paged.map(r => (
                 <tr key={r.id}>
@@ -166,6 +175,7 @@ export default function InventoryBrowser() {
                     }
                   </td>
                   <td className="tabular-nums text-text2">{r.average_sales.toFixed(1)}</td>
+                  <td className="tabular-nums text-text2">{(r.average_sales / 30).toFixed(2)}</td>
                   <td className="tabular-nums">{r.on_order > 0 ? fmtNumber(r.on_order) : <span className="text-text2">—</span>}</td>
                   <td className="tabular-nums">
                     {r.unsatisfied_customer_orders_units > 0

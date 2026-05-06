@@ -40,6 +40,26 @@ async function fetchInventoryRecords(): Promise<InventoryRecord[]> {
   return all
 }
 
+/** Fetch all inventory records for a specific upload_id (used for CSV download) */
+export async function fetchInventoryForUpload(uploadId: string): Promise<InventoryRecord[]> {
+  const PAGE_SIZE = 1000
+  const all: InventoryRecord[] = []
+  let from = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('inventory_records')
+      .select('*')
+      .eq('upload_id', uploadId)
+      .range(from, from + PAGE_SIZE - 1)
+    if (error) throw error
+    if (!data || data.length === 0) break
+    all.push(...(data as InventoryRecord[]))
+    if (data.length < PAGE_SIZE) break
+    from += PAGE_SIZE
+  }
+  return all
+}
+
 export function useInventory() {
   return useQuery({
     queryKey: ['inventory', 'latest'],
@@ -48,12 +68,14 @@ export function useInventory() {
   })
 }
 
-/** Derived: only records with potential stockout */
+/** Derived: at-risk items — Potential s/o and Stocked out, with a recommended order */
 export function useAtRiskItems() {
   const { data: records = [], ...rest } = useInventory()
   return {
     ...rest,
-    data: records.filter(r => r.status === 'Potential s/o' && r.recommended_order > 0),
+    data: records.filter(r =>
+      (r.status === 'Potential s/o' || r.status === 'Stocked out') && r.recommended_order > 0
+    ),
   }
 }
 
@@ -81,9 +103,12 @@ export function useInventoryKPIs() {
 
   const totalOnHandValue    = records.reduce((s, r) => s + r.on_hand_value, 0)
   const totalUnits          = records.reduce((s, r) => s + r.on_hand, 0)
-  const atRisk              = records.filter(r => r.status === 'Potential s/o')
-  const excess              = records.filter(r => r.status === 'Excess stock')
+  // At-risk bucket: both Potential s/o and Stocked out need purchasing action
+  const atRisk              = records.filter(r => r.status === 'Potential s/o' || r.status === 'Stocked out')
+  // Excess bucket: Excess stock + Surplus orders (over-ordered or over-stocked)
+  const excess              = records.filter(r => r.status === 'Excess stock' || r.status === 'Surplus orders')
   const ok                  = records.filter(r => r.status === 'Ok')
+  const newItems            = records.filter(r => r.status === 'New item')
   const backorderItems      = records.filter(r => r.unsatisfied_customer_orders_units > 0)
   const totalBackorderValue = backorderItems.reduce((s, r) => s + r.unsatisfied_customer_orders_value, 0)
   const excessValue         = excess.reduce((s, r) => s + r.excess_value, 0)
@@ -96,9 +121,10 @@ export function useInventoryKPIs() {
     isLoading,
     totalOnHandValue,
     totalUnits,
-    atRiskCount: atRisk.length,
-    excessCount: excess.length,
-    okCount: ok.length,
+    atRiskCount:    atRisk.length,
+    excessCount:    excess.length,
+    okCount:        ok.length,
+    newItemCount:   newItems.length,
     backorderCount: backorderItems.length,
     totalBackorderValue,
     excessValue,
