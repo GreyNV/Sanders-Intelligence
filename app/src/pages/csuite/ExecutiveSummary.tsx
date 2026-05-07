@@ -1,10 +1,11 @@
-import { useInventory, useInventoryKPIs } from '@/hooks/useInventory'
+import { useInventory, useInventoryKPIs, useInventoryTrends } from '@/hooks/useInventory'
 import KPICard from '@/components/ui/KPICard'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { fmtNumber, fmtCurrency } from '@/lib/utils'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  LineChart, Line, Legend,
 } from 'recharts'
 import { AlertTriangle, TrendingUp, Package, DollarSign, Clock } from 'lucide-react'
 import { useMemo } from 'react'
@@ -12,8 +13,9 @@ import { groupBy } from '@/lib/utils'
 import { useNavigate } from 'react-router-dom'
 
 export default function ExecutiveSummary() {
-  const { data: records = [], isLoading } = useInventory()
+  const { data: records = [], isLoading, error } = useInventory()
   const kpis = useInventoryKPIs()
+  const { data: trends = [], isLoading: trendsLoading } = useInventoryTrends()
   const navigate = useNavigate()
 
   // $ value breakdown — groups matching KPI buckets (Stocked out → At Risk, Surplus orders → Excess)
@@ -64,6 +66,13 @@ export default function ExecutiveSummary() {
   }, [records])
 
   if (isLoading) return <PageLoader />
+  if (error) return (
+    <div className="card text-center py-16">
+      <AlertTriangle size={32} className="text-danger mx-auto mb-3" />
+      <div className="text-text1 font-semibold">Failed to load inventory data</div>
+      <div className="text-text2 text-sm mt-1">{(error as Error)?.message ?? 'Try refreshing the page.'}</div>
+    </div>
+  )
 
   const totalVal   = statusValueBreakdown.reduce((s, r) => s + r.value, 0)
   const okVal      = statusValueBreakdown[0].value
@@ -121,7 +130,7 @@ export default function ExecutiveSummary() {
       </div>
 
       {/* KPI Row */}
-      <div className="grid grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
         <KPICard
           label="Inventory Value"
           value={fmtCurrency(kpis.totalOnHandValue)}
@@ -159,7 +168,7 @@ export default function ExecutiveSummary() {
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-2 gap-5 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
         {/* $ Value Pie Chart — clickable segments */}
         <div className="card">
           <h3 className="text-[13px] font-semibold mb-1">Inventory Value Distribution ($)</h3>
@@ -270,13 +279,103 @@ export default function ExecutiveSummary() {
         </div>
       </div>
 
-      {/* Trend placeholder */}
-      <div className="card mt-6 text-center py-8">
-        <TrendingUp size={28} className="text-text2 mx-auto mb-2" />
-        <div className="text-text1 font-medium">Historical Trends</div>
-        <div className="text-text2 text-sm mt-1">
-          Available after 7+ days of daily uploads. Week-over-week KPI movement will appear here.
-        </div>
+      {/* Historical Trends */}
+      <div className="mt-6">
+        <h2 className="text-[14px] font-semibold text-text1 flex items-center gap-2 mb-4">
+          <TrendingUp size={15} className="text-accent" />
+          Historical Trends — across uploads
+        </h2>
+
+        {trendsLoading ? (
+          <div className="card text-center py-8 text-text2 text-sm">Loading trend data…</div>
+        ) : trends.length < 2 ? (
+          <div className="card text-center py-8">
+            <TrendingUp size={28} className="text-text2 mx-auto mb-2" />
+            <div className="text-text1 font-medium">Not enough data yet</div>
+            <div className="text-text2 text-sm mt-1">
+              Trends appear after 2+ uploads. Upload another report to start tracking inventory dynamics.
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {/* Total Inventory Value over time */}
+            <div className="card">
+              <h3 className="text-[13px] font-semibold mb-1">Total Inventory Value Over Time</h3>
+              <p className="text-[11px] text-text2 mb-3">On-hand value ($) across uploads</p>
+              <ResponsiveContainer width="100%" height={180}>
+                <LineChart data={trends} margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2e3250" />
+                  <XAxis dataKey="label" tick={{ fill: '#8890b5', fontSize: 10 }} />
+                  <YAxis tick={{ fill: '#8890b5', fontSize: 10 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} width={48} />
+                  <Tooltip
+                    contentStyle={{ background: '#1a1d27', border: '1px solid #2e3250', borderRadius: 8 }}
+                    formatter={(v: number) => [fmtCurrency(v), 'On-Hand Value']}
+                  />
+                  <Line type="monotone" dataKey="totalValue" stroke="#6c8aff" strokeWidth={2} dot={{ fill: '#6c8aff', r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Fill Rate + At-Risk SKU count over time */}
+            <div className="card">
+              <h3 className="text-[13px] font-semibold mb-1">Fill Rate & At-Risk SKUs Over Time</h3>
+              <p className="text-[11px] text-text2 mb-3">Fill rate (%) and at-risk SKU count per upload</p>
+              <ResponsiveContainer width="100%" height={180}>
+                <LineChart data={trends} margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2e3250" />
+                  <XAxis dataKey="label" tick={{ fill: '#8890b5', fontSize: 10 }} />
+                  <YAxis yAxisId="left"  tick={{ fill: '#8890b5', fontSize: 10 }} tickFormatter={v => `${v.toFixed(0)}%`} width={40} />
+                  <YAxis yAxisId="right" orientation="right" tick={{ fill: '#8890b5', fontSize: 10 }} width={36} />
+                  <Tooltip
+                    contentStyle={{ background: '#1a1d27', border: '1px solid #2e3250', borderRadius: 8 }}
+                    formatter={(v: number, name: string) =>
+                      name === 'fillRate' ? [`${v.toFixed(1)}%`, 'Fill Rate'] : [fmtNumber(v), 'At-Risk SKUs']
+                    }
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11, color: '#8890b5' }} />
+                  <Line yAxisId="left"  type="monotone" dataKey="fillRate"    stroke="#4caf87" strokeWidth={2} dot={{ fill: '#4caf87', r: 3 }} name="fillRate" />
+                  <Line yAxisId="right" type="monotone" dataKey="atRiskCount" stroke="#e05c7a" strokeWidth={2} dot={{ fill: '#e05c7a', r: 3 }} name="atRiskCount" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Excess Value over time */}
+            <div className="card">
+              <h3 className="text-[13px] font-semibold mb-1">Excess Inventory Value Over Time</h3>
+              <p className="text-[11px] text-text2 mb-3">Capital tied up in overstock per upload</p>
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={trends} margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2e3250" />
+                  <XAxis dataKey="label" tick={{ fill: '#8890b5', fontSize: 10 }} />
+                  <YAxis tick={{ fill: '#8890b5', fontSize: 10 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} width={48} />
+                  <Tooltip
+                    contentStyle={{ background: '#1a1d27', border: '1px solid #2e3250', borderRadius: 8 }}
+                    formatter={(v: number) => [fmtCurrency(v), 'Excess Value']}
+                  />
+                  <Bar dataKey="excessValue" fill="#6c8aff" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Recommended Order Value trend */}
+            <div className="card">
+              <h3 className="text-[13px] font-semibold mb-1">Recommended Order Value Over Time</h3>
+              <p className="text-[11px] text-text2 mb-3">How much needs to be ordered per upload</p>
+              <ResponsiveContainer width="100%" height={180}>
+                <LineChart data={trends} margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2e3250" />
+                  <XAxis dataKey="label" tick={{ fill: '#8890b5', fontSize: 10 }} />
+                  <YAxis tick={{ fill: '#8890b5', fontSize: 10 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} width={48} />
+                  <Tooltip
+                    contentStyle={{ background: '#1a1d27', border: '1px solid #2e3250', borderRadius: 8 }}
+                    formatter={(v: number) => [fmtCurrency(v), 'Rec. Order Value']}
+                  />
+                  <Line type="monotone" dataKey="totalRecOrderValue" stroke="#e05c7a" strokeWidth={2} dot={{ fill: '#e05c7a', r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

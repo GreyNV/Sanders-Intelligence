@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useInboundItems, useInventoryKPIs } from '@/hooks/useInventory'
 import KPICard from '@/components/ui/KPICard'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
-import { fmtNumber, fmtCurrency, estimatedArrivalMonth, groupBy } from '@/lib/utils'
+import { fmtNumber, fmtCurrency, estimatedArrivalMonth, parseMonthLabel, groupBy } from '@/lib/utils'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts'
@@ -24,7 +24,7 @@ export default function InboundPipeline() {
         units: items.reduce((s, r) => s + r.on_order, 0),
         skus:  items.length,
       }))
-      .sort((a, b) => new Date(`1 ${a.month}`).getTime() - new Date(`1 ${b.month}`).getTime())
+      .sort((a, b) => parseMonthLabel(a.month) - parseMonthLabel(b.month))
   }, [inbound])
 
   // Near-term: arriving within 30 days (lt_days <= 30)
@@ -45,7 +45,7 @@ export default function InboundPipeline() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <KPICard label="SKUs On Order"    value={fmtNumber(inbound.length)}       sub="unique SKUs" />
         <KPICard label="Units On Order"   value={fmtNumber(totalUnitsOnOrder)}    sub="total units" variant="info" />
         <KPICard label="Arriving ≤ 30d"   value={fmtNumber(nearTerm)}             sub="units near-term" variant="success" />

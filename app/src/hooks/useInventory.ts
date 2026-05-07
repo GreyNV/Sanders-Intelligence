@@ -2,6 +2,83 @@ import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { InventoryRecord } from '@/types'
 
+// ─── Trend types ──────────────────────────────────────────────────────────────
+export interface UploadTrendPoint {
+  uploadId: string
+  date: string          // ISO
+  label: string         // e.g. "May 7"
+  totalValue: number
+  atRiskCount: number
+  excessValue: number
+  fillRate: number
+  totalRecOrderValue: number
+  totalSkus: number
+}
+
+async function fetchInventoryTrends(): Promise<UploadTrendPoint[]> {
+  // 1. Get last 20 complete uploads, oldest first
+  const { data: uploads, error: upErr } = await supabase
+    .from('uploads')
+    .select('id, uploaded_at')
+    .eq('status', 'complete')
+    .order('uploaded_at', { ascending: true })
+    .limit(20)
+
+  if (upErr || !uploads || uploads.length < 1) return []
+
+  // 2. For each upload fetch only the columns needed for KPI aggregation
+  const PAGE_SIZE = 1000
+  const results: UploadTrendPoint[] = await Promise.all(
+    uploads.map(async (upload) => {
+      type Row = { status: string; on_hand_value: number; excess_value: number; recommended_order_value: number; average_sales: number }
+      const all: Row[] = []
+      let from = 0
+      while (true) {
+        const { data, error } = await supabase
+          .from('inventory_records')
+          .select('status, on_hand_value, excess_value, recommended_order_value, average_sales')
+          .eq('upload_id', upload.id)
+          .range(from, from + PAGE_SIZE - 1)
+        if (error || !data || data.length === 0) break
+        all.push(...(data as Row[]))
+        if (data.length < PAGE_SIZE) break
+        from += PAGE_SIZE
+      }
+
+      const totalValue    = all.reduce((s, r) => s + r.on_hand_value, 0)
+      const atRiskCount   = all.filter(r => r.status === 'Potential s/o' || r.status === 'Stocked out').length
+      const excessValue   = all.reduce((s, r) => s + r.excess_value, 0)
+      const totalRecVal   = all.reduce((s, r) => s + r.recommended_order_value, 0)
+      const totalSkus     = all.length
+      const activeSkus    = all.filter(r => r.average_sales > 0 || r.on_hand_value > 0).length
+      const okCount       = all.filter(r => r.status === 'Ok').length
+      const fillRate      = activeSkus > 0 ? (okCount / activeSkus) * 100 : 0
+
+      return {
+        uploadId:          upload.id,
+        date:              upload.uploaded_at as string,
+        label:             new Date(upload.uploaded_at as string).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        totalValue,
+        atRiskCount,
+        excessValue,
+        fillRate,
+        totalRecOrderValue: totalRecVal,
+        totalSkus,
+      }
+    })
+  )
+
+  return results
+}
+
+export function useInventoryTrends() {
+  return useQuery({
+    queryKey: ['inventory', 'trends'],
+    queryFn:  fetchInventoryTrends,
+    staleTime: 10 * 60 * 1000,
+  })
+}
+
 /** Fetch the id + timestamp of the latest successful upload */
 async function fetchLatestUploadMeta() {
   const { data } = await supabase

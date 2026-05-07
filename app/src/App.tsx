@@ -8,6 +8,7 @@ import AppShell from '@/components/layout/AppShell'
 import ActionCenter from '@/pages/purchasing/ActionCenter'
 import InventoryBrowser from '@/pages/purchasing/InventoryBrowser'
 import InboundPipeline from '@/pages/purchasing/InboundPipeline'
+import VendorView from '@/pages/purchasing/VendorView'
 import ExecutiveSummary from '@/pages/csuite/ExecutiveSummary'
 import DepartmentOverview from '@/pages/csuite/DepartmentOverview'
 import TasksPage from '@/pages/tasks/TasksPage'
@@ -109,6 +110,9 @@ export default function App() {
           } />
           <Route path="/purchasing/inbound" element={
             <RoleGuard allow={['admin', 'purchasing']}><InboundPipeline /></RoleGuard>
+          } />
+          <Route path="/purchasing/vendors" element={
+            <RoleGuard allow={['admin', 'purchasing']}><VendorView /></RoleGuard>
           } />
 
           {/* C-Suite */}

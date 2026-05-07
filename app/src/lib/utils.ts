@@ -56,6 +56,17 @@ export function estimatedArrivalMonth(ltDays: number): string {
   return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
 }
 
+/**
+ * Parse a month label produced by estimatedArrivalMonth ("May 2026") into a
+ * sortable timestamp. Explicitly constructs "Month 1, Year" which every
+ * browser's Date parser handles reliably.
+ */
+export function parseMonthLabel(label: string): number {
+  const parts = label.split(' ') // ["May", "2026"]
+  if (parts.length !== 2) return 0
+  return new Date(`${parts[0]} 1, ${parts[1]}`).getTime()
+}
+
 /** Group an array of items by a key extractor */
 export function groupBy<T>(arr: T[], key: (item: T) => string): Record<string, T[]> {
   return arr.reduce<Record<string, T[]>>((acc, item) => {

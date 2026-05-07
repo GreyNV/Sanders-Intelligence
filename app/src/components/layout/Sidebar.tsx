@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   LayoutDashboard, Package, Truck, BarChart3,
-  CheckSquare, Users, Upload, Building2, LogOut,
+  CheckSquare, Users, Upload, Building2, LogOut, Store,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -19,6 +19,7 @@ const NAV: NavItem[] = [
   { to: '/purchasing/action-center', label: 'Action Center',     icon: <LayoutDashboard size={16} />, roles: ['admin', 'purchasing'], group: 'Purchasing' },
   { to: '/purchasing/inventory',     label: 'Inventory Browser', icon: <Package size={16} />,          roles: ['admin', 'purchasing'], group: 'Purchasing' },
   { to: '/purchasing/inbound',       label: 'Inbound Pipeline',  icon: <Truck size={16} />,            roles: ['admin', 'purchasing'], group: 'Purchasing' },
+  { to: '/purchasing/vendors',       label: 'Vendor View',       icon: <Store size={16} />,            roles: ['admin', 'purchasing'], group: 'Purchasing' },
 
   // C-Suite
   { to: '/executive',              label: 'Executive Summary', icon: <BarChart3 size={16} />,  roles: ['admin', 'csuite'], group: 'C-Suite' },
