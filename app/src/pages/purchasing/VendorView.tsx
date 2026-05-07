@@ -113,8 +113,8 @@ export default function VendorView() {
       )
     }
     return [...rows].sort((a, b) => {
-      const av = (a as Record<string, unknown>)[sort.field] as number | string
-      const bv = (b as Record<string, unknown>)[sort.field] as number | string
+      const av = (a as unknown as Record<string, unknown>)[sort.field] as number | string
+      const bv = (b as unknown as Record<string, unknown>)[sort.field] as number | string
       if (typeof av === 'string') {
         return sort.dir === 'asc'
           ? (av as string).localeCompare(bv as string)

@@ -22,8 +22,8 @@ interface SortState { field: string; dir: SortDir }
 
 function sortRecords(records: InventoryRecord[], sort: SortState): InventoryRecord[] {
   return [...records].sort((a, b) => {
-    const av = (a as Record<string, unknown>)[sort.field] as number
-    const bv = (b as Record<string, unknown>)[sort.field] as number
+    const av = (a as unknown as Record<string, unknown>)[sort.field] as number
+    const bv = (b as unknown as Record<string, unknown>)[sort.field] as number
     return sort.dir === 'asc' ? av - bv : bv - av
   })
 }
