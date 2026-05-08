@@ -113,6 +113,16 @@ export default function ActionCenter() {
     return sortRecords(rows, boSort).slice(0, 50)
   }, [baseBackorders, boVendor, boCategory, boSort])
 
+  // Group visible at-risk by vendor (for vendor-level task creation)
+  const atRiskByVendor = useMemo(() => {
+    const map: Record<string, InventoryRecord[]> = {}
+    baseAtRisk.forEach(r => {
+      const v = r.supplier_description || 'Unknown'
+      ;(map[v] ||= []).push(r)
+    })
+    return map
+  }, [baseAtRisk])
+
   if (l1 || l2 || kpis.isLoading) return <PageLoader />
   if (e1 || e2) return (
     <div className="card text-center py-16">
@@ -159,16 +169,6 @@ export default function ActionCenter() {
     setDismissReason('')
     setDismissDays('7')
   }
-
-  // Group visible at-risk by vendor (for vendor-level task creation)
-  const atRiskByVendor = useMemo(() => {
-    const map: Record<string, InventoryRecord[]> = {}
-    baseAtRisk.forEach(r => {
-      const v = r.supplier_description || 'Unknown'
-      ;(map[v] ||= []).push(r)
-    })
-    return map
-  }, [baseAtRisk])
 
   return (
     <div>

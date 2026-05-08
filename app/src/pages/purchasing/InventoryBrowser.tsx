@@ -45,32 +45,6 @@ export default function InventoryBrowser() {
     setPage(0)
   }, [location.search])
 
-  if (isLoading) return <PageLoader />
-  if (error) return (
-    <div className="card text-center py-16">
-      <div className="text-danger font-semibold mb-2">Failed to load inventory</div>
-      <div className="text-text2 text-sm">{(error as Error)?.message ?? 'Try refreshing the page.'}</div>
-    </div>
-  )
-
-  // Unique brands and vendors from data
-  const brands  = ['All', ...Array.from(new Set(records.map(r => r.brand_name))).filter(Boolean).sort()]
-  const vendors = ['All', ...Array.from(new Set(records.map(r => r.supplier_description))).filter(Boolean).sort()]
-
-  function toggleSort(key: string) {
-    if (sortKey === key) setSortAsc(v => !v)
-    else { setSortKey(key); setSortAsc(true) }
-  }
-
-  function SortTh({ col, label }: { col: string; label: string }) {
-    const active = sortKey === col
-    return (
-      <th onClick={() => toggleSort(col)} className="cursor-pointer select-none">
-        {label} {active ? (sortAsc ? '↑' : '↓') : ''}
-      </th>
-    )
-  }
-
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
     return records.filter(r => {
@@ -103,6 +77,32 @@ export default function InventoryBrowser() {
         : String(bv).localeCompare(String(av))
     })
   }, [filtered, sortKey, sortAsc])
+
+  if (isLoading) return <PageLoader />
+  if (error) return (
+    <div className="card text-center py-16">
+      <div className="text-danger font-semibold mb-2">Failed to load inventory</div>
+      <div className="text-text2 text-sm">{(error as Error)?.message ?? 'Try refreshing the page.'}</div>
+    </div>
+  )
+
+  // Unique brands and vendors from data
+  const brands  = ['All', ...Array.from(new Set(records.map(r => r.brand_name))).filter(Boolean).sort()]
+  const vendors = ['All', ...Array.from(new Set(records.map(r => r.supplier_description))).filter(Boolean).sort()]
+
+  function toggleSort(key: string) {
+    if (sortKey === key) setSortAsc(v => !v)
+    else { setSortKey(key); setSortAsc(true) }
+  }
+
+  function SortTh({ col, label }: { col: string; label: string }) {
+    const active = sortKey === col
+    return (
+      <th onClick={() => toggleSort(col)} className="cursor-pointer select-none">
+        {label} {active ? (sortAsc ? '↑' : '↓') : ''}
+      </th>
+    )
+  }
 
   const totalPages = Math.ceil(sorted.length / PAGE_SIZE)
   const paged = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
