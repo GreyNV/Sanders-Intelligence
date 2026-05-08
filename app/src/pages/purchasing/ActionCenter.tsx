@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useAtRiskItems, useBackorderItems, useInventoryKPIs } from '@/hooks/useInventory'
+import { useAtRiskItems, useBackorderItems, useExcessItems, useInventoryKPIs } from '@/hooks/useInventory'
 import { useDismissedSet, useDismissAction, useRestoreAction } from '@/hooks/useDismissedActions'
 import { useTasks } from '@/hooks/useTasks'
 import KPICard from '@/components/ui/KPICard'
@@ -10,13 +10,15 @@ import TaskModal from '@/components/tasks/TaskModal'
 import { fmtNumber, fmtCurrency, fmtDate, isOverdue } from '@/lib/utils'
 import {
   AlertTriangle, ShoppingCart, Clock, DollarSign, Plus, ChevronRight,
-  AlertCircle, EyeOff, RotateCcw, ArrowUp, ArrowDown, ChevronsUpDown, Filter, Download,
+  AlertCircle, EyeOff, RotateCcw, ArrowUp, ArrowDown, ChevronsUpDown,
+  Filter, Download, PackageX, Ban, Truck, TrendingDown,
 } from 'lucide-react'
 import { downloadCsv, inventoryToExportRows } from '@/lib/exportCsv'
 import { useNavigate } from 'react-router-dom'
 import { InventoryRecord } from '@/types'
+import type { DismissActionType } from '@/hooks/useDismissedActions'
 
-interface DismissTarget { record: InventoryRecord; actionType: 'at_risk' | 'backorder' }
+interface DismissTarget { record: InventoryRecord; actionType: DismissActionType }
 type SortDir = 'asc' | 'desc'
 interface SortState { field: string; dir: SortDir }
 
@@ -54,10 +56,12 @@ function SortableTh({
 export default function ActionCenter() {
   const { data: atRisk = [],     isLoading: l1, error: e1 } = useAtRiskItems()
   const { data: backorders = [], isLoading: l2, error: e2 } = useBackorderItems()
+  const { data: excess = [],     isLoading: l3, error: e3 } = useExcessItems()
   const kpis = useInventoryKPIs()
   const { data: tasks = [] }                      = useTasks()
   const dismissedAtRisk    = useDismissedSet('at_risk')
   const dismissedBackorder = useDismissedSet('backorder')
+  const dismissedOverstock = useDismissedSet('overstock')
   const dismissAction  = useDismissAction()
   const restoreAction  = useRestoreAction()
   const navigate = useNavigate()
@@ -67,18 +71,19 @@ export default function ActionCenter() {
   const [prefillRecord, setPrefill] = useState<InventoryRecord | null>(null)
   const [prefillVendor, setPrefillVendor] = useState<string | undefined>()
   const [prefillSkus, setPrefillSkus]     = useState<InventoryRecord[]>([])
+  const [prefillTitle, setPrefillTitle]   = useState('')
 
   // Dismiss modal
   const [dismissTarget, setDismissTarget]  = useState<DismissTarget | null>(null)
   const [dismissDays, setDismissDays]      = useState<string>('7')
   const [dismissReason, setDismissReason]  = useState('')
-  const [showDismissed, setShowDismissed]  = useState(false)
 
   // ── At-Risk table state ──────────────────────────────────────
   const [arSort, setArSort]         = useState<SortState>({ field: 'days_on_hand', dir: 'asc' })
   const [arVendor, setArVendor]     = useState('')
   const [arCategory, setArCategory] = useState('')
   const [arShowFilters, setArShowFilters] = useState(false)
+  const [arShowDismissed, setArShowDismissed] = useState(false)
 
   // ── Backorders table state ───────────────────────────────────
   const [boSort, setBoSort]         = useState<SortState>({ field: 'unsatisfied_customer_orders_value', dir: 'desc' })
@@ -86,17 +91,27 @@ export default function ActionCenter() {
   const [boCategory, setBoCategory] = useState('')
   const [boShowFilters, setBoShowFilters] = useState(false)
 
+  // ── Overstock table state ────────────────────────────────────
+  const [osSort, setOsSort]         = useState<SortState>({ field: 'excess_value', dir: 'desc' })
+  const [osVendor, setOsVendor]     = useState('')
+  const [osCategory, setOsCategory] = useState('')
+  const [osShowFilters, setOsShowFilters] = useState(false)
+  const [osShowDismissed, setOsShowDismissed] = useState(false)
+
   const openTasks = tasks.filter(t => t.status !== 'done' && t.status !== 'cancelled')
 
-  // Distinct vendor/category lists for filter dropdowns
+  // Distinct vendor/category lists
   const arVendors    = useMemo(() => [...new Set(atRisk.map(r => r.supplier_description))].filter(Boolean).sort(), [atRisk])
   const arCategories = useMemo(() => [...new Set(atRisk.map(r => r.category_name))].filter(Boolean).sort(), [atRisk])
   const boVendors    = useMemo(() => [...new Set(backorders.map(r => r.supplier_description))].filter(Boolean).sort(), [backorders])
   const boCategories = useMemo(() => [...new Set(backorders.map(r => r.category_name))].filter(Boolean).sort(), [backorders])
+  const osVendors    = useMemo(() => [...new Set(excess.map(r => r.supplier_description))].filter(Boolean).sort(), [excess])
+  const osCategories = useMemo(() => [...new Set(excess.map(r => r.category_name))].filter(Boolean).sort(), [excess])
 
   // Base sets (dismissed filter applied)
-  const baseAtRisk    = showDismissed ? atRisk    : atRisk.filter(r => !dismissedAtRisk.has(r.product_code))
-  const baseBackorders = showDismissed ? backorders : backorders.filter(r => !dismissedBackorder.has(r.product_code))
+  const baseAtRisk     = arShowDismissed ? atRisk    : atRisk.filter(r => !dismissedAtRisk.has(r.product_code))
+  const baseBackorders = backorders.filter(r => !dismissedBackorder.has(r.product_code))
+  const baseOverstock  = osShowDismissed ? excess    : excess.filter(r => !dismissedOverstock.has(r.product_code))
 
   // Apply vendor/category filters + sort
   const visibleAtRisk = useMemo(() => {
@@ -113,6 +128,17 @@ export default function ActionCenter() {
     return sortRecords(rows, boSort).slice(0, 50)
   }, [baseBackorders, boVendor, boCategory, boSort])
 
+  const visibleOverstock = useMemo(() => {
+    let rows = baseOverstock
+    if (osVendor)   rows = rows.filter(r => r.supplier_description === osVendor)
+    if (osCategory) rows = rows.filter(r => r.category_name === osCategory)
+    return sortRecords(rows, osSort).slice(0, 100)
+  }, [baseOverstock, osVendor, osCategory, osSort])
+
+  // Overstock split by on_order status
+  const overstockWithOrders = useMemo(() => visibleOverstock.filter(r => r.on_order > 0), [visibleOverstock])
+  const overstockNoOrders   = useMemo(() => visibleOverstock.filter(r => r.on_order === 0), [visibleOverstock])
+
   // Group visible at-risk by vendor (for vendor-level task creation)
   const atRiskByVendor = useMemo(() => {
     const map: Record<string, InventoryRecord[]> = {}
@@ -123,12 +149,12 @@ export default function ActionCenter() {
     return map
   }, [baseAtRisk])
 
-  if (l1 || l2 || kpis.isLoading) return <PageLoader />
-  if (e1 || e2) return (
+  if (l1 || l2 || l3 || kpis.isLoading) return <PageLoader />
+  if (e1 || e2 || e3) return (
     <div className="card text-center py-16">
       <AlertTriangle size={32} className="text-danger mx-auto mb-3" />
       <div className="text-text1 font-semibold">Failed to load inventory data</div>
-      <div className="text-text2 text-sm mt-1">{(e1 || e2)?.message ?? 'Unknown error — try refreshing the page.'}</div>
+      <div className="text-text2 text-sm mt-1">{(e1 || e2 || e3)?.message ?? 'Unknown error — try refreshing the page.'}</div>
     </div>
   )
 
@@ -138,11 +164,15 @@ export default function ActionCenter() {
   function toggleBoSort(field: string) {
     setBoSort(s => s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' })
   }
+  function toggleOsSort(field: string) {
+    setOsSort(s => s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' })
+  }
 
-  function openTaskForSku(record: InventoryRecord) {
+  function openTaskForSku(record: InventoryRecord, title?: string) {
     setPrefill(record)
     setPrefillVendor(undefined)
     setPrefillSkus([])
+    setPrefillTitle(title ?? `Order: ${record.description}`)
     setTaskModal(true)
   }
 
@@ -150,6 +180,7 @@ export default function ActionCenter() {
     setPrefill(null)
     setPrefillVendor(vendor)
     setPrefillSkus(records)
+    setPrefillTitle('')
     setTaskModal(true)
   }
 
@@ -213,8 +244,8 @@ export default function ActionCenter() {
               <Download size={12} /> Export
             </button>
             {dismissedAtRisk.size > 0 && (
-              <button onClick={() => setShowDismissed(v => !v)} className="btn-ghost text-xs">
-                {showDismissed ? 'Hide snoozed' : 'Show snoozed'}
+              <button onClick={() => setArShowDismissed(v => !v)} className="btn-ghost text-xs">
+                {arShowDismissed ? 'Hide snoozed' : 'Show snoozed'}
               </button>
             )}
             <button onClick={() => navigate('/purchasing/inventory')} className="btn-ghost text-xs">
@@ -481,12 +512,238 @@ export default function ActionCenter() {
         </div>
       </div>
 
+      {/* ── Overstock Suggested Actions ── */}
+      {(excess.length > 0) && (
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-[14px] font-semibold text-text1 flex items-center gap-2">
+              <PackageX size={15} className="text-accent" />
+              Overstock Actions
+              <span className="text-xs font-normal text-text2">— excess stock &amp; surplus orders requiring review</span>
+              {dismissedOverstock.size > 0 && (
+                <span className="text-[11px] text-text2 bg-surface2 px-2 py-0.5 rounded-full">
+                  {dismissedOverstock.size} snoozed
+                </span>
+              )}
+            </h2>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setOsShowFilters(v => !v)}
+                className={`btn-ghost text-xs flex items-center gap-1 ${(osVendor || osCategory) ? 'text-accent' : ''}`}
+              >
+                <Filter size={12} /> Filters {(osVendor || osCategory) ? '●' : ''}
+              </button>
+              {dismissedOverstock.size > 0 && (
+                <button onClick={() => setOsShowDismissed(v => !v)} className="btn-ghost text-xs">
+                  {osShowDismissed ? 'Hide snoozed' : 'Show snoozed'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {osShowFilters && (
+            <div className="flex gap-3 mb-3 p-3 bg-surface2 rounded-lg border border-border">
+              <div className="flex-1">
+                <label className="block text-[10px] font-semibold text-text2 uppercase tracking-wider mb-1">Vendor</label>
+                <select className="select w-full text-sm" value={osVendor} onChange={e => setOsVendor(e.target.value)}>
+                  <option value="">All vendors</option>
+                  {osVendors.map(v => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </div>
+              <div className="flex-1">
+                <label className="block text-[10px] font-semibold text-text2 uppercase tracking-wider mb-1">Category</label>
+                <select className="select w-full text-sm" value={osCategory} onChange={e => setOsCategory(e.target.value)}>
+                  <option value="">All categories</option>
+                  {osCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              {(osVendor || osCategory) && (
+                <div className="flex items-end">
+                  <button onClick={() => { setOsVendor(''); setOsCategory('') }} className="btn-ghost text-xs text-danger">Clear</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Sub-section A: Items with open orders → Delay / Cancel */}
+          {overstockWithOrders.length > 0 && (
+            <div className="mb-4">
+              <div className="flex items-center gap-2 mb-2 px-1">
+                <Truck size={13} className="text-warning" />
+                <span className="text-[12px] font-semibold text-warning">Open orders exist</span>
+                <span className="text-[11px] text-text2">({overstockWithOrders.length} SKUs) — consider delaying or cancelling inbound</span>
+              </div>
+              <div className="tbl-wrap">
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>SKU</th>
+                      <th>Description</th>
+                      <th>Vendor</th>
+                      <SortableTh field="on_hand"      label="On Hand"       sort={osSort} onSort={toggleOsSort} />
+                      <SortableTh field="excess_value" label="Excess Value"  sort={osSort} onSort={toggleOsSort} />
+                      <SortableTh field="on_order"     label="On Order"      sort={osSort} onSort={toggleOsSort} />
+                      <th>Status</th>
+                      <th>Suggested Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {overstockWithOrders.map(r => (
+                      <tr key={r.id} className={dismissedOverstock.has(r.product_code) ? 'opacity-50' : ''}>
+                        <td
+                          className="font-mono text-[11px] text-accent cursor-pointer hover:underline"
+                          onClick={() => navigate(`/purchasing/inventory?search=${encodeURIComponent(r.product_code)}`)}
+                          title="Open in Inventory Browser"
+                        >{r.product_code}</td>
+                        <td className="max-w-[200px]">
+                          <span className="block truncate text-text1" title={r.description}>{r.description}</span>
+                        </td>
+                        <td className="text-text2 text-xs max-w-[110px]">
+                          <span className="block truncate" title={r.supplier_description}>{r.supplier_description}</span>
+                        </td>
+                        <td className="tabular-nums">{fmtNumber(r.on_hand)}</td>
+                        <td className="tabular-nums text-accent font-semibold">{fmtCurrency(r.excess_value)}</td>
+                        <td className="tabular-nums font-semibold">{fmtNumber(r.on_order)}</td>
+                        <td><Badge variant={statusVariant(r.status)} value={r.status} /></td>
+                        <td>
+                          <div className="flex gap-1 flex-wrap">
+                            {dismissedOverstock.has(r.product_code) ? (
+                              <button
+                                onClick={() => restoreAction.mutate({ product_code: r.product_code, action_type: 'overstock' })}
+                                className="btn-ghost text-[11px] py-1 px-2 text-text2 flex items-center gap-1"
+                              >
+                                <RotateCcw size={12} /> Restore
+                              </button>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => openTaskForSku(r, `Delay Order: ${r.description}`)}
+                                  className="btn-secondary text-[11px] py-1 px-2 flex items-center gap-1 text-warning border-warning/30 hover:bg-warning/10"
+                                  title="Create task to delay incoming order"
+                                >
+                                  <Truck size={11} /> Delay Order
+                                </button>
+                                <button
+                                  onClick={() => openTaskForSku(r, `Cancel Order: ${r.description}`)}
+                                  className="btn-secondary text-[11px] py-1 px-2 flex items-center gap-1 text-danger border-danger/30 hover:bg-danger/10"
+                                  title="Create task to cancel incoming order"
+                                >
+                                  <Ban size={11} /> Cancel Order
+                                </button>
+                                <button
+                                  onClick={() => setDismissTarget({ record: r, actionType: 'overstock' })}
+                                  className="btn-ghost text-[11px] py-1 px-2 flex items-center gap-1"
+                                  title="Snooze this overstock alert"
+                                >
+                                  <EyeOff size={11} /> Snooze
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Sub-section B: No open orders → Liquidation */}
+          {overstockNoOrders.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-2 px-1">
+                <TrendingDown size={13} className="text-accent" />
+                <span className="text-[12px] font-semibold text-accent">No inbound orders</span>
+                <span className="text-[11px] text-text2">({overstockNoOrders.length} SKUs) — consider liquidation or promotion</span>
+              </div>
+              <div className="tbl-wrap">
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>SKU</th>
+                      <th>Description</th>
+                      <th>Vendor</th>
+                      <SortableTh field="on_hand"      label="On Hand"      sort={osSort} onSort={toggleOsSort} />
+                      <SortableTh field="excess_value" label="Excess Value" sort={osSort} onSort={toggleOsSort} />
+                      <SortableTh field="days_on_hand" label="Days OH"      sort={osSort} onSort={toggleOsSort} />
+                      <th>Status</th>
+                      <th>Suggested Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {overstockNoOrders.map(r => (
+                      <tr key={r.id} className={dismissedOverstock.has(r.product_code) ? 'opacity-50' : ''}>
+                        <td
+                          className="font-mono text-[11px] text-accent cursor-pointer hover:underline"
+                          onClick={() => navigate(`/purchasing/inventory?search=${encodeURIComponent(r.product_code)}`)}
+                          title="Open in Inventory Browser"
+                        >{r.product_code}</td>
+                        <td className="max-w-[200px]">
+                          <span className="block truncate text-text1" title={r.description}>{r.description}</span>
+                        </td>
+                        <td className="text-text2 text-xs max-w-[110px]">
+                          <span className="block truncate" title={r.supplier_description}>{r.supplier_description}</span>
+                        </td>
+                        <td className="tabular-nums">{fmtNumber(r.on_hand)}</td>
+                        <td className="tabular-nums text-accent font-semibold">{fmtCurrency(r.excess_value)}</td>
+                        <td className="tabular-nums">
+                          <span className={r.days_on_hand > 90 ? 'text-danger font-semibold' : ''}>
+                            {r.days_on_hand}d
+                          </span>
+                        </td>
+                        <td><Badge variant={statusVariant(r.status)} value={r.status} /></td>
+                        <td>
+                          <div className="flex gap-1">
+                            {dismissedOverstock.has(r.product_code) ? (
+                              <button
+                                onClick={() => restoreAction.mutate({ product_code: r.product_code, action_type: 'overstock' })}
+                                className="btn-ghost text-[11px] py-1 px-2 text-text2 flex items-center gap-1"
+                              >
+                                <RotateCcw size={12} /> Restore
+                              </button>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => openTaskForSku(r, `Liquidation: ${r.description}`)}
+                                  className="btn-secondary text-[11px] py-1 px-2 flex items-center gap-1 text-accent border-accent/30 hover:bg-accent/10"
+                                  title="Create task to run a liquidation campaign"
+                                >
+                                  <TrendingDown size={11} /> Liquidation
+                                </button>
+                                <button
+                                  onClick={() => setDismissTarget({ record: r, actionType: 'overstock' })}
+                                  className="btn-ghost text-[11px] py-1 px-2 flex items-center gap-1"
+                                  title="Snooze this overstock alert"
+                                >
+                                  <EyeOff size={11} /> Snooze
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {visibleOverstock.length === 0 && (
+            <div className="card text-center py-8 text-text2 text-sm">
+              {osVendor || osCategory ? 'No results for selected filters' : 'No overstock items'}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Open Tasks Widget ── */}
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-[14px] font-semibold text-text1">Open Tasks</h2>
           <div className="flex gap-2">
-            <button onClick={() => { setPrefill(null); setPrefillVendor(undefined); setPrefillSkus([]); setTaskModal(true) }} className="btn-secondary text-xs">
+            <button onClick={() => { setPrefill(null); setPrefillVendor(undefined); setPrefillSkus([]); setPrefillTitle(''); setTaskModal(true) }} className="btn-secondary text-xs">
               <Plus size={13} /> New Task
             </button>
             <button onClick={() => navigate('/tasks')} className="btn-ghost text-xs">
@@ -526,9 +783,9 @@ export default function ActionCenter() {
       {taskModal && (
         <TaskModal
           open={taskModal}
-          onClose={() => { setTaskModal(false); setPrefill(null); setPrefillVendor(undefined); setPrefillSkus([]) }}
+          onClose={() => { setTaskModal(false); setPrefill(null); setPrefillVendor(undefined); setPrefillSkus([]); setPrefillTitle('') }}
           prefillSku={prefillRecord?.product_code}
-          prefillTitle={prefillRecord ? `Order: ${prefillRecord.description}` : ''}
+          prefillTitle={prefillTitle || (prefillRecord ? `Order: ${prefillRecord.description}` : '')}
           prefillVendor={prefillVendor}
           prefillVendorSkus={prefillSkus}
           atRiskByVendor={atRiskByVendor}

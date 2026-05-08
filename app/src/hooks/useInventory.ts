@@ -165,6 +165,15 @@ export function useBackorderItems() {
   }
 }
 
+/** Derived: excess items — Excess stock and Surplus orders */
+export function useExcessItems() {
+  const { data: records = [], ...rest } = useInventory()
+  return {
+    ...rest,
+    data: records.filter(r => r.status === 'Excess stock' || r.status === 'Surplus orders'),
+  }
+}
+
 /** Derived: items on order (inbound pipeline) */
 export function useInboundItems() {
   const { data: records = [], ...rest } = useInventory()

@@ -38,6 +38,7 @@ export function useCreateTask() {
 
   return useMutation({
     mutationFn: async (values: TaskFormValues) => {
+      const now = new Date().toISOString()
       const { error } = await supabase.from('tasks').insert({
         title:       values.title,
         description: values.description || null,
@@ -49,6 +50,8 @@ export function useCreateTask() {
         created_by:  profile!.id,
         status:      'todo',
         source:      'manual',
+        created_at:  now,
+        updated_at:  now,
       })
       if (error) throw error
     },
@@ -78,12 +81,12 @@ export function useUpdateTask() {
         .from('tasks')
         .update({
           title:       values.title,
-          description: values.description ?? null,
+          description: values.description || null,
           priority:    values.priority,
-          due_date:    values.due_date ?? null,
-          assigned_to: values.assigned_to ?? null,
-          sku_code:    values.sku_code ?? null,
-          department:  values.department,
+          due_date:    values.due_date || null,
+          assigned_to: values.assigned_to || null,
+          sku_code:    values.sku_code || null,
+          department:  values.department || null,
           updated_at:  new Date().toISOString(),
         })
         .eq('id', id)

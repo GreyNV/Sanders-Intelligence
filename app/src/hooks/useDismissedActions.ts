@@ -2,10 +2,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 
+export type DismissActionType = 'at_risk' | 'backorder' | 'overstock'
+
 export interface DismissedAction {
   id: string
   product_code: string
-  action_type: 'at_risk' | 'backorder'
+  action_type: DismissActionType
   dismissed_by: string
   dismissed_until: string | null   // ISO date, null = permanent
   reason: string | null
@@ -30,8 +32,8 @@ export function useDismissedActions() {
   })
 }
 
-/** Returns a Set of `${product_code}:${action_type}` for fast O(1) lookup */
-export function useDismissedSet(actionType: 'at_risk' | 'backorder') {
+/** Returns a Set of product_codes dismissed for the given action type */
+export function useDismissedSet(actionType: DismissActionType) {
   const { data: dismissed = [] } = useDismissedActions()
   return new Set(
     dismissed
@@ -52,7 +54,7 @@ export function useDismissAction() {
       reason,
     }: {
       product_code: string
-      action_type: 'at_risk' | 'backorder'
+      action_type: DismissActionType
       dismissed_until: string | null   // ISO date string or null for permanent
       reason?: string
     }) => {
@@ -74,7 +76,7 @@ export function useRestoreAction() {
   const { profile } = useAuth()
 
   return useMutation({
-    mutationFn: async ({ product_code, action_type }: { product_code: string; action_type: 'at_risk' | 'backorder' }) => {
+    mutationFn: async ({ product_code, action_type }: { product_code: string; action_type: DismissActionType }) => {
       // Admins can delete any; others only their own (enforced by RLS)
       let query = supabase
         .from('dismissed_actions')
