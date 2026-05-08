@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   LayoutDashboard, Package, Truck, BarChart3,
@@ -35,7 +35,13 @@ const NAV: NavItem[] = [
 
 export default function Sidebar() {
   const { profile, signOut } = useAuth()
+  const navigate = useNavigate()
   if (!profile) return null
+
+  async function handleSignOut() {
+    await signOut()
+    navigate('/login', { replace: true })
+  }
 
   const visible = NAV.filter(item => item.roles.includes(profile.role))
 
@@ -87,7 +93,7 @@ export default function Sidebar() {
         <div className="text-xs text-text1 font-medium truncate">{profile.name}</div>
         <div className="text-[11px] text-text2 capitalize mt-0.5">{profile.role}</div>
         <button
-          onClick={signOut}
+          onClick={handleSignOut}
           className="mt-2.5 flex items-center gap-1.5 text-[12px] text-text2 hover:text-danger transition-colors"
         >
           <LogOut size={13} /> Sign out

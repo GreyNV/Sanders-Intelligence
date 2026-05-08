@@ -24,7 +24,7 @@ const NEXT_STATUS: Record<TaskStatus, TaskStatus> = {
   cancelled:   'cancelled',
 }
 
-type GroupMode = 'status' | 'vendor' | 'department'
+type GroupMode = 'status' | 'vendor' | 'category'
 
 /** Extract vendor name from task description that starts with "Vendor: <name>" */
 function extractVendor(task: Task): string | null {
@@ -121,7 +121,7 @@ export default function TasksPage() {
   const [modal, setModal]             = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [deptFilter, setDeptFilter]   = useState('all')
-  const [groupMode, setGroupMode]     = useState<GroupMode>('status')
+  const [groupMode, setGroupMode]   = useState<GroupMode>('status')
   const [view, setView]               = useState<'board' | 'list'>('list')
 
   if (isLoading) return <PageLoader />
@@ -236,8 +236,8 @@ export default function TasksPage() {
       )
     }
 
-    if (groupMode === 'department') {
-      // Group by department; tasks without department go to "Other"
+    if (groupMode === 'category') {
+      // Group by department (= category); tasks without department go to "Other"
       const deptMap: Record<string, Task[]> = { Other: [] }
       for (const t of filtered) {
         const d = t.department
@@ -311,11 +311,11 @@ export default function TasksPage() {
                 <Store size={12} /> Vendor
               </button>
               <button
-                onClick={() => setGroupMode('department')}
-                className={`flex items-center gap-1 px-2.5 py-1.5 transition-colors ${groupMode === 'department' ? 'bg-accent/15 text-accent font-medium' : 'text-text2 hover:bg-surface2'}`}
-                title="Group by department"
+                onClick={() => setGroupMode('category')}
+                className={`flex items-center gap-1 px-2.5 py-1.5 transition-colors ${groupMode === 'category' ? 'bg-accent/15 text-accent font-medium' : 'text-text2 hover:bg-surface2'}`}
+                title="Group by department / category"
               >
-                <Layers size={12} /> Dept
+                <Layers size={12} /> Category
               </button>
             </div>
           )}
