@@ -1,4 +1,4 @@
-import { useInventory, useInventoryKPIs, useInventoryTrends } from '@/hooks/useInventory'
+import { useInventoryAnalysis, useInventoryTrends } from '@/hooks/useInventory'
 import KPICard from '@/components/ui/KPICard'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { fmtNumber, fmtCurrency } from '@/lib/utils'
@@ -13,8 +13,9 @@ import { groupBy } from '@/lib/utils'
 import { useNavigate } from 'react-router-dom'
 
 export default function ExecutiveSummary() {
-  const { data: records = [], isLoading, error } = useInventory()
-  const kpis = useInventoryKPIs()
+  const { data: inventory, isLoading, error } = useInventoryAnalysis()
+  const records = inventory.records
+  const kpis = inventory.kpis
   const { data: trends = [], isLoading: trendsLoading } = useInventoryTrends()
   const navigate = useNavigate()
 

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
-import { useInventory, useInventoryKPIs } from '@/hooks/useInventory'
+import { useInventoryAnalysis } from '@/hooks/useInventory'
 import KPICard from '@/components/ui/KPICard'
 import Badge, { statusVariant } from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
@@ -14,8 +14,9 @@ const VELOCITY_OPTIONS  = ['All', 'H', 'M', 'L', 'X']
 const PAGE_SIZE         = 100
 
 export default function InventoryBrowser() {
-  const { data: records = [], isLoading, error } = useInventory()
-  const kpis = useInventoryKPIs()
+  const { data: inventory, isLoading, error } = useInventoryAnalysis()
+  const records = inventory.records
+  const kpis = inventory.kpis
   const location = useLocation()
 
   // Pre-fill filters from URL params (used by chart drill-throughs and SKU links)

@@ -12,7 +12,7 @@ const ROLES: UserRole[]    = ['purchasing', 'csuite', 'admin']
 const DEPARTMENTS          = ['purchasing', 'warehouse', 'marketing', 'operations', 'other']
 
 export default function UsersPage() {
-  const { data: users = [], isLoading } = useUsers()
+  const { data: users = [], isLoading, error } = useUsers()
   const inviteUser  = useInviteUser()
   const updateUser  = useUpdateUser()
 
@@ -60,6 +60,13 @@ export default function UsersPage() {
   }
 
   if (isLoading) return <PageLoader />
+  if (error) return (
+    <div className="card text-center py-16">
+      <XCircle size={32} className="text-danger mx-auto mb-3" />
+      <div className="text-text1 font-semibold">Failed to load users</div>
+      <div className="text-text2 text-sm mt-1">{(error as Error)?.message ?? 'Try refreshing the page.'}</div>
+    </div>
+  )
 
   return (
     <div>

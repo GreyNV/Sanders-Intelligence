@@ -30,7 +30,7 @@ function downloadCsv(content: string, filename: string) {
 }
 
 export default function UploadsPage() {
-  const { data: uploads = [], isLoading } = useUploads()
+  const { data: uploads = [], isLoading, error } = useUploads()
   const uploadCSV = useUploadCSV()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver]         = useState(false)
@@ -80,6 +80,13 @@ export default function UploadsPage() {
   }
 
   if (isLoading) return <PageLoader />
+  if (error) return (
+    <div className="card text-center py-16">
+      <AlertTriangle size={32} className="text-danger mx-auto mb-3" />
+      <div className="text-text1 font-semibold">Failed to load uploads</div>
+      <div className="text-text2 text-sm mt-1">{(error as Error)?.message ?? 'Try refreshing the page.'}</div>
+    </div>
+  )
 
   return (
     <div>

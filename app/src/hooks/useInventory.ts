@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { InventoryRecord } from '@/types'
@@ -13,6 +14,105 @@ export interface UploadTrendPoint {
   fillRate: number
   totalRecOrderValue: number
   totalSkus: number
+}
+
+interface InventoryKPIs {
+  isLoading: boolean
+  totalOnHandValue: number
+  totalUnits: number
+  atRiskCount: number
+  excessCount: number
+  okCount: number
+  newItemCount: number
+  backorderCount: number
+  totalBackorderValue: number
+  excessValue: number
+  recOrderValue: number
+  fillRate: number
+  totalSkus: number
+  activeSkus: number
+}
+
+interface InventoryAnalysis {
+  records: InventoryRecord[]
+  atRiskItems: InventoryRecord[]
+  backorderItems: InventoryRecord[]
+  excessItems: InventoryRecord[]
+  inboundItems: InventoryRecord[]
+  kpis: InventoryKPIs
+}
+
+function analyzeInventory(records: InventoryRecord[], isLoading: boolean): InventoryAnalysis {
+  const atRiskItems: InventoryRecord[] = []
+  const backorderItems: InventoryRecord[] = []
+  const excessItems: InventoryRecord[] = []
+  const inboundItems: InventoryRecord[] = []
+
+  let totalOnHandValue = 0
+  let totalUnits = 0
+  let okCount = 0
+  let newItemCount = 0
+  let totalBackorderValue = 0
+  let excessValue = 0
+  let recOrderValue = 0
+  let activeSkus = 0
+  let atRiskCount = 0
+
+  for (const record of records) {
+    totalOnHandValue += record.on_hand_value
+    totalUnits += record.on_hand
+
+    if (record.average_sales > 0 || record.on_hand > 0) activeSkus += 1
+    if (record.status === 'Ok') okCount += 1
+    if (record.status === 'New item') newItemCount += 1
+
+    const isAtRisk = record.status === 'Potential s/o' || record.status === 'Stocked out'
+    const isExcess = record.status === 'Excess stock' || record.status === 'Surplus orders'
+
+    if (isAtRisk) {
+      atRiskCount += 1
+      recOrderValue += record.recommended_order_value
+      if (record.recommended_order > 0) atRiskItems.push(record)
+    }
+
+    if (isExcess) {
+      excessValue += record.excess_value
+      excessItems.push(record)
+    }
+
+    if (record.unsatisfied_customer_orders_units > 0) {
+      totalBackorderValue += record.unsatisfied_customer_orders_value
+      backorderItems.push(record)
+    }
+
+    if (record.on_order > 0) {
+      inboundItems.push(record)
+    }
+  }
+
+  return {
+    records,
+    atRiskItems,
+    backorderItems,
+    excessItems,
+    inboundItems,
+    kpis: {
+      isLoading,
+      totalOnHandValue,
+      totalUnits,
+      atRiskCount,
+      excessCount: excessItems.length,
+      okCount,
+      newItemCount,
+      backorderCount: backorderItems.length,
+      totalBackorderValue,
+      excessValue,
+      recOrderValue,
+      fillRate: activeSkus > 0 ? (okCount / activeSkus) * 100 : 0,
+      totalSkus: records.length,
+      activeSkus,
+    },
+  }
 }
 
 async function fetchInventoryTrends(): Promise<UploadTrendPoint[]> {
@@ -145,78 +245,55 @@ export function useInventory() {
   })
 }
 
+export function useInventoryAnalysis() {
+  const query = useInventory()
+  const records = query.data ?? []
+  const analysis = useMemo(() => analyzeInventory(records, query.isLoading), [records, query.isLoading])
+
+  return {
+    ...query,
+    data: analysis,
+  }
+}
+
 /** Derived: at-risk items — Potential s/o and Stocked out, with a recommended order */
 export function useAtRiskItems() {
-  const { data: records = [], ...rest } = useInventory()
+  const { data: analysis, ...rest } = useInventoryAnalysis()
   return {
     ...rest,
-    data: records.filter(r =>
-      (r.status === 'Potential s/o' || r.status === 'Stocked out') && r.recommended_order > 0
-    ),
+    data: analysis.atRiskItems,
   }
 }
 
 /** Derived: items with backorders */
 export function useBackorderItems() {
-  const { data: records = [], ...rest } = useInventory()
+  const { data: analysis, ...rest } = useInventoryAnalysis()
   return {
     ...rest,
-    data: records.filter(r => r.unsatisfied_customer_orders_units > 0),
+    data: analysis.backorderItems,
   }
 }
 
 /** Derived: excess items — Excess stock and Surplus orders */
 export function useExcessItems() {
-  const { data: records = [], ...rest } = useInventory()
+  const { data: analysis, ...rest } = useInventoryAnalysis()
   return {
     ...rest,
-    data: records.filter(r => r.status === 'Excess stock' || r.status === 'Surplus orders'),
+    data: analysis.excessItems,
   }
 }
 
 /** Derived: items on order (inbound pipeline) */
 export function useInboundItems() {
-  const { data: records = [], ...rest } = useInventory()
+  const { data: analysis, ...rest } = useInventoryAnalysis()
   return {
     ...rest,
-    data: records.filter(r => r.on_order > 0),
+    data: analysis.inboundItems,
   }
 }
 
 /** Summary KPIs computed from the full record set */
 export function useInventoryKPIs() {
-  const { data: records = [], isLoading } = useInventory()
-
-  const totalOnHandValue    = records.reduce((s, r) => s + r.on_hand_value, 0)
-  const totalUnits          = records.reduce((s, r) => s + r.on_hand, 0)
-  // At-risk bucket: both Potential s/o and Stocked out need purchasing action
-  const atRisk              = records.filter(r => r.status === 'Potential s/o' || r.status === 'Stocked out')
-  // Excess bucket: Excess stock + Surplus orders (over-ordered or over-stocked)
-  const excess              = records.filter(r => r.status === 'Excess stock' || r.status === 'Surplus orders')
-  const ok                  = records.filter(r => r.status === 'Ok')
-  const newItems            = records.filter(r => r.status === 'New item')
-  const backorderItems      = records.filter(r => r.unsatisfied_customer_orders_units > 0)
-  const totalBackorderValue = backorderItems.reduce((s, r) => s + r.unsatisfied_customer_orders_value, 0)
-  const excessValue         = excess.reduce((s, r) => s + r.excess_value, 0)
-  const recOrderValue       = atRisk.reduce((s, r) => s + r.recommended_order_value, 0)
-
-  const activeSkus = records.filter(r => r.average_sales > 0 || r.on_hand > 0).length
-  const fillRate   = activeSkus > 0 ? ((ok.length / activeSkus) * 100) : 0
-
-  return {
-    isLoading,
-    totalOnHandValue,
-    totalUnits,
-    atRiskCount:    atRisk.length,
-    excessCount:    excess.length,
-    okCount:        ok.length,
-    newItemCount:   newItems.length,
-    backorderCount: backorderItems.length,
-    totalBackorderValue,
-    excessValue,
-    recOrderValue,
-    fillRate,
-    totalSkus: records.length,
-    activeSkus,
-  }
+  const { data: analysis } = useInventoryAnalysis()
+  return analysis.kpis
 }

@@ -1,16 +1,17 @@
-import { useState, useMemo, Fragment } from 'react'
-import { useInventory, useAtRiskItems } from '@/hooks/useInventory'
+import { useEffect, useState, useMemo, Fragment } from 'react'
+import { useInventoryAnalysis } from '@/hooks/useInventory'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { fmtNumber, fmtCurrency, groupBy } from '@/lib/utils'
 import TaskModal from '@/components/tasks/TaskModal'
 import {
-  ArrowUp, ArrowDown, ChevronsUpDown, Plus, Search, Store,
+  AlertTriangle, ArrowUp, ArrowDown, ChevronsUpDown, Plus, Search, Store,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { InventoryRecord } from '@/types'
 
 type SortDir = 'asc' | 'desc'
 interface SortState { field: string; dir: SortDir }
+const PAGE_SIZE = 50
 
 interface VendorRow {
   supplier_code: string
@@ -53,8 +54,9 @@ function SortableTh({
 }
 
 export default function VendorView() {
-  const { data: records = [], isLoading }      = useInventory()
-  const { data: atRisk = [], isLoading: l2 }   = useAtRiskItems()
+  const { data: inventory, isLoading, error } = useInventoryAnalysis()
+  const records = inventory.records
+  const atRisk = inventory.atRiskItems
   const navigate = useNavigate()
 
   const [search, setSearch]       = useState('')
@@ -64,6 +66,7 @@ export default function VendorView() {
   const [taskVendor, setTaskVendor]   = useState('')
   const [taskVendorSkus, setTaskVendorSkus] = useState<InventoryRecord[]>([])
   const [expandedVendor, setExpanded] = useState<string | null>(null)
+  const [page, setPage] = useState(0)
 
   // Distinct categories
   const categories = useMemo(() =>
@@ -124,6 +127,11 @@ export default function VendorView() {
     })
   }, [vendorRows, search, sort])
 
+  useEffect(() => {
+    setPage(0)
+    setExpanded(null)
+  }, [search, categoryFilter, sort])
+
   function toggleSort(field: string) {
     setSort(s => s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'desc' })
   }
@@ -134,13 +142,22 @@ export default function VendorView() {
     setTaskModal(true)
   }
 
-  if (isLoading || l2) return <PageLoader />
+  if (isLoading) return <PageLoader />
+  if (error) return (
+    <div className="card text-center py-16">
+      <AlertTriangle size={32} className="text-danger mx-auto mb-3" />
+      <div className="text-text1 font-semibold">Failed to load vendor data</div>
+      <div className="text-text2 text-sm mt-1">{(error as Error)?.message ?? 'Try refreshing the page.'}</div>
+    </div>
+  )
 
   // Summary KPIs
   const totalVendors  = vendorRows.length
   const vendorsAtRisk = vendorRows.filter(r => r.atRiskCount > 0).length
   const totalRecQty   = vendorRows.reduce((s, r) => s + r.totalRecommendedQty, 0)
   const totalRecVal   = vendorRows.reduce((s, r) => s + r.totalRecommendedValue, 0)
+  const totalPages = Math.ceil(displayRows.length / PAGE_SIZE)
+  const pagedRows = displayRows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
   return (
     <div>
@@ -223,7 +240,7 @@ export default function VendorView() {
                 </td>
               </tr>
             ) : (
-              displayRows.map(row => (
+              pagedRows.map(row => (
                 <Fragment key={row.supplier_code || row.supplier_description}>
                   <tr
                     className={`cursor-pointer ${expandedVendor === row.supplier_description ? 'bg-surface2/60' : ''}`}
@@ -346,6 +363,16 @@ export default function VendorView() {
           </tbody>
         </table>
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-3 text-xs text-text2">
+          <span>Page {page + 1} of {totalPages} - {fmtNumber(displayRows.length)} vendors</span>
+          <div className="flex gap-2">
+            <button className="btn-secondary py-1 px-3 text-xs" disabled={page === 0} onClick={() => setPage(p => p - 1)}>Prev</button>
+            <button className="btn-secondary py-1 px-3 text-xs" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Next</button>
+          </div>
+        </div>
+      )}
 
       {taskModal && (
         <TaskModal

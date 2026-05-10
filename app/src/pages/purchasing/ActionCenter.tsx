@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useAtRiskItems, useBackorderItems, useExcessItems, useInventoryKPIs } from '@/hooks/useInventory'
+import { useInventoryAnalysis } from '@/hooks/useInventory'
 import { useDismissedSet, useDismissAction, useRestoreAction } from '@/hooks/useDismissedActions'
 import { useTasks } from '@/hooks/useTasks'
 import KPICard from '@/components/ui/KPICard'
@@ -54,10 +54,11 @@ function SortableTh({
 }
 
 export default function ActionCenter() {
-  const { data: atRisk = [],     isLoading: l1, error: e1 } = useAtRiskItems()
-  const { data: backorders = [], isLoading: l2, error: e2 } = useBackorderItems()
-  const { data: excess = [],     isLoading: l3, error: e3 } = useExcessItems()
-  const kpis = useInventoryKPIs()
+  const { data: inventory, isLoading, error } = useInventoryAnalysis()
+  const atRisk = inventory.atRiskItems
+  const backorders = inventory.backorderItems
+  const excess = inventory.excessItems
+  const kpis = inventory.kpis
   const { data: tasks = [] }                      = useTasks()
   const dismissedAtRisk    = useDismissedSet('at_risk')
   const dismissedBackorder = useDismissedSet('backorder')
@@ -149,12 +150,12 @@ export default function ActionCenter() {
     return map
   }, [baseAtRisk])
 
-  if (l1 || l2 || l3 || kpis.isLoading) return <PageLoader />
-  if (e1 || e2 || e3) return (
+  if (isLoading || kpis.isLoading) return <PageLoader />
+  if (error) return (
     <div className="card text-center py-16">
       <AlertTriangle size={32} className="text-danger mx-auto mb-3" />
       <div className="text-text1 font-semibold">Failed to load inventory data</div>
-      <div className="text-text2 text-sm mt-1">{(e1 || e2 || e3)?.message ?? 'Unknown error — try refreshing the page.'}</div>
+      <div className="text-text2 text-sm mt-1">{(error as Error)?.message ?? 'Unknown error - try refreshing the page.'}</div>
     </div>
   )
 

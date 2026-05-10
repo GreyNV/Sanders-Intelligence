@@ -1,34 +1,40 @@
 import { createClient } from '@supabase/supabase-js'
 
-const url  = import.meta.env.VITE_SUPABASE_URL  as string
-const key  = import.meta.env.VITE_SUPABASE_ANON_KEY as string
+const url = import.meta.env.VITE_SUPABASE_URL as string
+const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string
+const REQUEST_TIMEOUT_MS = 15000
 
 if (!url || !key) {
-  throw new Error(
-    'Missing Supabase env vars. Copy .env.example → .env and fill in your project credentials.'
-  )
+  throw new Error('Missing Supabase env vars. Copy .env.example to .env and fill in your project credentials.')
 }
 
-// ─── Capture the URL auth type BEFORE createClient() clears the hash ──────────
-// Supabase processes and removes the #access_token hash during initialisation,
-// which happens synchronously inside createClient().  By the time any React
-// component mounts, the hash is gone.  We read it here — at module-import time —
-// so AuthRedirectHandler can still detect invite / recovery flows.
-//
-// Supports both hash-fragment format  (#access_token=…&type=invite)
-// and query-param format              (?type=invite&code=…)  used by PKCE flow.
-const _hash   = typeof window !== 'undefined' ? window.location.hash  : ''
-const _search = typeof window !== 'undefined' ? window.location.search : ''
-const _hp = new URLSearchParams(_hash.slice(1))
-const _qp = new URLSearchParams(_search)
+const hash = typeof window !== 'undefined' ? window.location.hash : ''
+const search = typeof window !== 'undefined' ? window.location.search : ''
+const hashParams = new URLSearchParams(hash.slice(1))
+const queryParams = new URLSearchParams(search)
+
 export const initialUrlAuthType: string | null =
-  _hp.get('type') ?? _qp.get('type') ?? null
-// ──────────────────────────────────────────────────────────────────────────────
+  hashParams.get('type') ?? queryParams.get('type') ?? null
+
+const timeoutFetch: typeof fetch = async (input, init) => {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+
+  init?.signal?.addEventListener('abort', () => controller.abort(), { once: true })
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal })
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
 
 export const supabase = createClient(url, key, {
+  global: {
+    fetch: timeoutFetch,
+  },
   auth: {
-    // Bypass navigator.locks — prevents NavigatorLockAcquireTimeoutError that
-    // blocks auth initialisation when the lock is held by another operation.
+    // Bypass navigator.locks to avoid auth initialization stalls when a tab holds the lock.
     lock: async <R>(_name: string, _acquireTimeout: number, fn: () => Promise<R>): Promise<R> => fn(),
     persistSession: true,
     autoRefreshToken: true,
