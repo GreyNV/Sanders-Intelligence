@@ -43,13 +43,27 @@ export default function ExecutiveSummary() {
     },
   ], [records])
 
-  // Top 10 at-risk by recommended order value
-  const topRisk = useMemo(() =>
-    records
-      .filter(r => r.status === 'Potential s/o' || r.status === 'Stocked out')
-      .sort((a, b) => b.recommended_order_value - a.recommended_order_value)
-      .slice(0, 10),
-  [records])
+  // Top 10 at-risk suppliers by recommended order value
+  const topRiskSuppliers = useMemo(() => {
+    const grouped = groupBy(
+      records.filter(r => r.status === 'Potential s/o' || r.status === 'Stocked out'),
+      r => r.supplier_description || 'Unknown supplier'
+    )
+
+    return Object.entries(grouped)
+      .map(([supplier, items]) => ({
+        supplier,
+        skuCount: items.length,
+        categoryCount: new Set(items.map(r => r.category_name).filter(Boolean)).size,
+        onHand: items.reduce((s, r) => s + r.on_hand, 0),
+        minDaysOnHand: Math.min(...items.map(r => r.days_on_hand)),
+        recommendedOrder: items.reduce((s, r) => s + r.recommended_order, 0),
+        recommendedOrderValue: items.reduce((s, r) => s + r.recommended_order_value, 0),
+        backorderUnits: items.reduce((s, r) => s + r.unsatisfied_customer_orders_units, 0),
+      }))
+      .sort((a, b) => b.recommendedOrderValue - a.recommendedOrderValue)
+      .slice(0, 10)
+  }, [records])
 
   // Top brands by excess value
   const brandExcess = useMemo(() => {
@@ -204,12 +218,12 @@ export default function ExecutiveSummary() {
 
         {/* Excess Value by Brand — clickable bars */}
         <div className="card">
-          <h3 className="text-[13px] font-semibold mb-1">Excess Value by Brand (Top 8)</h3>
+          <h3 className="text-[13px] font-semibold mb-1">Excess Value by Brand (Top {brandExcess.length})</h3>
           <p className="text-[11px] text-text2 mb-3">Click a bar to open filtered view</p>
           {brandExcess.length === 0 ? (
             <div className="text-center py-10 text-text2 text-sm">No excess stock</div>
           ) : (
-            <ResponsiveContainer width="100%" height={200}>
+            <ResponsiveContainer width="100%" height={Math.max(200, brandExcess.length * 36)}>
               <BarChart
                 data={brandExcess}
                 layout="vertical"
@@ -239,41 +253,45 @@ export default function ExecutiveSummary() {
       <div>
         <h2 className="text-[14px] font-semibold text-text1 flex items-center gap-2 mb-3">
           <AlertTriangle size={15} className="text-danger" />
-          Top Risk Items — Requires Attention
+          Top Risk Supplier — Requires Attention
         </h2>
         <div className="space-y-2">
-          {topRisk.length === 0 ? (
-            <div className="card text-center py-8 text-text2">No at-risk items — inventory health is good</div>
+          {topRiskSuppliers.length === 0 ? (
+            <div className="card text-center py-8 text-text2">No at-risk suppliers — inventory health is good</div>
           ) : (
-            topRisk.map(r => (
+            topRiskSuppliers.map(r => (
               <div
-                key={r.id}
+                key={r.supplier}
                 className="card flex items-center gap-4 border-l-2 border-danger cursor-pointer hover:bg-surface2/50 transition-colors"
-                onClick={() => navigate(`/purchasing/inventory?search=${encodeURIComponent(r.product_code)}`)}
-                title="Click to view in Inventory Browser"
+                onClick={() => navigate(`/purchasing/inventory?status=${encodeURIComponent('Potential s/o')}&vendor=${encodeURIComponent(r.supplier)}`)}
+                title="Click to view supplier in Inventory Browser"
               >
                 <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-medium text-text1 truncate">{r.description}</div>
+                  <div className="text-[13px] font-medium text-text1 truncate">{r.supplier}</div>
                   <div className="text-[11px] text-text2 mt-0.5">
-                    {r.brand_name} · SKU: <span className="font-mono text-accent">{r.product_code}</span>
+                    {fmtNumber(r.skuCount)} at-risk SKUs · {fmtNumber(r.categoryCount)} categories
                   </div>
                 </div>
                 <div className="flex gap-6 text-right flex-shrink-0">
                   <div>
                     <div className="text-xs text-text2">On Hand</div>
-                    <div className="font-semibold tabular-nums">{fmtNumber(r.on_hand)}</div>
+                    <div className="font-semibold tabular-nums">{fmtNumber(r.onHand)}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-text2">Days OH</div>
-                    <div className="font-semibold text-danger tabular-nums">{r.days_on_hand}</div>
+                    <div className="text-xs text-text2">Lowest Days OH</div>
+                    <div className="font-semibold text-danger tabular-nums">{r.minDaysOnHand}d</div>
                   </div>
                   <div>
                     <div className="text-xs text-text2">Rec. Order</div>
-                    <div className="font-semibold tabular-nums">{fmtNumber(r.recommended_order)}</div>
+                    <div className="font-semibold tabular-nums">{fmtNumber(r.recommendedOrder)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-text2">Backorders</div>
+                    <div className="font-semibold tabular-nums">{fmtNumber(r.backorderUnits)}</div>
                   </div>
                   <div>
                     <div className="text-xs text-text2">Order Value</div>
-                    <div className="font-semibold tabular-nums">{fmtCurrency(r.recommended_order_value)}</div>
+                    <div className="font-semibold tabular-nums">{fmtCurrency(r.recommendedOrderValue)}</div>
                   </div>
                 </div>
               </div>

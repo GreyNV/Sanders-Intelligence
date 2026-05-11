@@ -132,13 +132,26 @@ export default function InboundPipeline() {
 
   const byMonth = useMemo(() => {
     const grouped = groupBy(filteredInbound, r => estimatedArrivalMonth(r.lt_days))
-    return Object.entries(grouped)
+    const raw = Object.entries(grouped)
       .map(([month, items]) => ({
         month,
         units: items.reduce((s, r) => s + r.on_order, 0),
         skus: items.length,
       }))
       .sort((a, b) => parseMonthLabel(a.month) - parseMonthLabel(b.month))
+
+    // Fill in every calendar month between first and last so the x-axis has no gaps
+    if (raw.length < 2) return raw
+    const dataMap = new Map(raw.map(r => [r.month, r]))
+    const filled: typeof raw = []
+    const cursor = new Date(parseMonthLabel(raw[0].month))
+    const endTs  = parseMonthLabel(raw[raw.length - 1].month)
+    while (cursor.getTime() <= endTs) {
+      const label = cursor.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+      filled.push(dataMap.get(label) ?? { month: label, units: 0, skus: 0 })
+      cursor.setMonth(cursor.getMonth() + 1)
+    }
+    return filled
   }, [filteredInbound])
 
   const nearTerm = filteredInbound.filter(r => r.lt_days <= 30).reduce((s, r) => s + r.on_order, 0)

@@ -42,7 +42,7 @@ interface InventoryAnalysis {
   kpis: InventoryKPIs
 }
 
-function analyzeInventory(records: InventoryRecord[], isLoading: boolean): InventoryAnalysis {
+export function analyzeInventory(records: InventoryRecord[], isLoading: boolean): InventoryAnalysis {
   const atRiskItems: InventoryRecord[] = []
   const backorderItems: InventoryRecord[] = []
   const excessItems: InventoryRecord[] = []

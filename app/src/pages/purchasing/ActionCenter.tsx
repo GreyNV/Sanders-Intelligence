@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, Fragment } from 'react'
 import { useInventoryAnalysis } from '@/hooks/useInventory'
 import { useDismissedSet, useDismissAction, useRestoreAction } from '@/hooks/useDismissedActions'
 import { useTasks } from '@/hooks/useTasks'
@@ -9,7 +9,7 @@ import { PageLoader } from '@/components/ui/LoadingSpinner'
 import TaskModal from '@/components/tasks/TaskModal'
 import { fmtNumber, fmtCurrency, fmtDate, isOverdue } from '@/lib/utils'
 import {
-  AlertTriangle, ShoppingCart, Clock, DollarSign, Plus, ChevronRight,
+  AlertTriangle, ShoppingCart, Clock, CheckSquare, Plus, ChevronRight,
   AlertCircle, EyeOff, RotateCcw, ArrowUp, ArrowDown, ChevronsUpDown,
   Filter, Download, PackageX, Ban, Truck, TrendingDown,
 } from 'lucide-react'
@@ -21,6 +21,8 @@ import type { DismissActionType } from '@/hooks/useDismissedActions'
 interface DismissTarget { record: InventoryRecord; actionType: DismissActionType }
 type SortDir = 'asc' | 'desc'
 interface SortState { field: string; dir: SortDir }
+interface RecordCategoryGroup { category: string; records: InventoryRecord[] }
+interface RecordVendorGroup { vendor: string; records: InventoryRecord[]; categories: RecordCategoryGroup[] }
 
 function sortRecords(records: InventoryRecord[], sort: SortState): InventoryRecord[] {
   return [...records].sort((a, b) => {
@@ -51,6 +53,32 @@ function SortableTh({
       </span>
     </th>
   )
+}
+
+function groupRecordsByVendorCategory(records: InventoryRecord[]): RecordVendorGroup[] {
+  const vendorMap = new Map<string, Map<string, InventoryRecord[]>>()
+
+  for (const record of records) {
+    const vendor = record.supplier_description || 'Unknown vendor'
+    const category = record.category_name || 'Uncategorized'
+    if (!vendorMap.has(vendor)) vendorMap.set(vendor, new Map())
+    const categoryMap = vendorMap.get(vendor)!
+    if (!categoryMap.has(category)) categoryMap.set(category, [])
+    categoryMap.get(category)!.push(record)
+  }
+
+  return Array.from(vendorMap.entries()).map(([vendor, categoryMap]) => {
+    const categories = Array.from(categoryMap.entries()).map(([category, groupRecords]) => ({
+      category,
+      records: groupRecords,
+    }))
+
+    return {
+      vendor,
+      records: categories.flatMap(group => group.records),
+      categories,
+    }
+  })
 }
 
 export default function ActionCenter() {
@@ -128,6 +156,9 @@ export default function ActionCenter() {
     if (boCategory) rows = rows.filter(r => r.category_name === boCategory)
     return sortRecords(rows, boSort).slice(0, 50)
   }, [baseBackorders, boVendor, boCategory, boSort])
+
+  const groupedAtRisk = useMemo(() => groupRecordsByVendorCategory(visibleAtRisk), [visibleAtRisk])
+  const groupedBackorders = useMemo(() => groupRecordsByVendorCategory(visibleBackorders), [visibleBackorders])
 
   const visibleOverstock = useMemo(() => {
     let rows = baseOverstock
@@ -214,7 +245,7 @@ export default function ActionCenter() {
         <KPICard label="Needs Ordering"          value={fmtNumber(kpis.atRiskCount)}          sub="potential stockout items"          variant="danger"  icon={<AlertTriangle size={16} />} />
         <KPICard label="Recommended Order Value" value={fmtCurrency(kpis.recOrderValue)}      sub="total value to order"              variant="warning" icon={<ShoppingCart size={16} />} />
         <KPICard label="Active Backorders"       value={fmtNumber(kpis.backorderCount)}        sub={`${fmtCurrency(kpis.totalBackorderValue)} in value`} variant="danger" icon={<Clock size={16} />} />
-        <KPICard label="Open Tasks"              value={openTasks.length}                      sub="purchasing department"             variant="info"    icon={<DollarSign size={16} />} />
+        <KPICard label="Open Tasks"              value={openTasks.length}                      sub="purchasing department"             variant="info"    icon={<CheckSquare size={16} />} />
       </div>
 
       {/* ── Attention Required ── */}
@@ -316,7 +347,26 @@ export default function ActionCenter() {
                   {arVendor || arCategory ? 'No results for selected filters' : 'No at-risk items — great job!'}
                 </td></tr>
               ) : (
-                visibleAtRisk.map(r => (
+                groupedAtRisk.map(group => (
+                  <Fragment key={group.vendor}>
+                    <tr className="bg-surface2/70">
+                      <td colSpan={11} className="py-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-semibold text-text1">{group.vendor}</span>
+                          <span className="text-[11px] text-text2">
+                            {fmtNumber(group.records.length)} SKUs · {fmtCurrency(group.records.reduce((s, r) => s + r.recommended_order_value, 0))} rec. order value
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                    {group.categories.map(category => (
+                      <Fragment key={`${group.vendor}-${category.category}`}>
+                        <tr className="bg-surface2/35">
+                          <td colSpan={11} className="py-1.5 text-[11px] font-semibold uppercase tracking-wider text-text2">
+                            {category.category} · {fmtNumber(category.records.length)} SKUs
+                          </td>
+                        </tr>
+                        {category.records.map(r => (
                   <tr key={r.id}>
                     <td
                       className="font-mono text-[11px] text-accent cursor-pointer hover:underline"
@@ -383,6 +433,10 @@ export default function ActionCenter() {
                       </div>
                     </td>
                   </tr>
+                        ))}
+                      </Fragment>
+                    ))}
+                  </Fragment>
                 ))
               )}
             </tbody>
@@ -459,7 +513,26 @@ export default function ActionCenter() {
                   {boVendor || boCategory ? 'No results for selected filters' : 'No open backorders'}
                 </td></tr>
               ) : (
-                visibleBackorders.map(r => (
+                groupedBackorders.map(group => (
+                  <Fragment key={group.vendor}>
+                    <tr className="bg-surface2/70">
+                      <td colSpan={9} className="py-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-semibold text-text1">{group.vendor}</span>
+                          <span className="text-[11px] text-text2">
+                            {fmtNumber(group.records.length)} SKUs · {fmtNumber(group.records.reduce((s, r) => s + r.unsatisfied_customer_orders_units, 0))} units · {fmtCurrency(group.records.reduce((s, r) => s + r.unsatisfied_customer_orders_value, 0))}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                    {group.categories.map(category => (
+                      <Fragment key={`${group.vendor}-${category.category}`}>
+                        <tr className="bg-surface2/35">
+                          <td colSpan={9} className="py-1.5 text-[11px] font-semibold uppercase tracking-wider text-text2">
+                            {category.category} · {fmtNumber(category.records.length)} SKUs
+                          </td>
+                        </tr>
+                        {category.records.map(r => (
                   <tr key={r.id}>
                     <td
                       className="font-mono text-[11px] text-accent cursor-pointer hover:underline"
@@ -506,6 +579,10 @@ export default function ActionCenter() {
                       )}
                     </td>
                   </tr>
+                        ))}
+                      </Fragment>
+                    ))}
+                  </Fragment>
                 ))
               )}
             </tbody>

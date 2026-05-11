@@ -4,24 +4,26 @@ echo === Staging all changes ===
 git add .
 echo.
 echo === Committing ===
-git commit -m "feat: task grouping, overstock actions, task modal dept+vendor editing
+git commit -m "fix: black screen, icon, brand chart, June gap + full sprint 2
 
-- Tasks page: Group By toggle (Status / Vendor / Category); vendor
-  parsed from 'Vendor: XXX' description prefix; non-vendor tasks
-  bucket into 'Other'; error state added; TaskCard moved out of
-  component to fix React remount anti-pattern
-- Action Center: Overstock Suggested Actions section — excess + surplus
-  items split by on_order status: on_order>0 shows Delay Order + Cancel
-  Order buttons; on_order=0 shows Liquidation Campaign button; same
-  snooze/restore mechanism as at-risk rows (action_type=overstock);
-  vendor + category filters; sort by excess_value
-- TaskModal: add Department/Category dropdown (create + edit); in edit
-  mode, expose 'Vendor: XXX' prefix as editable field that stays in
-  sync with description; assignee list respects selected department
-- useTasks: add updated_at + created_at to task insert to prevent
-  NOT NULL constraint errors
-- useDismissedActions: expand action_type union to include 'overstock'
-- useInventory: add useExcessItems() derived hook"
+Bugs fixed today:
+- index.html: inline splash spinner before React mounts — eliminates
+  blank black screen on initial/direct navigation (bg #0f1117, CSS ring)
+- ActionCenter: Open Tasks KPI card icon DollarSign → CheckSquare
+- ExecutiveSummary: Excess Value by Brand height now dynamic
+  Math.max(200, n*36) so all bars are visible; title shows actual count
+- InboundPipeline: byMonth fills every calendar month in the range so
+  June 2026 (or any gap month) always appears with units=0
+
+Sprint 2 (first push — all previously committed locally):
+- Tasks page: Group By toggle (Status / Vendor / Category)
+- Action Center: Overstock Suggested Actions section (Delay/Cancel/Liquidation)
+- TaskModal: Department/Category + Vendor editing in edit mode
+- AuthContext: profileStatus, profileError, timeout handling, signOut fix
+- Sidebar: explicit navigate to /login after sign out
+- useTasks: created_at + updated_at on insert
+- useDismissedActions: expand action_type to include overstock
+- useInventory: useExcessItems + useInventoryAnalysis hooks"
 echo.
 echo === Pushing to main ===
 git push origin main
