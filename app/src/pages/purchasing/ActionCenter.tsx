@@ -4,7 +4,7 @@ import { useDismissedSet, useDismissAction, useRestoreAction } from '@/hooks/use
 import { useTasks } from '@/hooks/useTasks'
 import KPICard from '@/components/ui/KPICard'
 import Modal from '@/components/ui/Modal'
-import Badge, { statusVariant, priorityVariant, taskStatusVariant, StatusBadges } from '@/components/ui/Badge'
+import Badge, { priorityVariant, taskStatusVariant, StatusBadges } from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import TaskModal from '@/components/tasks/TaskModal'
 import { fmtNumber, fmtCurrency, fmtDate, isOverdue } from '@/lib/utils'
@@ -175,7 +175,7 @@ export default function ActionCenter() {
   const atRiskByVendor = useMemo(() => {
     const map: Record<string, InventoryRecord[]> = {}
     baseAtRisk.forEach(r => {
-      const v = r.supplier_description || 'Unknown'
+      const v = r.supplier_description || 'Unknown vendor'
       ;(map[v] ||= []).push(r)
     })
     return map
@@ -352,10 +352,19 @@ export default function ActionCenter() {
                     <tr className="bg-surface2/70">
                       <td colSpan={11} className="py-2">
                         <div className="flex items-center justify-between gap-3">
-                          <span className="font-semibold text-text1">{group.vendor}</span>
-                          <span className="text-[11px] text-text2">
-                            {fmtNumber(group.records.length)} SKUs · {fmtCurrency(group.records.reduce((s, r) => s + r.recommended_order_value, 0))} rec. order value
-                          </span>
+                          <div className="min-w-0">
+                            <span className="font-semibold text-text1">{group.vendor}</span>
+                            <span className="ml-2 text-[11px] text-text2">
+                              {fmtNumber(group.records.length)} visible SKUs · {fmtCurrency(group.records.reduce((s, r) => s + r.recommended_order_value, 0))} rec. order value
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => openVendorTask(group.vendor, atRiskByVendor[group.vendor] ?? group.records)}
+                            className="btn-secondary text-[11px] py-1 px-2 flex items-center gap-1 shrink-0"
+                            title="Create one vendor-wide order task for all active at-risk SKUs from this vendor"
+                          >
+                            <Plus size={12} /> Vendor Order
+                          </button>
                         </div>
                       </td>
                     </tr>
