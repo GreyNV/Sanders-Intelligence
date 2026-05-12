@@ -216,6 +216,13 @@ export default function ActionCenter() {
     setTaskModal(true)
   }
 
+  function exportRecords(records: InventoryRecord[], filenamePrefix: string) {
+    downloadCsv(
+      inventoryToExportRows(records),
+      `${filenamePrefix}_${new Date().toISOString().slice(0, 10)}.csv`
+    )
+  }
+
   async function handleDismiss() {
     if (!dismissTarget) return
     const days = parseInt(dismissDays)
@@ -269,7 +276,8 @@ export default function ActionCenter() {
               <Filter size={12} /> Filters {(arVendor || arCategory) ? '●' : ''}
             </button>
             <button
-              onClick={() => downloadCsv(inventoryToExportRows(visibleAtRisk), `at_risk_${new Date().toISOString().slice(0,10)}.csv`)}
+              onClick={() => exportRecords(visibleAtRisk, 'at_risk')}
+              disabled={visibleAtRisk.length === 0}
               className="btn-ghost text-xs flex items-center gap-1"
               title="Export at-risk items to Excel"
             >
@@ -469,12 +477,22 @@ export default function ActionCenter() {
               </span>
             )}
           </h2>
-          <button
-            onClick={() => setBoShowFilters(v => !v)}
-            className={`btn-ghost text-xs flex items-center gap-1 ${(boVendor || boCategory) ? 'text-accent' : ''}`}
-          >
-            <Filter size={12} /> Filters {(boVendor || boCategory) ? '●' : ''}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setBoShowFilters(v => !v)}
+              className={`btn-ghost text-xs flex items-center gap-1 ${(boVendor || boCategory) ? 'text-accent' : ''}`}
+            >
+              <Filter size={12} /> Filters {(boVendor || boCategory) ? '●' : ''}
+            </button>
+            <button
+              onClick={() => exportRecords(visibleBackorders, 'backorders')}
+              disabled={visibleBackorders.length === 0}
+              className="btn-ghost text-xs flex items-center gap-1"
+              title="Export backorder items to Excel"
+            >
+              <Download size={12} /> Export
+            </button>
+          </div>
         </div>
 
         {boShowFilters && (
@@ -620,6 +638,14 @@ export default function ActionCenter() {
               >
                 <Filter size={12} /> Filters {(osVendor || osCategory) ? '●' : ''}
               </button>
+              <button
+                onClick={() => exportRecords(visibleOverstock, 'overstock_actions')}
+                disabled={visibleOverstock.length === 0}
+                className="btn-ghost text-xs flex items-center gap-1"
+                title="Export overstock action items to Excel"
+              >
+                <Download size={12} /> Export
+              </button>
               {dismissedOverstock.size > 0 && (
                 <button onClick={() => setOsShowDismissed(v => !v)} className="btn-ghost text-xs">
                   {osShowDismissed ? 'Hide snoozed' : 'Show snoozed'}
@@ -655,10 +681,20 @@ export default function ActionCenter() {
           {/* Sub-section A: Items with open orders → Delay / Cancel */}
           {overstockWithOrders.length > 0 && (
             <div className="mb-4">
-              <div className="flex items-center gap-2 mb-2 px-1">
-                <Truck size={13} className="text-warning" />
-                <span className="text-[12px] font-semibold text-warning">Open orders exist</span>
-                <span className="text-[11px] text-text2">({overstockWithOrders.length} SKUs) — consider delaying or cancelling inbound</span>
+              <div className="flex items-center justify-between gap-3 mb-2 px-1">
+                <div className="flex items-center gap-2">
+                  <Truck size={13} className="text-warning" />
+                  <span className="text-[12px] font-semibold text-warning">Open orders exist</span>
+                  <span className="text-[11px] text-text2">({overstockWithOrders.length} SKUs) — consider delaying or cancelling inbound</span>
+                </div>
+                <button
+                  onClick={() => exportRecords(overstockWithOrders, 'overstock_open_orders')}
+                  disabled={overstockWithOrders.length === 0}
+                  className="btn-ghost text-xs py-1 px-2 flex items-center gap-1"
+                  title="Export overstock items with open orders"
+                >
+                  <Download size={12} /> Export
+                </button>
               </div>
               <div className="tbl-wrap">
                 <table className="tbl">
@@ -739,10 +775,20 @@ export default function ActionCenter() {
           {/* Sub-section B: No open orders → Liquidation */}
           {overstockNoOrders.length > 0 && (
             <div>
-              <div className="flex items-center gap-2 mb-2 px-1">
-                <TrendingDown size={13} className="text-accent" />
-                <span className="text-[12px] font-semibold text-accent">No inbound orders</span>
-                <span className="text-[11px] text-text2">({overstockNoOrders.length} SKUs) — consider liquidation or promotion</span>
+              <div className="flex items-center justify-between gap-3 mb-2 px-1">
+                <div className="flex items-center gap-2">
+                  <TrendingDown size={13} className="text-accent" />
+                  <span className="text-[12px] font-semibold text-accent">No inbound orders</span>
+                  <span className="text-[11px] text-text2">({overstockNoOrders.length} SKUs) — consider liquidation or promotion</span>
+                </div>
+                <button
+                  onClick={() => exportRecords(overstockNoOrders, 'overstock_no_inbound')}
+                  disabled={overstockNoOrders.length === 0}
+                  className="btn-ghost text-xs py-1 px-2 flex items-center gap-1"
+                  title="Export overstock items with no inbound orders"
+                >
+                  <Download size={12} /> Export
+                </button>
               </div>
               <div className="tbl-wrap">
                 <table className="tbl">
