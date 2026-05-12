@@ -922,6 +922,7 @@ export default function ActionCenter() {
           prefillVendor={prefillVendor}
           prefillVendorSkus={prefillSkus}
           atRiskByVendor={atRiskByVendor}
+          availableSkus={inventory.records}
         />
       )}
 

@@ -1,0 +1,72 @@
+import { describe, expect, it } from 'vitest'
+import { buildVendorTaskDescription, filterSkuSelectorRows } from '../components/tasks/TaskModal.helpers'
+import type { InventoryRecord } from '../types'
+
+function makeRecord(overrides: Partial<InventoryRecord>): InventoryRecord {
+  return {
+    id: 'id',
+    upload_id: 'upload',
+    warehouse: 'WH',
+    product_code: 'SKU-1',
+    description: 'Widget',
+    supplier_code: 'SUP',
+    supplier_description: 'Vendor A',
+    brand_code: 'BR',
+    brand_name: 'Brand',
+    category_code: 'CAT',
+    category_name: 'Category',
+    on_hand: 0,
+    days_on_hand: 0,
+    cost_price: 1,
+    on_hand_value: 0,
+    classification: 'A',
+    velocity: 'H',
+    status: 'Potential s/o',
+    status_units: 0,
+    status_value: 0,
+    excess_units: 0,
+    excess_value: 0,
+    recommended_order: 1,
+    recommended_order_value: 1,
+    recommended_order_days: 0,
+    age: 0,
+    average_sales: 0,
+    average_forecasted_sales: 0,
+    lt_days: 0,
+    on_order: 0,
+    back_orders: 0,
+    total_customer_orders: 0,
+    unsatisfied_customer_orders_units: 0,
+    unsatisfied_customer_orders_value: 0,
+    moq: 1,
+    order_multiples: 1,
+    selling_price: 1,
+    ...overrides,
+  }
+}
+
+describe('vendor order SKU selection helpers', () => {
+  it('builds the vendor task description from only the selected SKUs', () => {
+    const selected = [
+      makeRecord({ product_code: 'KEEP-1', description: 'Kept Item', days_on_hand: 3, recommended_order: 10, recommended_order_value: 100 }),
+    ]
+
+    const description = buildVendorTaskDescription('Vendor A', selected)
+
+    expect(description).toContain('Vendor: Vendor A')
+    expect(description).toContain('At-Risk SKUs (1):')
+    expect(description).toContain('KEEP-1')
+    expect(description).not.toContain('REMOVE-1')
+  })
+
+  it('filters selector rows by sku, description, vendor, brand, and category', () => {
+    const rows = [
+      makeRecord({ product_code: 'ABC-1', description: 'Quilt Set', supplier_description: 'Linen Choice-A', brand_name: 'Clara Clark', category_name: 'Bedding' }),
+      makeRecord({ product_code: 'XYZ-2', description: 'Towel Pack', supplier_description: 'Bath Vendor', brand_name: 'SoftCo', category_name: 'Bath' }),
+    ]
+
+    expect(filterSkuSelectorRows(rows, 'quilt').map(r => r.product_code)).toEqual(['ABC-1'])
+    expect(filterSkuSelectorRows(rows, 'softco').map(r => r.product_code)).toEqual(['XYZ-2'])
+    expect(filterSkuSelectorRows(rows, 'bedding').map(r => r.product_code)).toEqual(['ABC-1'])
+  })
+})

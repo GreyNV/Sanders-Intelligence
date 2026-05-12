@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { InventoryRecord } from '@/types'
+import { getVendorViewAtRiskSkus, isVendorViewAtRiskSku } from './VendorView.helpers'
 
 type SortDir = 'asc' | 'desc'
 interface SortState { field: string; dir: SortDir }
@@ -56,7 +57,6 @@ function SortableTh({
 export default function VendorView() {
   const { data: inventory, isLoading, error } = useInventoryAnalysis()
   const records = inventory.records
-  const atRisk = inventory.atRiskItems
   const navigate = useNavigate()
 
   const [search, setSearch]       = useState('')
@@ -86,7 +86,7 @@ export default function VendorView() {
         supplier_description: first.supplier_description || 'Unknown',
         totalSkus:            items.length,
         okCount:              items.filter(r => r.status === 'Ok').length,
-        atRiskCount:          items.filter(r => r.status === 'Potential s/o' || r.status === 'Stocked out').length,
+        atRiskCount:          getVendorViewAtRiskSkus(items).length,
         excessCount:          items.filter(r => r.status === 'Excess stock' || r.status === 'Surplus orders').length,
         newItemCount:         items.filter(r => r.status === 'New item').length,
         stockedOutCount:      items.filter(r => r.status === 'Stocked out').length,
@@ -100,10 +100,15 @@ export default function VendorView() {
     })
   }, [records, categoryFilter])
 
-  // At-risk map per vendor (for task creation)
+  // At-risk map per vendor uses the same scoped rows and status definition as the displayed count.
   const atRiskByVendor = useMemo(() => {
-    return groupBy(atRisk, r => r.supplier_description || 'Unknown')
-  }, [atRisk])
+    return Object.fromEntries(
+      vendorRows.map(row => [
+        row.supplier_description,
+        getVendorViewAtRiskSkus(row.records),
+      ])
+    )
+  }, [vendorRows])
 
   // Filter + sort
   const displayRows = useMemo(() => {
@@ -138,7 +143,7 @@ export default function VendorView() {
 
   function openVendorTask(row: VendorRow) {
     setTaskVendor(row.supplier_description)
-    setTaskVendorSkus(atRiskByVendor[row.supplier_description] ?? [])
+    setTaskVendorSkus(getVendorViewAtRiskSkus(row.records))
     setTaskModal(true)
   }
 
@@ -318,8 +323,8 @@ export default function VendorView() {
                               {row.records
                                 .sort((a, b) => {
                                   // Sort: at-risk first, then by days on hand
-                                  const aRisk = (a.status === 'Potential s/o' || a.status === 'Stocked out') ? 0 : 1
-                                  const bRisk = (b.status === 'Potential s/o' || b.status === 'Stocked out') ? 0 : 1
+                                  const aRisk = isVendorViewAtRiskSku(a) ? 0 : 1
+                                  const bRisk = isVendorViewAtRiskSku(b) ? 0 : 1
                                   if (aRisk !== bRisk) return aRisk - bRisk
                                   return a.days_on_hand - b.days_on_hand
                                 })
@@ -381,6 +386,7 @@ export default function VendorView() {
           prefillVendor={taskVendor}
           prefillVendorSkus={taskVendorSkus}
           atRiskByVendor={atRiskByVendor}
+          availableSkus={records}
         />
       )}
     </div>

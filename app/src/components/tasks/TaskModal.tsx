@@ -6,7 +6,8 @@ import { useAuth } from '@/contexts/AuthContext'
 import { Task, TaskPriority, InventoryRecord } from '@/types'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import { fmtNumber, fmtCurrency } from '@/lib/utils'
-import { Package } from 'lucide-react'
+import { Package, Search, X } from 'lucide-react'
+import { buildVendorTaskDescription, dedupeInventoryRecords, filterSkuSelectorRows } from './TaskModal.helpers'
 
 interface TaskModalProps {
   open: boolean
@@ -17,6 +18,7 @@ interface TaskModalProps {
   prefillVendor?: string                // vendor-order mode
   prefillVendorSkus?: InventoryRecord[] // pre-loaded SKUs for that vendor
   atRiskByVendor?: Record<string, InventoryRecord[]> // all at-risk grouped by vendor
+  availableSkus?: InventoryRecord[]     // searchable pool for adding SKUs to vendor orders
 }
 
 type Mode = 'single' | 'vendor'
@@ -40,7 +42,7 @@ export default function TaskModal({
   open, onClose, task,
   prefillSku = '', prefillTitle = '',
   prefillVendor, prefillVendorSkus = [],
-  atRiskByVendor = {},
+  atRiskByVendor = {}, availableSkus = [],
 }: TaskModalProps) {
   const { profile }           = useAuth()
   const { data: users = [] }  = useUsers()
@@ -64,6 +66,9 @@ export default function TaskModal({
   const [assignedTo, setAssigned]   = useState('')
   const [department, setDepartment] = useState('')
   const [error, setError]           = useState<string | null>(null)
+  const [skuSelectorOpen, setSkuSelectorOpen] = useState(false)
+  const [skuSearch, setSkuSearch] = useState('')
+  const [selectedSkuCodes, setSelectedSkuCodes] = useState<Set<string>>(new Set())
 
   // Single-SKU mode
   const [skuCode, setSkuCode] = useState('')
@@ -75,12 +80,49 @@ export default function TaskModal({
   // Edit mode — vendor line exposed as separate field
   const [editVendor, setEditVendor] = useState('')
 
-  const vendorSkus: InventoryRecord[] = useMemo(() => {
+  const defaultVendorSkus: InventoryRecord[] = useMemo(() => {
     if (prefillVendorSkus.length > 0 && selectedVendor === (prefillVendor ?? selectedVendor)) {
       return prefillVendorSkus
     }
     return atRiskByVendor[selectedVendor] ?? []
   }, [selectedVendor, atRiskByVendor, prefillVendorSkus, prefillVendor])
+
+  const selectableSkus = useMemo(
+    () => dedupeInventoryRecords([
+      ...prefillVendorSkus,
+      ...Object.values(atRiskByVendor).flat(),
+      ...availableSkus,
+    ]),
+    [prefillVendorSkus, atRiskByVendor, availableSkus]
+  )
+
+  const selectableSkuMap = useMemo(
+    () => new Map(selectableSkus.map(r => [r.product_code, r])),
+    [selectableSkus]
+  )
+
+  const vendorSkus: InventoryRecord[] = useMemo(() => {
+    const selected = Array.from(selectedSkuCodes)
+      .map(code => selectableSkuMap.get(code))
+      .filter(Boolean) as InventoryRecord[]
+
+    return selected.sort((a, b) => {
+      const vendorCmp = a.supplier_description.localeCompare(b.supplier_description)
+      if (vendorCmp !== 0) return vendorCmp
+      return a.product_code.localeCompare(b.product_code)
+    })
+  }, [selectedSkuCodes, selectableSkuMap])
+
+  const selectorRows = useMemo(() =>
+    filterSkuSelectorRows(selectableSkus, skuSearch)
+      .sort((a, b) => {
+        const aSelected = selectedSkuCodes.has(a.product_code) ? 0 : 1
+        const bSelected = selectedSkuCodes.has(b.product_code) ? 0 : 1
+        if (aSelected !== bSelected) return aSelected - bSelected
+        return b.recommended_order_value - a.recommended_order_value
+      })
+      .slice(0, 200)
+  , [selectableSkus, skuSearch, selectedSkuCodes])
 
   // Distinct departments from all users for dropdown
   const departments = useMemo(
@@ -114,6 +156,9 @@ export default function TaskModal({
       setSkuCode(prefillSku)
       setDepartment(profile?.department ?? 'purchasing')
       setEditVendor('')
+      setSelectedSkuCodes(new Set((prefillVendorSkus.length > 0 ? prefillVendorSkus : atRiskByVendor[prefillVendor ?? ''] ?? []).map(r => r.product_code)))
+      setSkuSearch('')
+      setSkuSelectorOpen(false)
     }
     setError(null)
   }, [open, task?.id]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -122,7 +167,8 @@ export default function TaskModal({
   useEffect(() => {
     if (mode !== 'vendor' || isEdit) return
     setTitle(selectedVendor ? `Order: ${selectedVendor}` : '')
-  }, [selectedVendor, mode, isEdit])
+    setSelectedSkuCodes(new Set(defaultVendorSkus.map(r => r.product_code)))
+  }, [selectedVendor, mode, isEdit, defaultVendorSkus])
 
   // Sync editVendor field → description first line (edit mode)
   useEffect(() => {
@@ -133,17 +179,9 @@ export default function TaskModal({
   }, [editVendor]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Build auto-generated vendor task description (create mode)
-  const vendorDescription = useMemo(() => {
-    if (mode !== 'vendor' || !selectedVendor || vendorSkus.length === 0) return ''
-    const lines = [
-      `Vendor: ${selectedVendor}`,
-      `At-Risk SKUs (${vendorSkus.length}):`,
-      ...vendorSkus.map(r =>
-        `• ${r.product_code} — ${r.description} | Days OH: ${r.days_on_hand}d | Rec. Order: ${fmtNumber(r.recommended_order)} units (${fmtCurrency(r.recommended_order_value)})`
-      ),
-    ]
-    return lines.join('\n')
-  }, [mode, selectedVendor, vendorSkus])
+  const vendorDescription = useMemo(() =>
+    mode === 'vendor' ? buildVendorTaskDescription(selectedVendor, vendorSkus) : ''
+  , [mode, selectedVendor, vendorSkus])
 
   // Users eligible to be assigned — same dept as task, or all if admin
   const deptUsers = users.filter(u =>
@@ -157,6 +195,7 @@ export default function TaskModal({
     e.preventDefault()
     if (!title.trim()) { setError('Title is required'); return }
     if (mode === 'vendor' && !selectedVendor) { setError('Please select a vendor'); return }
+    if (mode === 'vendor' && vendorSkus.length === 0) { setError('Select at least one SKU for this vendor order'); return }
     setError(null)
 
     const finalDescription = mode === 'vendor'
@@ -187,6 +226,23 @@ export default function TaskModal({
     } catch (err) {
       setError(err instanceof Error ? err.message : isEdit ? 'Failed to update task' : 'Failed to create task')
     }
+  }
+
+  function toggleSku(productCode: string) {
+    setSelectedSkuCodes(prev => {
+      const next = new Set(prev)
+      if (next.has(productCode)) next.delete(productCode)
+      else next.add(productCode)
+      return next
+    })
+  }
+
+  function removeSku(productCode: string) {
+    setSelectedSkuCodes(prev => {
+      const next = new Set(prev)
+      next.delete(productCode)
+      return next
+    })
   }
 
   const isPending = createTask.isPending || updateTask.isPending
@@ -225,20 +281,41 @@ export default function TaskModal({
               <div className="input w-full text-text2 text-sm">{selectedVendor || '—'}</div>
             )}
 
-            {vendorSkus.length > 0 && (
-              <div className="mt-2 rounded-lg border border-border bg-surface2 p-2 max-h-32 overflow-y-auto">
-                <div className="text-[10px] font-semibold text-text2 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                  <Package size={10} /> {vendorSkus.length} at-risk SKUs included
+            <div className="mt-2 rounded-lg border border-border bg-surface2 p-2">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <div className="text-[10px] font-semibold text-text2 uppercase tracking-wider flex items-center gap-1">
+                  <Package size={10} /> {vendorSkus.length} SKUs selected
                 </div>
-                {vendorSkus.map(r => (
-                  <div key={r.id} className="text-[11px] text-text2 py-0.5 flex gap-2 font-mono">
-                    <span className="text-accent shrink-0">{r.product_code}</span>
-                    <span className="truncate text-text1">{r.description}</span>
-                    <span className="shrink-0 text-warning">{r.days_on_hand}d OH</span>
-                  </div>
-                ))}
+                <button
+                  type="button"
+                  onClick={() => setSkuSelectorOpen(true)}
+                  className="btn-secondary text-[11px] py-1 px-2"
+                >
+                  Edit SKUs
+                </button>
               </div>
-            )}
+              {vendorSkus.length === 0 ? (
+                <div className="text-[11px] text-danger py-2">No SKUs selected. Add at least one SKU before creating the task.</div>
+              ) : (
+                <div className="max-h-32 overflow-y-auto">
+                  {vendorSkus.map(r => (
+                    <div key={r.id} className="text-[11px] text-text2 py-0.5 flex items-center gap-2 font-mono">
+                      <span className="text-accent shrink-0">{r.product_code}</span>
+                      <span className="truncate text-text1">{r.description}</span>
+                      <span className="shrink-0 text-warning">{r.days_on_hand}d OH</span>
+                      <button
+                        type="button"
+                        onClick={() => removeSku(r.product_code)}
+                        className="ml-auto text-text2 hover:text-danger"
+                        title="Remove SKU from this order"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -357,6 +434,94 @@ export default function TaskModal({
           </button>
         </div>
       </form>
+
+      {skuSelectorOpen && (
+        <Modal
+          open={skuSelectorOpen}
+          onClose={() => setSkuSelectorOpen(false)}
+          title="Select SKUs"
+          width="max-w-5xl"
+        >
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="relative flex-1">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text2" />
+                <input
+                  className="input w-full pl-9"
+                  placeholder="Search SKU, description, vendor, brand, or category..."
+                  value={skuSearch}
+                  onChange={e => setSkuSearch(e.target.value)}
+                />
+              </div>
+              <div className="text-xs text-text2 shrink-0">
+                {vendorSkus.length} selected
+              </div>
+            </div>
+
+            <div className="tbl-wrap max-h-[440px]">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th className="w-10"></th>
+                    <th>SKU</th>
+                    <th>Description</th>
+                    <th>Vendor</th>
+                    <th>Category</th>
+                    <th>Status</th>
+                    <th>On Hand</th>
+                    <th>Days OH</th>
+                    <th>Rec. Order</th>
+                    <th>Order Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectorRows.length === 0 ? (
+                    <tr><td colSpan={10} className="py-10 text-center text-text2">No SKUs match your search</td></tr>
+                  ) : (
+                    selectorRows.map(r => {
+                      const selected = selectedSkuCodes.has(r.product_code)
+                      return (
+                        <tr
+                          key={r.id}
+                          className={selected ? 'bg-accent/5' : ''}
+                          onClick={() => toggleSku(r.product_code)}
+                        >
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={() => toggleSku(r.product_code)}
+                              onClick={e => e.stopPropagation()}
+                            />
+                          </td>
+                          <td className="font-mono text-[11px] text-accent">{r.product_code}</td>
+                          <td className="max-w-[280px]">
+                            <span className="block truncate text-text1" title={r.description}>{r.description}</span>
+                            <span className="text-[10px] text-text2">{r.brand_name}</span>
+                          </td>
+                          <td className="max-w-[160px]"><span className="block truncate" title={r.supplier_description}>{r.supplier_description}</span></td>
+                          <td className="max-w-[140px]"><span className="block truncate" title={r.category_name}>{r.category_name}</span></td>
+                          <td className="text-xs text-text2">{r.status}</td>
+                          <td className="tabular-nums">{fmtNumber(r.on_hand)}</td>
+                          <td className="tabular-nums">{r.days_on_hand}d</td>
+                          <td className="tabular-nums font-semibold">{fmtNumber(r.recommended_order)}</td>
+                          <td className="tabular-nums">{fmtCurrency(r.recommended_order_value)}</td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button type="button" className="btn-secondary" onClick={() => setSkuSelectorOpen(false)}>
+                Done
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </Modal>
   )
 }
