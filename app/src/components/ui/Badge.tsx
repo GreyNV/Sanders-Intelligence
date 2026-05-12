@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils'
+import type { InventoryRecord } from '@/types'
 
 type BadgeVariant = 'ok' | 'excess' | 'stockout' | 'surplus' | 'new_item' | 'todo' | 'in_progress' | 'done' | 'cancelled' |
                    'low' | 'medium' | 'high' | 'urgent' | 'neutral' | 'info'
@@ -58,6 +59,42 @@ export function statusVariant(status: string): BadgeVariant {
   if (status === 'Surplus orders') return 'surplus'
   if (status === 'New item')       return 'new_item'
   return 'neutral'
+}
+
+/**
+ * Derives all applicable status labels for a record.
+ * A record sourced as 'Excess stock' may also have open orders (surplus),
+ * and a 'Surplus orders' record may simultaneously have physical excess on hand.
+ * Both labels are shown so managers see the full picture.
+ */
+export function deriveStatusLabels(record: InventoryRecord): Array<{ variant: BadgeVariant; label: string }> {
+  const result: Array<{ variant: BadgeVariant; label: string }> = [
+    { variant: statusVariant(record.status), label: record.status },
+  ]
+
+  if (record.status === 'Excess stock' && record.on_order > 0) {
+    // Physical excess on hand AND more inbound — ordered when already overstocked
+    result.push({ variant: 'surplus', label: 'Surplus Orders' })
+  }
+
+  if (record.status === 'Surplus orders' && record.excess_units > 0) {
+    // Surplus orders classification AND excess already sitting on hand
+    result.push({ variant: 'excess', label: 'Excess Stock' })
+  }
+
+  return result
+}
+
+/** Renders one or two status badges derived from the full inventory record. */
+export function StatusBadges({ record }: { record: InventoryRecord }) {
+  const labels = deriveStatusLabels(record)
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      {labels.map((l, i) => (
+        <Badge key={i} variant={l.variant}>{l.label}</Badge>
+      ))}
+    </div>
+  )
 }
 
 export function priorityVariant(priority: string): BadgeVariant {

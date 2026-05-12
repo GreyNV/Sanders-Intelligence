@@ -275,7 +275,7 @@ describe('analyzeInventory — mixed real-world scenario', () => {
       makeRecord({ id: '3', status: 'Excess stock',  on_hand_value: 3000, excess_value: 1500 }),
       makeRecord({ id: '4', status: 'Stocked out',   on_hand_value: 0,    recommended_order: 100, recommended_order_value: 1000,
                    unsatisfied_customer_orders_units: 10, unsatisfied_customer_orders_value: 500 }),
-      makeRecord({ id: '5', status: 'Ok',            on_hand: 0, average_sales: 0 }), // inactive SKU
+      makeRecord({ id: '5', status: 'Ok',            on_hand: 0, on_hand_value: 0, average_sales: 0 }), // inactive SKU
     ]
     const { atRiskItems, backorderItems, excessItems, inboundItems, kpis } = analyzeInventory(records, false)
 

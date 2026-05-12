@@ -4,7 +4,7 @@ import { useDismissedSet, useDismissAction, useRestoreAction } from '@/hooks/use
 import { useTasks } from '@/hooks/useTasks'
 import KPICard from '@/components/ui/KPICard'
 import Modal from '@/components/ui/Modal'
-import Badge, { statusVariant, priorityVariant, taskStatusVariant } from '@/components/ui/Badge'
+import Badge, { statusVariant, priorityVariant, taskStatusVariant, StatusBadges } from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import TaskModal from '@/components/tasks/TaskModal'
 import { fmtNumber, fmtCurrency, fmtDate, isOverdue } from '@/lib/utils'
@@ -395,8 +395,8 @@ export default function ActionCenter() {
                       }
                     </td>
                     <td>
-                      <div className="flex items-center gap-1">
-                        <Badge variant={statusVariant(r.status)} value={r.status} />
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <StatusBadges record={r} />
                         {(r.status === 'Excess stock' || r.status === 'Surplus orders') && r.unsatisfied_customer_orders_units > 0 && (
                           <span title="Data quality: item is excess stock but also has backorders — verify source data">
                             <AlertCircle size={13} className="text-warning" />
@@ -552,8 +552,8 @@ export default function ActionCenter() {
                     <td className="tabular-nums">{fmtCurrency(r.unsatisfied_customer_orders_value)}</td>
                     <td className="tabular-nums">{fmtNumber(r.on_order)}</td>
                     <td>
-                      <div className="flex items-center gap-1">
-                        <Badge variant={statusVariant(r.status)} value={r.status} />
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <StatusBadges record={r} />
                         {(r.status === 'Excess stock' || r.status === 'Surplus orders') && (
                           <span title="Data quality: item has backorders but is flagged as excess — verify source data">
                             <AlertCircle size={13} className="text-warning" />
@@ -682,7 +682,7 @@ export default function ActionCenter() {
                         <td className="tabular-nums">{fmtNumber(r.on_hand)}</td>
                         <td className="tabular-nums text-accent font-semibold">{fmtCurrency(r.excess_value)}</td>
                         <td className="tabular-nums font-semibold">{fmtNumber(r.on_order)}</td>
-                        <td><Badge variant={statusVariant(r.status)} value={r.status} /></td>
+                        <td><StatusBadges record={r} /></td>
                         <td>
                           <div className="flex gap-1 flex-wrap">
                             {dismissedOverstock.has(r.product_code) ? (
@@ -770,7 +770,7 @@ export default function ActionCenter() {
                             {r.days_on_hand}d
                           </span>
                         </td>
-                        <td><Badge variant={statusVariant(r.status)} value={r.status} /></td>
+                        <td><StatusBadges record={r} /></td>
                         <td>
                           <div className="flex gap-1">
                             {dismissedOverstock.has(r.product_code) ? (

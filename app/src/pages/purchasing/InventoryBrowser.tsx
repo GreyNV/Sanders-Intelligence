@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useInventoryAnalysis } from '@/hooks/useInventory'
 import KPICard from '@/components/ui/KPICard'
-import Badge, { statusVariant } from '@/components/ui/Badge'
+import Badge, { statusVariant, StatusBadges } from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { fmtNumber, fmtCurrency } from '@/lib/utils'
 import { downloadCsv, inventoryToExportRows } from '@/lib/exportCsv'
@@ -207,7 +207,7 @@ export default function InventoryBrowser() {
                       {r.days_on_hand}
                     </span>
                   </td>
-                  <td><Badge variant={statusVariant(r.status)} value={r.status} /></td>
+                  <td><StatusBadges record={r} /></td>
                   <td className="tabular-nums">
                     {r.recommended_order > 0
                       ? <span className="font-semibold">{fmtNumber(r.recommended_order)}</span>
