@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { InventoryRecord } from '@/types'
-import { getVendorViewAtRiskSkus, isVendorViewAtRiskSku } from './VendorView.helpers'
+import { getVendorSkuRows, getVendorViewAtRiskSkus, type VendorSkuSortState } from './VendorView.helpers'
 
 type SortDir = 'asc' | 'desc'
 interface SortState { field: string; dir: SortDir }
@@ -66,6 +66,8 @@ export default function VendorView() {
   const [taskVendor, setTaskVendor]   = useState('')
   const [taskVendorSkus, setTaskVendorSkus] = useState<InventoryRecord[]>([])
   const [expandedVendor, setExpanded] = useState<string | null>(null)
+  const [expandedSkuSearch, setExpandedSkuSearch] = useState('')
+  const [expandedSkuSort, setExpandedSkuSort] = useState<VendorSkuSortState | null>(null)
   const [page, setPage] = useState(0)
 
   // Distinct categories
@@ -139,6 +141,10 @@ export default function VendorView() {
 
   function toggleSort(field: string) {
     setSort(s => s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'desc' })
+  }
+
+  function toggleSkuSort(field: VendorSkuSortState['field']) {
+    setExpandedSkuSort(s => s?.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' })
   }
 
   function openVendorTask(row: VendorRow) {
@@ -249,7 +255,11 @@ export default function VendorView() {
                 <Fragment key={row.supplier_code || row.supplier_description}>
                   <tr
                     className={`cursor-pointer ${expandedVendor === row.supplier_description ? 'bg-surface2/60' : ''}`}
-                    onClick={() => setExpanded(v => v === row.supplier_description ? null : row.supplier_description)}
+                    onClick={() => {
+                      setExpanded(v => v === row.supplier_description ? null : row.supplier_description)
+                      setExpandedSkuSearch('')
+                      setExpandedSkuSort(null)
+                    }}
                   >
                     <td className="font-medium text-text1">{row.supplier_description}</td>
                     <td className="text-center font-mono text-xs text-text2">{row.supplier_code}</td>
@@ -306,29 +316,48 @@ export default function VendorView() {
                   {expandedVendor === row.supplier_description && (
                     <tr>
                       <td colSpan={12} className="p-0 bg-surface2/40">
-                        <div className="px-4 py-2 overflow-x-auto">
+                        <div className="px-4 py-2">
+                          <div className="flex items-center gap-3 mb-2">
+                            <div className="relative max-w-xs flex-1">
+                              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text2" />
+                              <input
+                                className="input w-full pl-8 py-1.5 text-xs"
+                                placeholder="Filter SKUs, description, category, status..."
+                                value={expandedSkuSearch}
+                                onChange={e => setExpandedSkuSearch(e.target.value)}
+                              />
+                            </div>
+                            {expandedSkuSearch && (
+                              <button className="btn-ghost text-xs text-danger" onClick={() => setExpandedSkuSearch('')}>
+                                Clear
+                              </button>
+                            )}
+                            <span className="ml-auto text-xs text-text2">
+                              {fmtNumber(getVendorSkuRows(row.records, expandedSkuSearch, expandedSkuSort).length)} SKU{getVendorSkuRows(row.records, expandedSkuSearch, expandedSkuSort).length !== 1 ? 's' : ''}
+                            </span>
+                          </div>
+                          <div className="overflow-x-auto">
                           <table className="w-full text-[12px]">
                             <thead>
                               <tr className="text-text2 border-b border-border">
-                                <th className="text-left py-1 pr-3 font-semibold">SKU</th>
-                                <th className="text-left py-1 pr-3 font-semibold">Description</th>
-                                <th className="text-left py-1 pr-3 font-semibold">Category</th>
-                                <th className="text-right py-1 pr-3 font-semibold">On Hand</th>
-                                <th className="text-right py-1 pr-3 font-semibold">Days OH</th>
-                                <th className="text-right py-1 pr-3 font-semibold">Rec. Order</th>
-                                <th className="text-left py-1 font-semibold">Status</th>
+                                <SortableTh field="product_code" label="SKU" sort={expandedSkuSort ?? { field: '', dir: 'asc' }} onSort={() => toggleSkuSort('product_code')} className="text-left py-1 pr-3 font-semibold" />
+                                <SortableTh field="description" label="Description" sort={expandedSkuSort ?? { field: '', dir: 'asc' }} onSort={() => toggleSkuSort('description')} className="text-left py-1 pr-3 font-semibold" />
+                                <SortableTh field="category_name" label="Category" sort={expandedSkuSort ?? { field: '', dir: 'asc' }} onSort={() => toggleSkuSort('category_name')} className="text-left py-1 pr-3 font-semibold" />
+                                <SortableTh field="on_hand" label="On Hand" sort={expandedSkuSort ?? { field: '', dir: 'asc' }} onSort={() => toggleSkuSort('on_hand')} className="text-right py-1 pr-3 font-semibold" />
+                                <SortableTh field="days_on_hand" label="Days OH" sort={expandedSkuSort ?? { field: '', dir: 'asc' }} onSort={() => toggleSkuSort('days_on_hand')} className="text-right py-1 pr-3 font-semibold" />
+                                <SortableTh field="recommended_order" label="Rec. Order" sort={expandedSkuSort ?? { field: '', dir: 'asc' }} onSort={() => toggleSkuSort('recommended_order')} className="text-right py-1 pr-3 font-semibold" />
+                                <SortableTh field="status" label="Status" sort={expandedSkuSort ?? { field: '', dir: 'asc' }} onSort={() => toggleSkuSort('status')} className="text-left py-1 font-semibold" />
                               </tr>
                             </thead>
                             <tbody>
-                              {row.records
-                                .sort((a, b) => {
-                                  // Sort: at-risk first, then by days on hand
-                                  const aRisk = isVendorViewAtRiskSku(a) ? 0 : 1
-                                  const bRisk = isVendorViewAtRiskSku(b) ? 0 : 1
-                                  if (aRisk !== bRisk) return aRisk - bRisk
-                                  return a.days_on_hand - b.days_on_hand
-                                })
-                                .map(r => (
+                              {getVendorSkuRows(row.records, expandedSkuSearch, expandedSkuSort).length === 0 ? (
+                                <tr>
+                                  <td colSpan={7} className="py-6 text-center text-text2">
+                                    No SKUs match this filter
+                                  </td>
+                                </tr>
+                              ) : (
+                                getVendorSkuRows(row.records, expandedSkuSearch, expandedSkuSort).map(r => (
                                   <tr
                                     key={r.id}
                                     className="border-b border-border/50 hover:bg-surface2 cursor-pointer"
@@ -355,9 +384,11 @@ export default function VendorView() {
                                       }>{r.status}</span>
                                     </td>
                                   </tr>
-                                ))}
+                                ))
+                              )}
                             </tbody>
                           </table>
+                          </div>
                         </div>
                       </td>
                     </tr>

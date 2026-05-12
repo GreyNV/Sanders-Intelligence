@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getVendorViewAtRiskSkus } from '../pages/purchasing/VendorView.helpers'
+import { getVendorSkuRows, getVendorViewAtRiskSkus } from '../pages/purchasing/VendorView.helpers'
 import type { InventoryRecord } from '../types'
 
 function makeRecord(overrides: Partial<InventoryRecord>): InventoryRecord {
@@ -55,5 +55,17 @@ describe('Vendor View at-risk SKU helpers', () => {
     ]
 
     expect(getVendorViewAtRiskSkus(rows).map(r => r.product_code)).toEqual(['COUNT-1', 'COUNT-2'])
+  })
+
+  it('filters and sorts expanded vendor SKU rows', () => {
+    const rows = [
+      makeRecord({ product_code: 'BBB-2', description: 'Blue Sheet', category_name: 'Bedding', status: 'Ok', days_on_hand: 30, recommended_order: 0 }),
+      makeRecord({ product_code: 'AAA-1', description: 'Amber Quilt', category_name: 'Quilts', status: 'Stocked out', days_on_hand: 0, recommended_order: 12 }),
+      makeRecord({ product_code: 'CCC-3', description: 'Cotton Towel', category_name: 'Bath', status: 'Potential s/o', days_on_hand: 5, recommended_order: 4 }),
+    ]
+
+    expect(getVendorSkuRows(rows, 'quilt', { field: 'product_code', dir: 'asc' }).map(r => r.product_code)).toEqual(['AAA-1'])
+    expect(getVendorSkuRows(rows, '', { field: 'recommended_order', dir: 'desc' }).map(r => r.product_code)).toEqual(['AAA-1', 'CCC-3', 'BBB-2'])
+    expect(getVendorSkuRows(rows, '', null).map(r => r.product_code)).toEqual(['AAA-1', 'CCC-3', 'BBB-2'])
   })
 })
