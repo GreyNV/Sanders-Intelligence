@@ -1,4 +1,4 @@
-import { useState, useMemo, Fragment } from 'react'
+import { useState, useMemo, Fragment, useEffect, useRef } from 'react'
 import { useInventoryAnalysis } from '@/hooks/useInventory'
 import { useDismissedSet, useDismissAction, useRestoreAction } from '@/hooks/useDismissedActions'
 import { useTasks } from '@/hooks/useTasks'
@@ -17,20 +17,15 @@ import { downloadCsv, inventoryToExportRows } from '@/lib/exportCsv'
 import { useNavigate } from 'react-router-dom'
 import { InventoryRecord } from '@/types'
 import type { DismissActionType } from '@/hooks/useDismissedActions'
+import {
+  groupRecordsByVendorCategory,
+  getVisibleOverstockRows,
+  sortActionCenterRecords,
+  type ActionCenterSortDir as SortDir,
+  type ActionCenterSortState as SortState,
+} from './ActionCenter.helpers'
 
 interface DismissTarget { record: InventoryRecord; actionType: DismissActionType }
-type SortDir = 'asc' | 'desc'
-interface SortState { field: string; dir: SortDir }
-interface RecordCategoryGroup { category: string; records: InventoryRecord[] }
-interface RecordVendorGroup { vendor: string; records: InventoryRecord[]; categories: RecordCategoryGroup[] }
-
-function sortRecords(records: InventoryRecord[], sort: SortState): InventoryRecord[] {
-  return [...records].sort((a, b) => {
-    const av = (a as unknown as Record<string, unknown>)[sort.field] as number
-    const bv = (b as unknown as Record<string, unknown>)[sort.field] as number
-    return sort.dir === 'asc' ? av - bv : bv - av
-  })
-}
 
 function SortIcon({ field, sort }: { field: string; sort: SortState }) {
   if (sort.field !== field) return <ChevronsUpDown size={11} className="text-text2/50 ml-0.5" />
@@ -53,32 +48,6 @@ function SortableTh({
       </span>
     </th>
   )
-}
-
-function groupRecordsByVendorCategory(records: InventoryRecord[]): RecordVendorGroup[] {
-  const vendorMap = new Map<string, Map<string, InventoryRecord[]>>()
-
-  for (const record of records) {
-    const vendor = record.supplier_description || 'Unknown vendor'
-    const category = record.category_name || 'Uncategorized'
-    if (!vendorMap.has(vendor)) vendorMap.set(vendor, new Map())
-    const categoryMap = vendorMap.get(vendor)!
-    if (!categoryMap.has(category)) categoryMap.set(category, [])
-    categoryMap.get(category)!.push(record)
-  }
-
-  return Array.from(vendorMap.entries()).map(([vendor, categoryMap]) => {
-    const categories = Array.from(categoryMap.entries()).map(([category, groupRecords]) => ({
-      category,
-      records: groupRecords,
-    }))
-
-    return {
-      vendor,
-      records: categories.flatMap(group => group.records),
-      categories,
-    }
-  })
 }
 
 export default function ActionCenter() {
@@ -121,21 +90,41 @@ export default function ActionCenter() {
   const [boShowFilters, setBoShowFilters] = useState(false)
 
   // ── Overstock table state ────────────────────────────────────
-  const [osSort, setOsSort]         = useState<SortState>({ field: 'excess_value', dir: 'desc' })
-  const [osVendor, setOsVendor]     = useState('')
-  const [osCategory, setOsCategory] = useState('')
-  const [osShowFilters, setOsShowFilters] = useState(false)
+  const [osOpenSort, setOsOpenSort] = useState<SortState>({ field: 'excess_value', dir: 'desc' })
+  const [osOpenVendor, setOsOpenVendor] = useState('')
+  const [osOpenCategory, setOsOpenCategory] = useState('')
+  const [osOpenShowFilters, setOsOpenShowFilters] = useState(false)
+  const [osNoSort, setOsNoSort] = useState<SortState>({ field: 'excess_value', dir: 'desc' })
+  const [osNoVendor, setOsNoVendor] = useState('')
+  const [osNoCategory, setOsNoCategory] = useState('')
+  const [osNoShowFilters, setOsNoShowFilters] = useState(false)
   const [osShowDismissed, setOsShowDismissed] = useState(false)
 
   const openTasks = tasks.filter(t => t.status !== 'done' && t.status !== 'cancelled')
+  const inventoryOrderSnapshot = useRef<string[] | null>(null)
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    const sample = inventory.records.slice(0, 5).map(r => r.product_code)
+    if (!inventoryOrderSnapshot.current) {
+      inventoryOrderSnapshot.current = sample
+      return
+    }
+    if (sample.join('|') !== inventoryOrderSnapshot.current.join('|')) {
+      console.warn('Inventory record order changed in ActionCenter; check for in-place sort on React Query data.')
+      inventoryOrderSnapshot.current = sample
+    }
+  }, [inventory.records])
 
   // Distinct vendor/category lists
   const arVendors    = useMemo(() => [...new Set(atRisk.map(r => r.supplier_description))].filter(Boolean).sort(), [atRisk])
   const arCategories = useMemo(() => [...new Set(atRisk.map(r => r.category_name))].filter(Boolean).sort(), [atRisk])
   const boVendors    = useMemo(() => [...new Set(backorders.map(r => r.supplier_description))].filter(Boolean).sort(), [backorders])
   const boCategories = useMemo(() => [...new Set(backorders.map(r => r.category_name))].filter(Boolean).sort(), [backorders])
-  const osVendors    = useMemo(() => [...new Set(excess.map(r => r.supplier_description))].filter(Boolean).sort(), [excess])
-  const osCategories = useMemo(() => [...new Set(excess.map(r => r.category_name))].filter(Boolean).sort(), [excess])
+  const osOpenVendors = useMemo(() => [...new Set(excess.filter(r => r.on_order > 0).map(r => r.supplier_description))].filter(Boolean).sort(), [excess])
+  const osOpenCategories = useMemo(() => [...new Set(excess.filter(r => r.on_order > 0).map(r => r.category_name))].filter(Boolean).sort(), [excess])
+  const osNoVendors = useMemo(() => [...new Set(excess.filter(r => r.on_order === 0).map(r => r.supplier_description))].filter(Boolean).sort(), [excess])
+  const osNoCategories = useMemo(() => [...new Set(excess.filter(r => r.on_order === 0).map(r => r.category_name))].filter(Boolean).sort(), [excess])
 
   // Base sets (dismissed filter applied)
   const baseAtRisk     = arShowDismissed ? atRisk    : atRisk.filter(r => !dismissedAtRisk.has(r.product_code))
@@ -147,29 +136,37 @@ export default function ActionCenter() {
     let rows = baseAtRisk
     if (arVendor)   rows = rows.filter(r => r.supplier_description === arVendor)
     if (arCategory) rows = rows.filter(r => r.category_name === arCategory)
-    return sortRecords(rows, arSort).slice(0, 100)
+    return sortActionCenterRecords(rows, arSort).slice(0, 100)
   }, [baseAtRisk, arVendor, arCategory, arSort])
 
   const visibleBackorders = useMemo(() => {
     let rows = baseBackorders
     if (boVendor)   rows = rows.filter(r => r.supplier_description === boVendor)
     if (boCategory) rows = rows.filter(r => r.category_name === boCategory)
-    return sortRecords(rows, boSort).slice(0, 50)
+    return sortActionCenterRecords(rows, boSort).slice(0, 50)
   }, [baseBackorders, boVendor, boCategory, boSort])
 
   const groupedAtRisk = useMemo(() => groupRecordsByVendorCategory(visibleAtRisk), [visibleAtRisk])
   const groupedBackorders = useMemo(() => groupRecordsByVendorCategory(visibleBackorders), [visibleBackorders])
 
-  const visibleOverstock = useMemo(() => {
-    let rows = baseOverstock
-    if (osVendor)   rows = rows.filter(r => r.supplier_description === osVendor)
-    if (osCategory) rows = rows.filter(r => r.category_name === osCategory)
-    return sortRecords(rows, osSort).slice(0, 100)
-  }, [baseOverstock, osVendor, osCategory, osSort])
+  const visibleOverstock = useMemo(
+    () => getVisibleOverstockRows(
+      baseOverstock,
+      { sort: osOpenSort, vendor: osOpenVendor, category: osOpenCategory },
+      { sort: osNoSort, vendor: osNoVendor, category: osNoCategory },
+    ),
+    [baseOverstock, osOpenSort, osOpenVendor, osOpenCategory, osNoSort, osNoVendor, osNoCategory]
+  )
 
-  // Overstock split by on_order status
-  const overstockWithOrders = useMemo(() => visibleOverstock.filter(r => r.on_order > 0), [visibleOverstock])
-  const overstockNoOrders   = useMemo(() => visibleOverstock.filter(r => r.on_order === 0), [visibleOverstock])
+  // Overstock split by on_order status; each sub-table applies its own 100-row cap.
+  const overstockWithOrders = visibleOverstock.withOrders
+  const overstockNoOrders   = visibleOverstock.noOrders
+  const visibleOverstockRows = useMemo(
+    () => [...overstockWithOrders, ...overstockNoOrders],
+    [overstockWithOrders, overstockNoOrders]
+  )
+  const hasOpenOrderOverstock = baseOverstock.some(r => r.on_order > 0)
+  const hasNoOrderOverstock = baseOverstock.some(r => r.on_order === 0)
 
   // Group visible at-risk by vendor (for vendor-level task creation)
   const atRiskByVendor = useMemo(() => {
@@ -196,8 +193,11 @@ export default function ActionCenter() {
   function toggleBoSort(field: string) {
     setBoSort(s => s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' })
   }
-  function toggleOsSort(field: string) {
-    setOsSort(s => s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' })
+  function toggleOsOpenSort(field: string) {
+    setOsOpenSort(s => s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' })
+  }
+  function toggleOsNoSort(field: string) {
+    setOsNoSort(s => s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' })
   }
 
   function openTaskForSku(record: InventoryRecord, title?: string) {
@@ -633,14 +633,8 @@ export default function ActionCenter() {
             </h2>
             <div className="flex gap-2">
               <button
-                onClick={() => setOsShowFilters(v => !v)}
-                className={`btn-ghost text-xs flex items-center gap-1 ${(osVendor || osCategory) ? 'text-accent' : ''}`}
-              >
-                <Filter size={12} /> Filters {(osVendor || osCategory) ? '●' : ''}
-              </button>
-              <button
-                onClick={() => exportRecords(visibleOverstock, 'overstock_actions')}
-                disabled={visibleOverstock.length === 0}
+                onClick={() => exportRecords(visibleOverstockRows, 'overstock_actions')}
+                disabled={visibleOverstockRows.length === 0}
                 className="btn-ghost text-xs flex items-center gap-1"
                 title="Export overstock action items to Excel"
               >
@@ -654,32 +648,8 @@ export default function ActionCenter() {
             </div>
           </div>
 
-          {osShowFilters && (
-            <div className="flex gap-3 mb-3 p-3 bg-surface2 rounded-lg border border-border">
-              <div className="flex-1">
-                <label className="block text-[10px] font-semibold text-text2 uppercase tracking-wider mb-1">Vendor</label>
-                <select className="select w-full text-sm" value={osVendor} onChange={e => setOsVendor(e.target.value)}>
-                  <option value="">All vendors</option>
-                  {osVendors.map(v => <option key={v} value={v}>{v}</option>)}
-                </select>
-              </div>
-              <div className="flex-1">
-                <label className="block text-[10px] font-semibold text-text2 uppercase tracking-wider mb-1">Category</label>
-                <select className="select w-full text-sm" value={osCategory} onChange={e => setOsCategory(e.target.value)}>
-                  <option value="">All categories</option>
-                  {osCategories.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              {(osVendor || osCategory) && (
-                <div className="flex items-end">
-                  <button onClick={() => { setOsVendor(''); setOsCategory('') }} className="btn-ghost text-xs text-danger">Clear</button>
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Sub-section A: Items with open orders → Delay / Cancel */}
-          {overstockWithOrders.length > 0 && (
+          {(hasOpenOrderOverstock || osOpenVendor || osOpenCategory) && (
             <div className="mb-4">
               <div className="flex items-center justify-between gap-3 mb-2 px-1">
                 <div className="flex items-center gap-2">
@@ -687,15 +657,46 @@ export default function ActionCenter() {
                   <span className="text-[12px] font-semibold text-warning">Open orders exist</span>
                   <span className="text-[11px] text-text2">({overstockWithOrders.length} SKUs) — consider delaying or cancelling inbound</span>
                 </div>
-                <button
-                  onClick={() => exportRecords(overstockWithOrders, 'overstock_open_orders')}
-                  disabled={overstockWithOrders.length === 0}
-                  className="btn-ghost text-xs py-1 px-2 flex items-center gap-1"
-                  title="Export overstock items with open orders"
-                >
-                  <Download size={12} /> Export
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setOsOpenShowFilters(v => !v)}
+                    className={`btn-ghost text-xs py-1 px-2 flex items-center gap-1 ${(osOpenVendor || osOpenCategory) ? 'text-accent' : ''}`}
+                  >
+                    <Filter size={12} /> Filters {(osOpenVendor || osOpenCategory) ? '●' : ''}
+                  </button>
+                  <button
+                    onClick={() => exportRecords(overstockWithOrders, 'overstock_open_orders')}
+                    disabled={overstockWithOrders.length === 0}
+                    className="btn-ghost text-xs py-1 px-2 flex items-center gap-1"
+                    title="Export overstock items with open orders"
+                  >
+                    <Download size={12} /> Export
+                  </button>
+                </div>
               </div>
+              {osOpenShowFilters && (
+                <div className="flex gap-3 mb-3 p-3 bg-surface2 rounded-lg border border-border">
+                  <div className="flex-1">
+                    <label className="block text-[10px] font-semibold text-text2 uppercase tracking-wider mb-1">Vendor</label>
+                    <select className="select w-full text-sm" value={osOpenVendor} onChange={e => setOsOpenVendor(e.target.value)}>
+                      <option value="">All vendors</option>
+                      {osOpenVendors.map(v => <option key={v} value={v}>{v}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-[10px] font-semibold text-text2 uppercase tracking-wider mb-1">Category</label>
+                    <select className="select w-full text-sm" value={osOpenCategory} onChange={e => setOsOpenCategory(e.target.value)}>
+                      <option value="">All categories</option>
+                      {osOpenCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  {(osOpenVendor || osOpenCategory) && (
+                    <div className="flex items-end">
+                      <button onClick={() => { setOsOpenVendor(''); setOsOpenCategory('') }} className="btn-ghost text-xs text-danger">Clear</button>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="tbl-wrap">
                 <table className="tbl">
                   <thead>
@@ -703,15 +704,21 @@ export default function ActionCenter() {
                       <th>SKU</th>
                       <th>Description</th>
                       <th>Vendor</th>
-                      <SortableTh field="on_hand"      label="On Hand"       sort={osSort} onSort={toggleOsSort} />
-                      <SortableTh field="excess_value" label="Excess Value"  sort={osSort} onSort={toggleOsSort} />
-                      <SortableTh field="on_order"     label="On Order"      sort={osSort} onSort={toggleOsSort} />
+                      <SortableTh field="on_hand"      label="On Hand"       sort={osOpenSort} onSort={toggleOsOpenSort} />
+                      <SortableTh field="excess_value" label="Excess Value"  sort={osOpenSort} onSort={toggleOsOpenSort} />
+                      <SortableTh field="on_order"     label="On Order"      sort={osOpenSort} onSort={toggleOsOpenSort} />
                       <th>Status</th>
                       <th>Suggested Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {overstockWithOrders.map(r => (
+                    {overstockWithOrders.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-8 text-center text-text2">
+                          {osOpenVendor || osOpenCategory ? 'No open-order overstock items match these filters' : 'No open-order overstock items'}
+                        </td>
+                      </tr>
+                    ) : overstockWithOrders.map(r => (
                       <tr key={r.id} className={dismissedOverstock.has(r.product_code) ? 'opacity-50' : ''}>
                         <td
                           className="font-mono text-[11px] text-accent cursor-pointer hover:underline"
@@ -773,7 +780,7 @@ export default function ActionCenter() {
           )}
 
           {/* Sub-section B: No open orders → Liquidation */}
-          {overstockNoOrders.length > 0 && (
+          {(hasNoOrderOverstock || osNoVendor || osNoCategory) && (
             <div>
               <div className="flex items-center justify-between gap-3 mb-2 px-1">
                 <div className="flex items-center gap-2">
@@ -781,15 +788,46 @@ export default function ActionCenter() {
                   <span className="text-[12px] font-semibold text-accent">No inbound orders</span>
                   <span className="text-[11px] text-text2">({overstockNoOrders.length} SKUs) — consider liquidation or promotion</span>
                 </div>
-                <button
-                  onClick={() => exportRecords(overstockNoOrders, 'overstock_no_inbound')}
-                  disabled={overstockNoOrders.length === 0}
-                  className="btn-ghost text-xs py-1 px-2 flex items-center gap-1"
-                  title="Export overstock items with no inbound orders"
-                >
-                  <Download size={12} /> Export
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setOsNoShowFilters(v => !v)}
+                    className={`btn-ghost text-xs py-1 px-2 flex items-center gap-1 ${(osNoVendor || osNoCategory) ? 'text-accent' : ''}`}
+                  >
+                    <Filter size={12} /> Filters {(osNoVendor || osNoCategory) ? '●' : ''}
+                  </button>
+                  <button
+                    onClick={() => exportRecords(overstockNoOrders, 'overstock_no_inbound')}
+                    disabled={overstockNoOrders.length === 0}
+                    className="btn-ghost text-xs py-1 px-2 flex items-center gap-1"
+                    title="Export overstock items with no inbound orders"
+                  >
+                    <Download size={12} /> Export
+                  </button>
+                </div>
               </div>
+              {osNoShowFilters && (
+                <div className="flex gap-3 mb-3 p-3 bg-surface2 rounded-lg border border-border">
+                  <div className="flex-1">
+                    <label className="block text-[10px] font-semibold text-text2 uppercase tracking-wider mb-1">Vendor</label>
+                    <select className="select w-full text-sm" value={osNoVendor} onChange={e => setOsNoVendor(e.target.value)}>
+                      <option value="">All vendors</option>
+                      {osNoVendors.map(v => <option key={v} value={v}>{v}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-[10px] font-semibold text-text2 uppercase tracking-wider mb-1">Category</label>
+                    <select className="select w-full text-sm" value={osNoCategory} onChange={e => setOsNoCategory(e.target.value)}>
+                      <option value="">All categories</option>
+                      {osNoCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  {(osNoVendor || osNoCategory) && (
+                    <div className="flex items-end">
+                      <button onClick={() => { setOsNoVendor(''); setOsNoCategory('') }} className="btn-ghost text-xs text-danger">Clear</button>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="tbl-wrap">
                 <table className="tbl">
                   <thead>
@@ -797,15 +835,21 @@ export default function ActionCenter() {
                       <th>SKU</th>
                       <th>Description</th>
                       <th>Vendor</th>
-                      <SortableTh field="on_hand"      label="On Hand"      sort={osSort} onSort={toggleOsSort} />
-                      <SortableTh field="excess_value" label="Excess Value" sort={osSort} onSort={toggleOsSort} />
-                      <SortableTh field="days_on_hand" label="Days OH"      sort={osSort} onSort={toggleOsSort} />
+                      <SortableTh field="on_hand"      label="On Hand"      sort={osNoSort} onSort={toggleOsNoSort} />
+                      <SortableTh field="excess_value" label="Excess Value" sort={osNoSort} onSort={toggleOsNoSort} />
+                      <SortableTh field="days_on_hand" label="Days OH"      sort={osNoSort} onSort={toggleOsNoSort} />
                       <th>Status</th>
                       <th>Suggested Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {overstockNoOrders.map(r => (
+                    {overstockNoOrders.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-8 text-center text-text2">
+                          {osNoVendor || osNoCategory ? 'No no-inbound overstock items match these filters' : 'No no-inbound overstock items'}
+                        </td>
+                      </tr>
+                    ) : overstockNoOrders.map(r => (
                       <tr key={r.id} className={dismissedOverstock.has(r.product_code) ? 'opacity-50' : ''}>
                         <td
                           className="font-mono text-[11px] text-accent cursor-pointer hover:underline"
@@ -863,9 +907,9 @@ export default function ActionCenter() {
             </div>
           )}
 
-          {visibleOverstock.length === 0 && (
+          {visibleOverstockRows.length === 0 && (
             <div className="card text-center py-8 text-text2 text-sm">
-              {osVendor || osCategory ? 'No results for selected filters' : 'No overstock items'}
+              {osOpenVendor || osOpenCategory || osNoVendor || osNoCategory ? 'No results for selected filters' : 'No overstock items'}
             </div>
           )}
         </div>

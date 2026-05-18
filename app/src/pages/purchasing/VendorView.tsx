@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, Fragment } from 'react'
 import { useInventoryAnalysis } from '@/hooks/useInventory'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
+import { StatusBadges } from '@/components/ui/Badge'
 import { fmtNumber, fmtCurrency, groupBy } from '@/lib/utils'
 import TaskModal from '@/components/tasks/TaskModal'
 import {
@@ -67,7 +68,9 @@ export default function VendorView() {
   const [taskVendorSkus, setTaskVendorSkus] = useState<InventoryRecord[]>([])
   const [expandedVendor, setExpanded] = useState<string | null>(null)
   const [expandedSkuSearch, setExpandedSkuSearch] = useState('')
-  const [expandedSkuSort, setExpandedSkuSort] = useState<VendorSkuSortState | null>(null)
+  const [expandedSkuSort, setExpandedSkuSort] = useState<VendorSkuSortState>({ field: 'recommended_order_value', dir: 'desc' })
+  const [expandedSkuStatus, setExpandedSkuStatus] = useState('')
+  const [expandedSkuCategory, setExpandedSkuCategory] = useState('')
   const [page, setPage] = useState(0)
 
   // Distinct categories
@@ -144,7 +147,7 @@ export default function VendorView() {
   }
 
   function toggleSkuSort(field: VendorSkuSortState['field']) {
-    setExpandedSkuSort(s => s?.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' })
+    setExpandedSkuSort(s => s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: field === 'recommended_order_value' ? 'desc' : 'asc' })
   }
 
   function openVendorTask(row: VendorRow) {
@@ -251,14 +254,23 @@ export default function VendorView() {
                 </td>
               </tr>
             ) : (
-              pagedRows.map(row => (
+              pagedRows.map(row => {
+                const expandedSkuRows = getVendorSkuRows(row.records, expandedSkuSearch, expandedSkuSort, {
+                  status: expandedSkuStatus,
+                  category: expandedSkuCategory,
+                })
+                const expandedCategories = Array.from(new Set(row.records.map(r => r.category_name).filter(Boolean))).sort()
+
+                return (
                 <Fragment key={row.supplier_code || row.supplier_description}>
                   <tr
                     className={`cursor-pointer ${expandedVendor === row.supplier_description ? 'bg-surface2/60' : ''}`}
                     onClick={() => {
                       setExpanded(v => v === row.supplier_description ? null : row.supplier_description)
                       setExpandedSkuSearch('')
-                      setExpandedSkuSort(null)
+                      setExpandedSkuSort({ field: 'recommended_order_value', dir: 'desc' })
+                      setExpandedSkuStatus('')
+                      setExpandedSkuCategory('')
                     }}
                   >
                     <td className="font-medium text-text1">{row.supplier_description}</td>
@@ -317,47 +329,71 @@ export default function VendorView() {
                     <tr>
                       <td colSpan={12} className="p-0 bg-surface2/40">
                         <div className="px-4 py-2">
-                          <div className="flex items-center gap-3 mb-2">
-                            <div className="relative max-w-xs flex-1">
+                          <div className="flex items-center gap-2 mb-2 flex-wrap">
+                            <div className="relative max-w-xs flex-1 min-w-0">
                               <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text2" />
                               <input
                                 className="input w-full pl-8 py-1.5 text-xs"
-                                placeholder="Filter SKUs, description, category, status..."
+                                placeholder="Filter SKUs, description, category…"
                                 value={expandedSkuSearch}
                                 onChange={e => setExpandedSkuSearch(e.target.value)}
                               />
                             </div>
-                            {expandedSkuSearch && (
-                              <button className="btn-ghost text-xs text-danger" onClick={() => setExpandedSkuSearch('')}>
+                            <select
+                              className="select py-1.5 text-xs"
+                              value={expandedSkuStatus}
+                              onChange={e => setExpandedSkuStatus(e.target.value)}
+                            >
+                              <option value="">All statuses</option>
+                              {[...new Set(row.records.map(r => r.status))].sort().map(s => (
+                                <option key={s} value={s}>{s}</option>
+                              ))}
+                            </select>
+                            <select
+                              className="select py-1.5 text-xs"
+                              value={expandedSkuCategory}
+                              onChange={e => setExpandedSkuCategory(e.target.value)}
+                            >
+                              <option value="">All categories</option>
+                              {expandedCategories.map(c => (
+                                <option key={c} value={c}>{c}</option>
+                              ))}
+                            </select>
+                            {(expandedSkuSearch || expandedSkuStatus || expandedSkuCategory) && (
+                              <button
+                                className="btn-ghost text-xs text-danger"
+                                onClick={() => { setExpandedSkuSearch(''); setExpandedSkuStatus(''); setExpandedSkuCategory('') }}
+                              >
                                 Clear
                               </button>
                             )}
                             <span className="ml-auto text-xs text-text2">
-                              {fmtNumber(getVendorSkuRows(row.records, expandedSkuSearch, expandedSkuSort).length)} SKU{getVendorSkuRows(row.records, expandedSkuSearch, expandedSkuSort).length !== 1 ? 's' : ''}
+                              {fmtNumber(expandedSkuRows.length)} SKU{expandedSkuRows.length !== 1 ? 's' : ''}
                             </span>
                           </div>
                           <div className="overflow-x-auto">
                           <table className="w-full text-[12px]">
                             <thead>
                               <tr className="text-text2 border-b border-border">
-                                <SortableTh field="product_code" label="SKU" sort={expandedSkuSort ?? { field: '', dir: 'asc' }} onSort={() => toggleSkuSort('product_code')} className="text-left py-1 pr-3 font-semibold" />
-                                <SortableTh field="description" label="Description" sort={expandedSkuSort ?? { field: '', dir: 'asc' }} onSort={() => toggleSkuSort('description')} className="text-left py-1 pr-3 font-semibold" />
-                                <SortableTh field="category_name" label="Category" sort={expandedSkuSort ?? { field: '', dir: 'asc' }} onSort={() => toggleSkuSort('category_name')} className="text-left py-1 pr-3 font-semibold" />
-                                <SortableTh field="on_hand" label="On Hand" sort={expandedSkuSort ?? { field: '', dir: 'asc' }} onSort={() => toggleSkuSort('on_hand')} className="text-right py-1 pr-3 font-semibold" />
-                                <SortableTh field="days_on_hand" label="Days OH" sort={expandedSkuSort ?? { field: '', dir: 'asc' }} onSort={() => toggleSkuSort('days_on_hand')} className="text-right py-1 pr-3 font-semibold" />
-                                <SortableTh field="recommended_order" label="Rec. Order" sort={expandedSkuSort ?? { field: '', dir: 'asc' }} onSort={() => toggleSkuSort('recommended_order')} className="text-right py-1 pr-3 font-semibold" />
-                                <SortableTh field="status" label="Status" sort={expandedSkuSort ?? { field: '', dir: 'asc' }} onSort={() => toggleSkuSort('status')} className="text-left py-1 font-semibold" />
+                                <SortableTh field="product_code" label="SKU" sort={expandedSkuSort} onSort={() => toggleSkuSort('product_code')} className="text-left py-1 pr-3 font-semibold" />
+                                <SortableTh field="description" label="Description" sort={expandedSkuSort} onSort={() => toggleSkuSort('description')} className="text-left py-1 pr-3 font-semibold" />
+                                <SortableTh field="category_name" label="Category" sort={expandedSkuSort} onSort={() => toggleSkuSort('category_name')} className="text-left py-1 pr-3 font-semibold" />
+                                <SortableTh field="status" label="Status" sort={expandedSkuSort} onSort={() => toggleSkuSort('status')} className="text-left py-1 pr-3 font-semibold" />
+                                <SortableTh field="on_hand" label="On Hand" sort={expandedSkuSort} onSort={() => toggleSkuSort('on_hand')} className="text-right py-1 pr-3 font-semibold" />
+                                <SortableTh field="days_on_hand" label="Days OH" sort={expandedSkuSort} onSort={() => toggleSkuSort('days_on_hand')} className="text-right py-1 pr-3 font-semibold" />
+                                <SortableTh field="recommended_order" label="Rec. Order Qty" sort={expandedSkuSort} onSort={() => toggleSkuSort('recommended_order')} className="text-right py-1 pr-3 font-semibold" />
+                                <SortableTh field="recommended_order_value" label="Rec. Order Value" sort={expandedSkuSort} onSort={() => toggleSkuSort('recommended_order_value')} className="text-right py-1 font-semibold" />
                               </tr>
                             </thead>
                             <tbody>
-                              {getVendorSkuRows(row.records, expandedSkuSearch, expandedSkuSort).length === 0 ? (
+                              {expandedSkuRows.length === 0 ? (
                                 <tr>
-                                  <td colSpan={7} className="py-6 text-center text-text2">
+                                  <td colSpan={8} className="py-6 text-center text-text2">
                                     No SKUs match this filter
                                   </td>
                                 </tr>
                               ) : (
-                                getVendorSkuRows(row.records, expandedSkuSearch, expandedSkuSort).map(r => (
+                                expandedSkuRows.map(r => (
                                   <tr
                                     key={r.id}
                                     className="border-b border-border/50 hover:bg-surface2 cursor-pointer"
@@ -366,6 +402,9 @@ export default function VendorView() {
                                     <td className="py-1 pr-3 font-mono text-accent">{r.product_code}</td>
                                     <td className="py-1 pr-3 text-text1 max-w-[200px] truncate">{r.description}</td>
                                     <td className="py-1 pr-3 text-text2 max-w-[140px] truncate">{r.category_name}</td>
+                                    <td className="py-1 pr-3">
+                                      <StatusBadges record={r} />
+                                    </td>
                                     <td className="py-1 pr-3 tabular-nums text-right">{fmtNumber(r.on_hand)}</td>
                                     <td className="py-1 pr-3 tabular-nums text-right">
                                       <span className={r.days_on_hand <= 7 ? 'text-danger font-semibold' : r.days_on_hand <= 14 ? 'text-warning' : ''}>
@@ -375,14 +414,7 @@ export default function VendorView() {
                                     <td className="py-1 pr-3 tabular-nums text-right font-semibold">
                                       {r.recommended_order > 0 ? fmtNumber(r.recommended_order) : '—'}
                                     </td>
-                                    <td className="py-1">
-                                      <span className={
-                                        r.status === 'Potential s/o' || r.status === 'Stocked out' ? 'text-danger font-semibold' :
-                                        r.status === 'Ok' ? 'text-success' :
-                                        r.status === 'Excess stock' || r.status === 'Surplus orders' ? 'text-accent' :
-                                        'text-text2'
-                                      }>{r.status}</span>
-                                    </td>
+                                    <td className="py-1 tabular-nums text-right">{fmtCurrency(r.recommended_order_value)}</td>
                                   </tr>
                                 ))
                               )}
@@ -394,7 +426,7 @@ export default function VendorView() {
                     </tr>
                   )}
                 </Fragment>
-              ))
+              )})
             )}
           </tbody>
         </table>

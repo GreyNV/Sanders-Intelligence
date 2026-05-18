@@ -66,6 +66,19 @@ describe('Vendor View at-risk SKU helpers', () => {
 
     expect(getVendorSkuRows(rows, 'quilt', { field: 'product_code', dir: 'asc' }).map(r => r.product_code)).toEqual(['AAA-1'])
     expect(getVendorSkuRows(rows, '', { field: 'recommended_order', dir: 'desc' }).map(r => r.product_code)).toEqual(['AAA-1', 'CCC-3', 'BBB-2'])
-    expect(getVendorSkuRows(rows, '', null).map(r => r.product_code)).toEqual(['AAA-1', 'CCC-3', 'BBB-2'])
+    expect(getVendorSkuRows(rows, '', { field: 'recommended_order_value', dir: 'desc' }).map(r => r.product_code)).toEqual(['BBB-2', 'AAA-1', 'CCC-3'])
+  })
+
+  it('filters expanded vendor SKU rows by status and category before sorting', () => {
+    const rows = [
+      makeRecord({ product_code: 'KEEP', category_name: 'Hardware', status: 'Stocked out', recommended_order_value: 80 }),
+      makeRecord({ product_code: 'SKIP-STATUS', category_name: 'Hardware', status: 'Ok', recommended_order_value: 100 }),
+      makeRecord({ product_code: 'SKIP-CAT', category_name: 'Bedding', status: 'Stocked out', recommended_order_value: 120 }),
+    ]
+
+    expect(getVendorSkuRows(rows, '', { field: 'recommended_order_value', dir: 'desc' }, {
+      status: 'Stocked out',
+      category: 'Hardware',
+    }).map(r => r.product_code)).toEqual(['KEEP'])
   })
 })

@@ -1,0 +1,306 @@
+{
+  "sprint": {
+    "name": "Sanders Intelligence — In-progress bucket (2026-05-15)",
+    "source": "Asana project 'Sanders intelligence app', section 'In progress'",
+    "asana_project_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813",
+    "workspace_root": "D:\\Sanders Intelligence\\",
+    "app_source_root": "D:\\Sanders Intelligence\\app\\src\\",
+    "stack_reminders": [
+      "React 18 + TypeScript + Vite",
+      "Tailwind CSS with design tokens (text1/text2/surface/surface2/accent/success/warning/danger)",
+      "TanStack Query v5 for data fetching; query keys ['inventory','latest'], ['inventory','trends'], etc.",
+      "Supabase Postgres + RLS; queries must paginate past 1000-row cap using .range() loop",
+      "Recharts for charts; existing color palette: success #4caf87, accent #6c8aff, danger #e05c7a, info #8890b5",
+      "lucide-react for icons; do not pull new icon libraries",
+      "Mutations must use try/catch/finally so loading state always clears",
+      "Avoid in-place .sort() on React Query cached arrays — always spread first ([...arr].sort())"
+    ],
+    "shared_conventions": {
+      "filter_dropdown_style": "Use existing `select` Tailwind class; first option is 'All <thing>'; value '' means no filter; small uppercase label above (text-[10px] font-semibold text-text2 uppercase tracking-wider).",
+      "sortable_header_style": "Reuse the SortableTh pattern from ActionCenter.tsx (ChevronsUpDown when inactive, ArrowUp/ArrowDown when active, text-accent on active).",
+      "status_buckets": {
+        "OK": ["Ok"],
+        "Excess": ["Excess stock", "Surplus orders"],
+        "At Risk": ["Potential s/o", "Stocked out"],
+        "New Items": ["New item"]
+      },
+      "currency_and_number_formatting": "Use fmtCurrency / fmtNumber from @/lib/utils everywhere; never raw toFixed on $.",
+      "url_param_filter_pattern": "When linking to /purchasing/inventory pre-filtered, use encodeURIComponent and slash-encode 's/o' as 's%2Fo'."
+    }
+  },
+
+  "tasks": [
+    {
+      "id": "ASANA-1214746564404268",
+      "title": "Filter + sort SKUs in Task creation and Vendor View",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1214746564404268",
+      "attachment_image_url": "https://app.asana.com/app/asana/-/get_asset?asset_id=1214746564404271",
+      "type": "feature",
+      "summary": "Two SKU tables that currently only support free-text search need explicit Vendor / Status / Category filter dropdowns plus column sorting. Out of scope: InventoryBrowser (which already has vendor+status filters and sortable headers).",
+      "surfaces": [
+        {
+          "name": "TaskModal SKU selector modal",
+          "file": "app/src/components/tasks/TaskModal.tsx",
+          "current_state": "Inside the 'Select SKUs' Modal there is one search input that filters product_code | description | supplier_description | brand_name | category_name (see filterSkuSelectorRows). Columns SKU, Description, Vendor, Category, Status, On Hand, Days OH, Rec. Order, Order Value are static — no sort headers, no per-column filters."
+        },
+        {
+          "name": "Vendor View expanded SKU list",
+          "file": "app/src/pages/purchasing/VendorView.tsx",
+          "helper_file": "app/src/pages/purchasing/VendorView.helpers.ts",
+          "current_state": "When a vendor row is expanded, child rows render via getVendorSkuRows(...) and have a separate sort state (expandedSkuSort) plus an expandedSkuStatus filter and expandedSkuSearch. Vendor (always = parent) and Category are not yet exposed as filter dropdowns on the expanded sub-table."
+        }
+      ],
+      "changes": [
+        {
+          "where": "TaskModal SKU selector",
+          "ui": [
+            "Above the SKU table inside the selector modal, render a single horizontal filter bar with: keep existing search input on the left; add three select dropdowns to the right — Vendor, Status, Category — each with an 'All …' default.",
+            "Vendor options = distinct supplier_description from selectableSkus (sorted, non-empty).",
+            "Status options = the 6 raw inventory statuses in this order: Ok, Excess stock, Surplus orders, Potential s/o, Stocked out, New item.",
+            "Category options = distinct category_name from selectableSkus (sorted, non-empty).",
+            "Each column header in the SKU table becomes click-sortable: SKU, Description, Vendor, Category, Status, On Hand, Days OH, Rec. Order, Order Value. Use the SortableTh component pattern from ActionCenter.tsx. Default sort: 'Order Value' descending (preserves today's de-facto ordering).",
+            "When the user selects/unselects a row, do NOT change the sort order on the next render (today the sort puts selected rows on top — keep that as a SECONDARY sort, so primary sort still wins).",
+            "Active filter pills: if any of Vendor/Status/Category are set, show a 'Clear filters' link to reset them all."
+          ],
+          "logic": [
+            "Extend filterSkuSelectorRows in app/src/components/tasks/TaskModal.helpers.ts (or add a sibling helper) with optional { vendor, status, category } args. Existing free-text search keeps current behavior.",
+            "Apply filters before sort. Apply sort before the existing 'selected first' tiebreaker. Apply the slice(0, 200) cap LAST.",
+            "Sort comparator: numeric fields (on_hand, days_on_hand, recommended_order, recommended_order_value) numeric ascending/descending; string fields use localeCompare. Status sort should follow severity order: Stocked out > Potential s/o > Excess stock > Surplus orders > New item > Ok (ascending = least → most severe)."
+          ]
+        },
+        {
+          "where": "Vendor View expanded SKU list",
+          "ui": [
+            "In the expanded sub-row block, alongside the existing search and Status dropdown, add a Category dropdown (Vendor is implied by the parent row so omit it).",
+            "Category options = distinct category_name from the parent vendor's records.",
+            "Promote the existing per-column sort to an explicit SortableTh row for: SKU, Description, Category, Status, On Hand, Days OH, Rec. Order Qty, Rec. Order Value. Reuse VendorSkuSortState and getVendorSkuRows; extend them if a new sort field is required.",
+            "Default expanded-list sort: Rec. Order Value desc."
+          ],
+          "logic": [
+            "Extend getVendorSkuRows to accept an optional category filter and pass through.",
+            "Reset expandedSkuStatus, the new expandedSkuCategory, expandedSkuSearch, and expandedSkuSort whenever expandedVendor changes."
+          ]
+        }
+      ],
+      "acceptance_criteria": [
+        "From New Task → Vendor Order → Edit SKUs, a user can narrow the SKU pool by Vendor='Acme', Status='Stocked out', Category='Hardware' simultaneously and then sort by Order Value descending; selecting a row does not change the visible order beyond moving it to the secondary 'selected' group.",
+        "Clearing all three dropdowns plus the search restores the full pool (up to the 200-row cap).",
+        "On Vendor View, expanding a vendor and choosing Category='Hardware' shows only that category's SKUs for that vendor; sort headers toggle asc/desc and the active header shows the arrow + accent color.",
+        "Switching expansion to a different vendor resets filters and sort to defaults.",
+        "No regressions in InventoryBrowser (this task does not touch it).",
+        "All filter dropdowns and sort headers are keyboard accessible (native <select> / <th> + onClick — no custom-popover work needed)."
+      ],
+      "out_of_scope": [
+        "Saving filter preferences across sessions / users",
+        "Adding new columns to either table",
+        "Changes to InventoryBrowser"
+      ]
+    },
+
+    {
+      "id": "ASANA-1214746564404272",
+      "title": "Executive Summary: weekly stacked bar of inventory health ($ %)",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1214746564404272",
+      "attachment_image_url": "https://app.asana.com/app/asana/-/get_asset?asset_id=1214746564404275",
+      "type": "feature",
+      "summary": "Add a new stacked bar chart to Executive Summary that shows inventory health distribution by $ value over time, bucketed by ISO week, expressed as percent of total per week.",
+      "data_pipeline": {
+        "current_hook": "useInventoryTrends() in app/src/hooks/useInventory.ts — fetches last 20 complete uploads and returns UploadTrendPoint[]; per-upload aggregates do NOT currently include per-status $ values, only totalValue/atRiskCount/excessValue/fillRate/totalRecOrderValue/totalSkus.",
+        "required_extension": [
+          "Add fields to each upload aggregate (and to UploadTrendPoint) for the 4 health buckets, in $: okValue, excessValue (rename to keep semantic 'Excess stock + Surplus orders'), atRiskValue, newItemValue. Keep the existing fields for backward compat (excessValue is already used elsewhere; if its semantics are unchanged we can simply add okValue / atRiskValue / newItemValue).",
+          "Update the SELECT in fetchInventoryTrends to include on_hand_value AND status so per-status sums can be computed per upload. The existing query selects only on_hand_value/excess_value/recommended_order_value/average_sales/status — confirm status is already selected (it is, line 139). Add a per-status sum reducer."
+        ],
+        "weekly_bucketing": {
+          "rule": "ISO week (Mon–Sun). Compute week key as 'YYYY-Www' (e.g. 2026-W19) from upload date.",
+          "aggregation_within_week": "If a week contains multiple uploads, AVERAGE the four bucket values (okValue, excessValue, atRiskValue, newItemValue) for that week. Average AFTER computing each upload's totals, not by re-pooling raw rows.",
+          "empty_weeks": "Render as a visual gap on the X-axis (do not interpolate). Use a fixed week range = last N weeks where N is configurable in code (default N=12).",
+          "x_axis_label": "Short week label, e.g. 'May 11' = Monday of that ISO week."
+        },
+        "percent_of_total": "For each weekly bucket, compute the four percentages = bucketValue / sum(four buckets) * 100. The stacked bar is the 4 percentages, summing to 100%."
+      },
+      "ui": {
+        "placement": "Inside the Executive Summary 'Historical Trends — across uploads' grid (md:grid-cols-2). Add as a NEW card titled 'Inventory Health by Value — Weekly (%)' positioned as the first card in the trends section (above 'Total Inventory Value Over Time').",
+        "chart_lib": "Recharts BarChart with stack",
+        "config": {
+          "BarChart": {
+            "data": "WeeklyHealthPoint[] (computed)",
+            "margin": "{ left: 0, right: 8, top: 4, bottom: 0 }",
+            "stackOffset": "none"
+          },
+          "XAxis": "dataKey='label', tick.fill='#8890b5', fontSize 10",
+          "YAxis": "domain=[0,100], tickFormatter=v => `${v}%`, fontSize 10, width 36",
+          "Bars": [
+            {"dataKey": "okPct",       "stackId": "h", "fill": "#4caf87", "name": "OK"},
+            {"dataKey": "excessPct",   "stackId": "h", "fill": "#6c8aff", "name": "Excess"},
+            {"dataKey": "atRiskPct",   "stackId": "h", "fill": "#e05c7a", "name": "At Risk"},
+            {"dataKey": "newItemPct",  "stackId": "h", "fill": "#8890b5", "name": "New Items"}
+          ],
+          "Tooltip": "Show all four buckets with $ value (raw) AND %; e.g. 'OK — $124,500 (62%)'.",
+          "Legend": "Bottom, fontSize 11, color text2"
+        },
+        "drill_through": "Clicking a segment navigates to /purchasing/inventory?status=<encoded raw status> using a representative raw status per bucket: OK→'Ok', Excess→'Excess stock', At Risk→'Potential s/o', New Items→'New item'. Only the latest-week bar segments need to be clickable; older weeks need not be interactive."
+      },
+      "files_to_modify": [
+        "app/src/hooks/useInventory.ts — extend UploadTrendPoint and fetchInventoryTrends",
+        "app/src/pages/csuite/ExecutiveSummary.tsx — add the new card and the per-week aggregator",
+        "Optional: app/src/lib/utils.ts — add a getIsoWeek(date) helper if not present"
+      ],
+      "edge_cases": [
+        "Fewer than 2 weeks of data → show the same 'Not enough data yet' card already used for trends, but specifically gated on weekly buckets count < 2.",
+        "A week with zero $ value across all 4 buckets (shouldn't happen in practice) → render an empty/zero bar (no NaN%).",
+        "Uploads with status values not in our 6-value enum → ignore for bucketing but still include in totalSkus."
+      ],
+      "acceptance_criteria": [
+        "Card renders only when there are ≥2 distinct ISO-weeks of complete uploads available.",
+        "Each weekly bar sums to 100% (visually full height).",
+        "Bar segment colors and order: OK (green) bottom → Excess (blue) → At Risk (red) → New Items (gray) top.",
+        "Tooltip on hover shows raw $ AND % for each segment of that week.",
+        "Clicking a segment of the most recent week opens /purchasing/inventory pre-filtered by the corresponding status.",
+        "Multiple uploads in one ISO week produce a single bar whose values are the AVERAGE of those uploads.",
+        "No regressions to the existing four trend cards."
+      ],
+      "out_of_scope": [
+        "Persisting weekly snapshots to a new table (we compute on the fly from uploads)",
+        "User-selectable week range",
+        "Splitting Excess into 'Excess stock' vs 'Surplus orders' — they remain merged in the Excess bucket"
+      ]
+    },
+
+    {
+      "id": "ASANA-1214820134193886",
+      "title": "Collapse/Expand toggle for the navigation sidebar",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1214820134193886",
+      "type": "feature",
+      "summary": "Add a button that toggles the sidebar between full-width (current 224 px / w-56) and a narrow icon-only rail (~56 px / w-14). State persists across reloads.",
+      "files_to_modify": [
+        "app/src/components/layout/Sidebar.tsx",
+        "app/src/components/layout/AppShell.tsx (only if state needs to be hoisted; otherwise keep local)"
+      ],
+      "changes": [
+        "Add a `collapsed` boolean state, persisted to localStorage under key 'ui.sidebar.collapsed' (default false).",
+        "When collapsed: aside className width becomes w-14; group labels ('Purchasing', 'C-Suite', 'Work', 'Admin') are hidden; NavLink rows show icon only, centered, padding adjusts (px-0 py-2, justify-center); the logo area shrinks to just an 'S' monogram; the user footer hides name/role text but keeps the sign-out icon button with title='Sign out'.",
+        "When expanded: behaves exactly as today.",
+        "Toggle button: an icon button (PanelLeftClose / PanelLeftOpen from lucide-react) placed in the sidebar header (top-right of the logo area) OR sticky at the bottom of the nav scroll area — pick the header placement for visibility.",
+        "All NavLink rows in collapsed mode must have a native title attribute equal to the label so the user can hover to see the name.",
+        "Smooth width transition: Tailwind `transition-[width] duration-150 ease-out` on the aside.",
+        "When collapsed, the 'Sanders / Intelligence' two-line brand collapses to a single 'S' glyph (or short logo)."
+      ],
+      "acceptance_criteria": [
+        "Clicking the toggle shrinks the sidebar to ~56 px and back to 224 px with a smooth transition.",
+        "After reload the sidebar restores to the user's last state via localStorage.",
+        "In collapsed mode, hovering an icon shows the page name as a tooltip.",
+        "All routes remain navigable from the collapsed sidebar.",
+        "No layout shift / horizontal scrollbar appears on the main content during transition.",
+        "Sign-out button still works in collapsed mode (icon-only with title).",
+        "Works at md and lg breakpoints (mobile is not in scope of this task)."
+      ],
+      "out_of_scope": [
+        "Auto-collapse on narrow viewports / responsive mobile drawer",
+        "Per-user (server-side) preference storage"
+      ]
+    },
+
+    {
+      "id": "ASANA-1214746564404276",
+      "title": "BUG: Sorting in one Action Center table affects other tables",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1214746564404276",
+      "type": "bug",
+      "summary": "On /purchasing/action-center, clicking a sort header in one section (At Risk / Backorders / Overstock) appears to change the visible order of rows in other sections. Each section has its own SortState (arSort/boSort/osSort) so the contamination is happening upstream of the section sort.",
+      "files_to_investigate": [
+        "app/src/pages/purchasing/ActionCenter.tsx — sortRecords, visibleAtRisk/visibleBackorders/visibleOverstock useMemos, groupRecordsByVendorCategory",
+        "app/src/hooks/useInventory.ts — analyzeInventory returns references into the same records[] array; if any consumer .sort()s atRiskItems/backorderItems/excessItems in place, the React Query cache is mutated and all observers see new ordering"
+      ],
+      "diagnostic_steps": [
+        "Add a top-of-component invariant check during dev: store a snapshot of inventory.records[0..4].product_code and assert it remains unchanged after a re-render triggered by clicking a sort header. If it changes, the cached array is being mutated.",
+        "Grep the entire src/ for `\\.sort(` calls on arrays that come from useInventory/useInventoryAnalysis/useAtRiskItems/useBackorderItems/useExcessItems/useInboundItems. Any such call must be on a spread copy ([...arr].sort(...)) — flag and fix any in-place sort.",
+        "Specifically audit groupRecordsByVendorCategory — it builds Maps and arrays, so it does not mutate, but verify with a unit-style check.",
+        "Verify each section's sort state is fully isolated by clicking through sort headers in one section and screenshotting the other two before/after."
+      ],
+      "expected_fix_shape": [
+        "Most likely fix: replace any `xxx.sort(...)` on a derived array with `[...xxx].sort(...)`. Or wrap the analyzeInventory output arrays in frozen wrappers in dev mode to surface mutations.",
+        "If the bug turns out to be perceived rather than actual cross-state coupling (e.g. the user is confused by the vendor/category grouping reshuffling rows within a sort), document the actual behavior and add a small caption under each section header explaining 'Rows grouped by vendor → category, then sorted within group by <field>'."
+      ],
+      "acceptance_criteria": [
+        "Clicking a sort header in the At Risk section does not change the row order of the Backorders or Overstock tables.",
+        "Clicking a sort header in Backorders does not change the row order of At Risk or Overstock.",
+        "Clicking a sort header in Overstock does not change the row order of At Risk or Backorders.",
+        "Navigating away and back to /purchasing/action-center preserves the same default sort per section (At Risk: days_on_hand asc; Backorders: unsatisfied_customer_orders_value desc; Overstock: excess_value desc).",
+        "Refreshing the data via React Query invalidation does not re-trigger the bug.",
+        "A regression test or in-component invariant (commented out for prod) is left behind so this doesn't silently come back."
+      ],
+      "out_of_scope": [
+        "Re-designing the grouped-by-vendor table layout",
+        "Adding new sortable columns"
+      ]
+    },
+
+    {
+      "id": "ASANA-1214748761687759",
+      "title": "Executive Summary 'Top Risk Supplier' list — replace columns",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1214748761687759",
+      "type": "feature",
+      "summary": "Replace the column set on the 'Top Risk Supplier — Requires Attention' card in Executive Summary with $ -denominated metrics that are more actionable for executives.",
+      "files_to_modify": [
+        "app/src/pages/csuite/ExecutiveSummary.tsx — `topRiskSuppliers` useMemo and the JSX list rendering"
+      ],
+      "new_columns": [
+        {"label": "# at-risk SKUs",       "key": "atRiskSkuCount",      "compute": "count of records with status ∈ {Potential s/o, Stocked out}",                                                "format": "fmtNumber"},
+        {"label": "$ at risk",            "key": "atRiskOnHandValue",   "compute": "sum(on_hand_value) over the same at-risk subset for this vendor",                                            "format": "fmtCurrency"},
+        {"label": "Lowest Days OH",       "key": "minDaysOnHand",       "compute": "Math.min(days_on_hand) across at-risk SKUs for this vendor",                                                  "format": "v => `${v}d`"},
+        {"label": "Rec Order $",          "key": "recOrderValue",       "compute": "sum(recommended_order_value) across at-risk SKUs for this vendor",                                            "format": "fmtCurrency"},
+        {"label": "Open Backorders $",    "key": "openBackorderValue",  "compute": "sum(unsatisfied_customer_orders_value) across ALL of this vendor's records (not just at-risk subset)",        "format": "fmtCurrency"},
+        {"label": "Fill rate",            "key": "fillRate",            "compute": "okCount / activeSkus * 100 where activeSkus = records with average_sales > 0 OR on_hand > 0, across vendor",  "format": "v => `${v.toFixed(1)}%`"}
+      ],
+      "columns_removed": [
+        "SKU count (subsumed by '# at-risk SKUs')",
+        "Category count",
+        "On Hand (units)",
+        "Rec. Order quantity (replaced by Rec Order $)",
+        "Backorder units (replaced by Open Backorders $)",
+        "Standalone 'Order Value' (now exactly 'Rec Order $')"
+      ],
+      "logic_changes": [
+        "topRiskSuppliers must now group ALL records by supplier, not only the at-risk subset, so that fillRate and openBackorderValue can be computed across the vendor's whole portfolio. Then derive the at-risk subset within each group for the at-risk-specific metrics.",
+        "Sort order: descending by Rec Order $ (preserve current default).",
+        "Slice top 10.",
+        "Vendor remains the row's primary label; sub-line under the vendor name shows '<atRiskSkuCount> at-risk SKUs · <fillRate.toFixed(1)>% fill rate' for at-a-glance scanning."
+      ],
+      "ui": {
+        "row_layout": "Keep the existing card-row pattern (border-l-2 border-danger, hover:bg-surface2/50). Replace the 5 right-side metric columns with the 6 new ones in this order: # at-risk SKUs, $ at risk, Lowest Days OH, Rec Order $, Open Backorders $, Fill rate. Use small text-xs label above value (text2) and font-semibold tabular-nums for the value. Lowest Days OH value is colored red (text-danger) when ≤ 7, warning when ≤ 14, otherwise default.",
+        "click_through": "Same as today — clicking the row navigates to /purchasing/inventory?status=Potential+s%2Fo&vendor=<encoded vendor>"
+      },
+      "acceptance_criteria": [
+        "Card renders with exactly the 6 metrics listed above for each of the top 10 risk suppliers.",
+        "Default sort is by Rec Order $ descending; same order as before for vendors where Rec Order $ has not changed.",
+        "Fill rate matches what the same vendor would show in Vendor View (cross-reference for sanity).",
+        "$ at risk equals the sum of on_hand_value for the vendor's at-risk SKUs only — not their entire portfolio.",
+        "Open Backorders $ is the vendor's TOTAL across all their SKUs (not gated to at-risk).",
+        "If no at-risk suppliers exist, the existing 'inventory health is good' empty state is preserved.",
+        "Click-through still pre-filters Inventory Browser correctly.",
+        "No regressions to other parts of Executive Summary (KPI strip, $ health bar, pie/bar charts, historical trends)."
+      ],
+      "out_of_scope": [
+        "Adding more vendors beyond top 10",
+        "Adding column sorting controls on this list (it is rank-ordered, not user-sortable)",
+        "Showing categories per vendor as a separate column"
+      ]
+    }
+  ],
+
+  "global_acceptance": [
+    "App builds with `cd app && npm run dev` and `npm run build` with no new TypeScript errors and no new console errors on first paint of each affected route.",
+    "No new ESLint warnings introduced in the files touched.",
+    "RLS-protected queries continue to paginate properly (no implicit 1000-row cap regressions).",
+    "All 5 in-progress Asana tasks can be moved to Done after manual smoke-test of the acceptance criteria on each task.",
+    "Each task is delivered as one focused commit (or one PR with logically-separated commits) so they can be reviewed independently.",
+    "The dismissed_actions migration (supabase/migrations/002_dismissed_actions.sql) is unrelated and not required by this sprint."
+  ],
+
+  "verification_plan": [
+    "For Task 1: open New Task → Vendor Order → Edit SKUs; verify the three dropdowns and sort headers work; then expand a vendor on Vendor View and verify the same.",
+    "For Task 2: confirm the weekly bar appears in Executive Summary 'Historical Trends'; hover several bars and verify $ + % tooltip; click the most recent OK segment and confirm Inventory Browser opens filtered by 'Ok'.",
+    "For Task 3: toggle the sidebar, reload the page (state persists), navigate between pages (state persists), confirm tooltips on hover in collapsed mode.",
+    "For Task 4: open Action Center, screenshot all three tables, click sort headers in section A and B and C in sequence, confirm the OTHER tables in each step retain their row order.",
+    "For Task 5: open Executive Summary, confirm the 'Top Risk Supplier' card shows the 6 new metrics in the specified order, click a row and confirm Inventory Browser opens with the vendor pre-filtered."
+  ]
+}

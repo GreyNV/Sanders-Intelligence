@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { buildVendorTaskDescription, filterSkuSelectorRows } from '../components/tasks/TaskModal.helpers'
+import {
+  buildVendorTaskDescription,
+  filterSkuSelectorRows,
+  sortSkuSelectorRows,
+} from '../components/tasks/TaskModal.helpers'
 import type { InventoryRecord } from '../types'
 
 function makeRecord(overrides: Partial<InventoryRecord>): InventoryRecord {
@@ -68,5 +72,44 @@ describe('vendor order SKU selection helpers', () => {
     expect(filterSkuSelectorRows(rows, 'quilt').map(r => r.product_code)).toEqual(['ABC-1'])
     expect(filterSkuSelectorRows(rows, 'softco').map(r => r.product_code)).toEqual(['XYZ-2'])
     expect(filterSkuSelectorRows(rows, 'bedding').map(r => r.product_code)).toEqual(['ABC-1'])
+  })
+
+  it('filters selector rows by vendor, status, and category together', () => {
+    const rows = [
+      makeRecord({ product_code: 'KEEP', supplier_description: 'Acme', status: 'Stocked out', category_name: 'Hardware' }),
+      makeRecord({ product_code: 'SKIP-VENDOR', supplier_description: 'Bravo', status: 'Stocked out', category_name: 'Hardware' }),
+      makeRecord({ product_code: 'SKIP-STATUS', supplier_description: 'Acme', status: 'Ok', category_name: 'Hardware' }),
+      makeRecord({ product_code: 'SKIP-CAT', supplier_description: 'Acme', status: 'Stocked out', category_name: 'Bedding' }),
+    ]
+
+    expect(filterSkuSelectorRows(rows, '', {
+      vendor: 'Acme',
+      status: 'Stocked out',
+      category: 'Hardware',
+    }).map(r => r.product_code)).toEqual(['KEEP'])
+  })
+
+  it('sorts selector rows by primary sort before selected-row grouping', () => {
+    const rows = [
+      makeRecord({ product_code: 'LOW-SELECTED', recommended_order_value: 10 }),
+      makeRecord({ product_code: 'HIGH-UNSELECTED', recommended_order_value: 100 }),
+      makeRecord({ product_code: 'MID-SELECTED', recommended_order_value: 50 }),
+    ]
+    const selected = new Set(['LOW-SELECTED', 'MID-SELECTED'])
+
+    expect(sortSkuSelectorRows(rows, { field: 'recommended_order_value', dir: 'desc' }, selected).map(r => r.product_code))
+      .toEqual(['HIGH-UNSELECTED', 'MID-SELECTED', 'LOW-SELECTED'])
+  })
+
+  it('sorts selector status by severity order', () => {
+    const rows = [
+      makeRecord({ product_code: 'OK', status: 'Ok' }),
+      makeRecord({ product_code: 'STOCKOUT', status: 'Stocked out' }),
+      makeRecord({ product_code: 'EXCESS', status: 'Excess stock' }),
+      makeRecord({ product_code: 'POTENTIAL', status: 'Potential s/o' }),
+    ]
+
+    expect(sortSkuSelectorRows(rows, { field: 'status', dir: 'asc' }, new Set()).map(r => r.product_code))
+      .toEqual(['OK', 'EXCESS', 'POTENTIAL', 'STOCKOUT'])
   })
 })

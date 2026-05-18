@@ -1,8 +1,13 @@
 import type { InventoryRecord } from '@/types'
 
 export type VendorSkuSortState = {
-  field: keyof Pick<InventoryRecord, 'product_code' | 'description' | 'category_name' | 'on_hand' | 'days_on_hand' | 'recommended_order' | 'status'>
+  field: keyof Pick<InventoryRecord, 'product_code' | 'description' | 'category_name' | 'on_hand' | 'days_on_hand' | 'recommended_order' | 'recommended_order_value' | 'status'>
   dir: 'asc' | 'desc'
+}
+
+interface VendorSkuFilters {
+  status?: string
+  category?: string
 }
 
 export function isVendorViewAtRiskSku(record: InventoryRecord): boolean {
@@ -16,17 +21,20 @@ export function getVendorViewAtRiskSkus(records: InventoryRecord[]): InventoryRe
 export function getVendorSkuRows(
   records: InventoryRecord[],
   query: string,
-  sort: VendorSkuSortState | null
+  sort: VendorSkuSortState | null,
+  filters: VendorSkuFilters = {}
 ): InventoryRecord[] {
   const q = query.trim().toLowerCase()
-  const filtered = q
-    ? records.filter(record =>
+  const filtered = records.filter(record =>
+    (!filters.status || record.status === filters.status) &&
+    (!filters.category || record.category_name === filters.category) &&
+    (!q ||
       record.product_code.toLowerCase().includes(q) ||
       record.description.toLowerCase().includes(q) ||
       record.category_name.toLowerCase().includes(q) ||
       record.status.toLowerCase().includes(q)
     )
-    : records
+  )
 
   return [...filtered].sort((a, b) => {
     if (!sort) return compareDefaultVendorSkuRows(a, b)

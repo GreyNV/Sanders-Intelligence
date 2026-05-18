@@ -6,8 +6,16 @@ import { useAuth } from '@/contexts/AuthContext'
 import { Task, TaskPriority, InventoryRecord } from '@/types'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import { fmtNumber, fmtCurrency } from '@/lib/utils'
-import { Package, Search, X } from 'lucide-react'
-import { buildVendorTaskDescription, dedupeInventoryRecords, filterSkuSelectorRows } from './TaskModal.helpers'
+import { ArrowDown, ArrowUp, ChevronsUpDown, Package, Search, X } from 'lucide-react'
+import {
+  buildVendorTaskDescription,
+  dedupeInventoryRecords,
+  filterSkuSelectorRows,
+  SKU_SELECTOR_STATUS_OPTIONS,
+  sortSkuSelectorRows,
+  type SkuSelectorSortField,
+  type SkuSelectorSortState,
+} from './TaskModal.helpers'
 
 interface TaskModalProps {
   open: boolean
@@ -36,6 +44,29 @@ function replaceVendorLine(desc: string, newVendor: string): string {
     return desc.replace(/^Vendor:\s*.+/m, `Vendor: ${newVendor}`)
   }
   return `Vendor: ${newVendor}\n${desc}`
+}
+
+function SortIcon({ field, sort }: { field: SkuSelectorSortField; sort: SkuSelectorSortState }) {
+  if (sort.field !== field) return <ChevronsUpDown size={11} className="text-text2/50 ml-0.5" />
+  return sort.dir === 'asc'
+    ? <ArrowUp size={11} className="text-accent ml-0.5" />
+    : <ArrowDown size={11} className="text-accent ml-0.5" />
+}
+
+function SortableTh({
+  field, label, sort, onSort, className = '',
+}: { field: SkuSelectorSortField; label: string; sort: SkuSelectorSortState; onSort: (f: SkuSelectorSortField) => void; className?: string }) {
+  return (
+    <th
+      className={`cursor-pointer select-none hover:text-text1 transition-colors ${sort.field === field ? 'text-accent' : ''} ${className}`}
+      onClick={() => onSort(field)}
+    >
+      <span className="flex items-center gap-0.5 whitespace-nowrap">
+        {label}
+        <SortIcon field={field} sort={sort} />
+      </span>
+    </th>
+  )
 }
 
 export default function TaskModal({
@@ -68,6 +99,10 @@ export default function TaskModal({
   const [error, setError]           = useState<string | null>(null)
   const [skuSelectorOpen, setSkuSelectorOpen] = useState(false)
   const [skuSearch, setSkuSearch] = useState('')
+  const [skuVendorFilter, setSkuVendorFilter] = useState('')
+  const [skuStatusFilter, setSkuStatusFilter] = useState('')
+  const [skuCategoryFilter, setSkuCategoryFilter] = useState('')
+  const [skuSort, setSkuSort] = useState<SkuSelectorSortState>({ field: 'recommended_order_value', dir: 'desc' })
   const [selectedSkuCodes, setSelectedSkuCodes] = useState<Set<string>>(new Set())
 
   // Single-SKU mode
@@ -101,6 +136,16 @@ export default function TaskModal({
     [selectableSkus]
   )
 
+  const skuVendorOptions = useMemo(
+    () => Array.from(new Set(selectableSkus.map(r => r.supplier_description).filter(Boolean))).sort(),
+    [selectableSkus]
+  )
+
+  const skuCategoryOptions = useMemo(
+    () => Array.from(new Set(selectableSkus.map(r => r.category_name).filter(Boolean))).sort(),
+    [selectableSkus]
+  )
+
   const vendorSkus: InventoryRecord[] = useMemo(() => {
     const selected = Array.from(selectedSkuCodes)
       .map(code => selectableSkuMap.get(code))
@@ -113,16 +158,15 @@ export default function TaskModal({
     })
   }, [selectedSkuCodes, selectableSkuMap])
 
-  const selectorRows = useMemo(() =>
-    filterSkuSelectorRows(selectableSkus, skuSearch)
-      .sort((a, b) => {
-        const aSelected = selectedSkuCodes.has(a.product_code) ? 0 : 1
-        const bSelected = selectedSkuCodes.has(b.product_code) ? 0 : 1
-        if (aSelected !== bSelected) return aSelected - bSelected
-        return b.recommended_order_value - a.recommended_order_value
-      })
-      .slice(0, 200)
-  , [selectableSkus, skuSearch, selectedSkuCodes])
+  const selectorRows = useMemo(() => {
+    const filteredRows = filterSkuSelectorRows(selectableSkus, skuSearch, {
+      vendor: skuVendorFilter,
+      status: skuStatusFilter,
+      category: skuCategoryFilter,
+    })
+
+    return sortSkuSelectorRows(filteredRows, skuSort, selectedSkuCodes).slice(0, 200)
+  }, [selectableSkus, skuSearch, skuVendorFilter, skuStatusFilter, skuCategoryFilter, skuSort, selectedSkuCodes])
 
   // Distinct departments from all users for dropdown
   const departments = useMemo(
@@ -158,6 +202,10 @@ export default function TaskModal({
       setEditVendor('')
       setSelectedSkuCodes(new Set((prefillVendorSkus.length > 0 ? prefillVendorSkus : atRiskByVendor[prefillVendor ?? ''] ?? []).map(r => r.product_code)))
       setSkuSearch('')
+      setSkuVendorFilter('')
+      setSkuStatusFilter('')
+      setSkuCategoryFilter('')
+      setSkuSort({ field: 'recommended_order_value', dir: 'desc' })
       setSkuSelectorOpen(false)
     }
     setError(null)
@@ -243,6 +291,16 @@ export default function TaskModal({
       next.delete(productCode)
       return next
     })
+  }
+
+  function toggleSkuSort(field: SkuSelectorSortField) {
+    setSkuSort(s => s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' })
+  }
+
+  function clearSkuFilters() {
+    setSkuVendorFilter('')
+    setSkuStatusFilter('')
+    setSkuCategoryFilter('')
   }
 
   const isPending = createTask.isPending || updateTask.isPending
@@ -443,9 +501,10 @@ export default function TaskModal({
           width="max-w-5xl"
         >
           <div className="space-y-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="relative flex-1">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text2" />
+            <div className="flex items-end justify-between gap-3 flex-wrap">
+              <div className="relative flex-1 min-w-[220px]">
+                <label className="block text-[10px] font-semibold text-text2 uppercase tracking-wider mb-1">Search</label>
+                <Search size={14} className="absolute left-3 top-[34px] -translate-y-1/2 text-text2" />
                 <input
                   className="input w-full pl-9"
                   placeholder="Search SKU, description, vendor, brand, or category..."
@@ -453,6 +512,32 @@ export default function TaskModal({
                   onChange={e => setSkuSearch(e.target.value)}
                 />
               </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-text2 uppercase tracking-wider mb-1">Vendor</label>
+                <select className="select text-sm min-w-[150px]" value={skuVendorFilter} onChange={e => setSkuVendorFilter(e.target.value)}>
+                  <option value="">All vendors</option>
+                  {skuVendorOptions.map(v => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-text2 uppercase tracking-wider mb-1">Status</label>
+                <select className="select text-sm min-w-[140px]" value={skuStatusFilter} onChange={e => setSkuStatusFilter(e.target.value)}>
+                  <option value="">All statuses</option>
+                  {SKU_SELECTOR_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-text2 uppercase tracking-wider mb-1">Category</label>
+                <select className="select text-sm min-w-[150px]" value={skuCategoryFilter} onChange={e => setSkuCategoryFilter(e.target.value)}>
+                  <option value="">All categories</option>
+                  {skuCategoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              {(skuVendorFilter || skuStatusFilter || skuCategoryFilter) && (
+                <button type="button" className="btn-ghost text-xs text-danger mb-1" onClick={clearSkuFilters}>
+                  Clear filters
+                </button>
+              )}
               <div className="text-xs text-text2 shrink-0">
                 {vendorSkus.length} selected
               </div>
@@ -463,15 +548,15 @@ export default function TaskModal({
                 <thead>
                   <tr>
                     <th className="w-10"></th>
-                    <th>SKU</th>
-                    <th>Description</th>
-                    <th>Vendor</th>
-                    <th>Category</th>
-                    <th>Status</th>
-                    <th>On Hand</th>
-                    <th>Days OH</th>
-                    <th>Rec. Order</th>
-                    <th>Order Value</th>
+                    <SortableTh field="product_code" label="SKU" sort={skuSort} onSort={toggleSkuSort} />
+                    <SortableTh field="description" label="Description" sort={skuSort} onSort={toggleSkuSort} />
+                    <SortableTh field="supplier_description" label="Vendor" sort={skuSort} onSort={toggleSkuSort} />
+                    <SortableTh field="category_name" label="Category" sort={skuSort} onSort={toggleSkuSort} />
+                    <SortableTh field="status" label="Status" sort={skuSort} onSort={toggleSkuSort} />
+                    <SortableTh field="on_hand" label="On Hand" sort={skuSort} onSort={toggleSkuSort} />
+                    <SortableTh field="days_on_hand" label="Days OH" sort={skuSort} onSort={toggleSkuSort} />
+                    <SortableTh field="recommended_order" label="Rec. Order" sort={skuSort} onSort={toggleSkuSort} />
+                    <SortableTh field="recommended_order_value" label="Order Value" sort={skuSort} onSort={toggleSkuSort} />
                   </tr>
                 </thead>
                 <tbody>

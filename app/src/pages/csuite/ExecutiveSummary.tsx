@@ -11,6 +11,7 @@ import { AlertTriangle, TrendingUp, Package, DollarSign, Clock } from 'lucide-re
 import { useMemo } from 'react'
 import { groupBy } from '@/lib/utils'
 import { useNavigate } from 'react-router-dom'
+import { buildTopRiskSuppliers, buildWeeklyHealthPoints } from './ExecutiveSummary.helpers'
 
 export default function ExecutiveSummary() {
   const { data: inventory, isLoading, error } = useInventoryAnalysis()
@@ -18,6 +19,7 @@ export default function ExecutiveSummary() {
   const kpis = inventory.kpis
   const { data: trends = [], isLoading: trendsLoading } = useInventoryTrends()
   const navigate = useNavigate()
+  const weeklyHealth = useMemo(() => buildWeeklyHealthPoints(trends, 12), [trends])
 
   // $ value breakdown — groups matching KPI buckets (Stocked out → At Risk, Surplus orders → Excess)
   const statusValueBreakdown = useMemo(() => [
@@ -45,24 +47,7 @@ export default function ExecutiveSummary() {
 
   // Top 10 at-risk suppliers by recommended order value
   const topRiskSuppliers = useMemo(() => {
-    const grouped = groupBy(
-      records.filter(r => r.status === 'Potential s/o' || r.status === 'Stocked out'),
-      r => r.supplier_description || 'Unknown supplier'
-    )
-
-    return Object.entries(grouped)
-      .map(([supplier, items]) => ({
-        supplier,
-        skuCount: items.length,
-        categoryCount: new Set(items.map(r => r.category_name).filter(Boolean)).size,
-        onHand: items.reduce((s, r) => s + r.on_hand, 0),
-        minDaysOnHand: Math.min(...items.map(r => r.days_on_hand)),
-        recommendedOrder: items.reduce((s, r) => s + r.recommended_order, 0),
-        recommendedOrderValue: items.reduce((s, r) => s + r.recommended_order_value, 0),
-        backorderUnits: items.reduce((s, r) => s + r.unsatisfied_customer_orders_units, 0),
-      }))
-      .sort((a, b) => b.recommendedOrderValue - a.recommendedOrderValue)
-      .slice(0, 10)
+    return buildTopRiskSuppliers(records)
   }, [records])
 
   // Top brands by excess value
@@ -94,6 +79,12 @@ export default function ExecutiveSummary() {
   const excessVal  = statusValueBreakdown[1].value
   const riskVal    = statusValueBreakdown[2].value
   const okValPct   = totalVal > 0 ? Math.round((okVal / totalVal) * 100) : 0
+
+  function handleWeeklyHealthClick(payload: unknown, statusFilter: string) {
+    const point = payload as { isLatestWeek?: boolean } | undefined
+    if (!point?.isLatestWeek) return
+    navigate(`/purchasing/inventory?status=${encodeURIComponent(statusFilter)}`)
+  }
 
   return (
     <div>
@@ -263,35 +254,41 @@ export default function ExecutiveSummary() {
               <div
                 key={r.supplier}
                 className="card flex items-center gap-4 border-l-2 border-danger cursor-pointer hover:bg-surface2/50 transition-colors"
-                onClick={() => navigate(`/purchasing/inventory?status=${encodeURIComponent('Potential s/o')}&vendor=${encodeURIComponent(r.supplier)}`)}
+                onClick={() => navigate(`/purchasing/inventory?vendor=${encodeURIComponent(r.supplier)}`)}
                 title="Click to view supplier in Inventory Browser"
               >
                 <div className="flex-1 min-w-0">
                   <div className="text-[13px] font-medium text-text1 truncate">{r.supplier}</div>
                   <div className="text-[11px] text-text2 mt-0.5">
-                    {fmtNumber(r.skuCount)} at-risk SKUs · {fmtNumber(r.categoryCount)} categories
+                    {fmtNumber(r.atRiskSkuCount)} at-risk SKUs · {r.fillRate.toFixed(1)}% fill rate
                   </div>
                 </div>
-                <div className="flex gap-6 text-right flex-shrink-0">
+                <div className="grid grid-cols-3 xl:grid-cols-6 gap-5 text-right flex-shrink-0">
                   <div>
-                    <div className="text-xs text-text2">On Hand</div>
-                    <div className="font-semibold tabular-nums">{fmtNumber(r.onHand)}</div>
+                    <div className="text-xs text-text2"># at-risk SKUs</div>
+                    <div className="font-semibold tabular-nums">{fmtNumber(r.atRiskSkuCount)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-text2">$ at risk</div>
+                    <div className="font-semibold tabular-nums">{fmtCurrency(r.atRiskOnHandValue)}</div>
                   </div>
                   <div>
                     <div className="text-xs text-text2">Lowest Days OH</div>
-                    <div className="font-semibold text-danger tabular-nums">{r.minDaysOnHand}d</div>
+                    <div className={`font-semibold tabular-nums ${r.minDaysOnHand !== null && r.minDaysOnHand <= 7 ? 'text-danger' : r.minDaysOnHand !== null && r.minDaysOnHand <= 14 ? 'text-warning' : ''}`}>
+                      {r.minDaysOnHand === null ? '—' : `${r.minDaysOnHand}d`}
+                    </div>
                   </div>
                   <div>
-                    <div className="text-xs text-text2">Rec. Order</div>
-                    <div className="font-semibold tabular-nums">{fmtNumber(r.recommendedOrder)}</div>
+                    <div className="text-xs text-text2">Rec Order $</div>
+                    <div className="font-semibold tabular-nums">{fmtCurrency(r.recOrderValue)}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-text2">Backorders</div>
-                    <div className="font-semibold tabular-nums">{fmtNumber(r.backorderUnits)}</div>
+                    <div className="text-xs text-text2">Open Backorders $</div>
+                    <div className="font-semibold tabular-nums">{fmtCurrency(r.openBackorderValue)}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-text2">Order Value</div>
-                    <div className="font-semibold tabular-nums">{fmtCurrency(r.recommendedOrderValue)}</div>
+                    <div className="text-xs text-text2">Fill rate</div>
+                    <div className="font-semibold tabular-nums">{r.fillRate.toFixed(1)}%</div>
                   </div>
                 </div>
               </div>
@@ -319,6 +316,46 @@ export default function ExecutiveSummary() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {/* Weekly inventory health by value */}
+            {weeklyHealth.length < 2 ? (
+              <div className="card text-center py-8">
+                <TrendingUp size={28} className="text-text2 mx-auto mb-2" />
+                <div className="text-text1 font-medium">Not enough weekly data yet</div>
+                <div className="text-text2 text-sm mt-1">
+                  Weekly health appears after complete uploads span 2+ ISO weeks.
+                </div>
+              </div>
+            ) : (
+              <div className="card">
+                <h3 className="text-[13px] font-semibold mb-1">Inventory Health by Value - Weekly (%)</h3>
+                <p className="text-[11px] text-text2 mb-3">Percent of on-hand value by ISO week</p>
+                <ResponsiveContainer width="100%" height={180}>
+                  <BarChart data={weeklyHealth} margin={{ left: 0, right: 8, top: 4, bottom: 0 }} stackOffset="none">
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2e3250" />
+                    <XAxis dataKey="label" tick={{ fill: '#8890b5', fontSize: 10 }} />
+                    <YAxis domain={[0, 100]} tick={{ fill: '#8890b5', fontSize: 10 }} tickFormatter={v => `${v}%`} width={36} />
+                    <Tooltip
+                      contentStyle={{ background: '#1a1d27', border: '1px solid #2e3250', borderRadius: 8 }}
+                      formatter={(v: number, name: string, props: { payload?: { okValue?: number; excessValue?: number; atRiskValue?: number; newItemValue?: number } }) => {
+                        const payload = props.payload ?? {}
+                        const rawValue =
+                          name === 'OK' ? payload.okValue ?? 0 :
+                          name === 'Excess' ? payload.excessValue ?? 0 :
+                          name === 'At Risk' ? payload.atRiskValue ?? 0 :
+                          payload.newItemValue ?? 0
+                        return [`${fmtCurrency(rawValue)} (${v.toFixed(1)}%)`, name]
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11, color: '#8890b5' }} />
+                    <Bar dataKey="okPct" stackId="h" fill="#4caf87" name="OK" cursor="pointer" onClick={(data) => handleWeeklyHealthClick(data, 'Ok')} />
+                    <Bar dataKey="excessPct" stackId="h" fill="#6c8aff" name="Excess" cursor="pointer" onClick={(data) => handleWeeklyHealthClick(data, 'Excess stock')} />
+                    <Bar dataKey="atRiskPct" stackId="h" fill="#e05c7a" name="At Risk" cursor="pointer" onClick={(data) => handleWeeklyHealthClick(data, 'Potential s/o')} />
+                    <Bar dataKey="newItemPct" stackId="h" fill="#8890b5" name="New Items" cursor="pointer" onClick={(data) => handleWeeklyHealthClick(data, 'New item')} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
             {/* Total Inventory Value over time */}
             <div className="card">
               <h3 className="text-[13px] font-semibold mb-1">Total Inventory Value Over Time</h3>

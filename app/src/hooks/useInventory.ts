@@ -9,6 +9,10 @@ export interface UploadTrendPoint {
   date: string          // ISO
   label: string         // e.g. "May 7"
   totalValue: number
+  okValue: number
+  healthExcessValue: number
+  atRiskValue: number
+  newItemValue: number
   atRiskCount: number
   excessValue: number
   fillRate: number
@@ -146,6 +150,14 @@ async function fetchInventoryTrends(): Promise<UploadTrendPoint[]> {
       }
 
       const totalValue    = all.reduce((s, r) => s + r.on_hand_value, 0)
+      const okValue       = all.filter(r => r.status === 'Ok').reduce((s, r) => s + r.on_hand_value, 0)
+      const healthExcessValue = all
+        .filter(r => r.status === 'Excess stock' || r.status === 'Surplus orders')
+        .reduce((s, r) => s + r.on_hand_value, 0)
+      const atRiskValue   = all
+        .filter(r => r.status === 'Potential s/o' || r.status === 'Stocked out')
+        .reduce((s, r) => s + r.on_hand_value, 0)
+      const newItemValue  = all.filter(r => r.status === 'New item').reduce((s, r) => s + r.on_hand_value, 0)
       const atRiskCount   = all.filter(r => r.status === 'Potential s/o' || r.status === 'Stocked out').length
       const excessValue   = all.reduce((s, r) => s + r.excess_value, 0)
       const totalRecVal   = all.reduce((s, r) => s + r.recommended_order_value, 0)
@@ -159,6 +171,10 @@ async function fetchInventoryTrends(): Promise<UploadTrendPoint[]> {
         date:              upload.uploaded_at as string,
         label:             new Date(upload.uploaded_at as string).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
         totalValue,
+        okValue,
+        healthExcessValue,
+        atRiskValue,
+        newItemValue,
         atRiskCount,
         excessValue,
         fillRate,
