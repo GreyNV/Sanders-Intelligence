@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useInboundItems } from '@/hooks/useInventory'
 import KPICard from '@/components/ui/KPICard'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
+import StatusMultiSelect from '@/components/ui/StatusMultiSelect'
 import { fmtNumber, fmtCurrency, estimatedArrivalMonth, parseMonthLabel, groupBy } from '@/lib/utils'
 import { downloadCsv, inventoryToExportRows } from '@/lib/exportCsv'
 import {
@@ -70,7 +71,7 @@ export default function InboundPipeline() {
   const [search, setSearch] = useState('')
   const [brand, setBrand] = useState('All')
   const [vendor, setVendor] = useState('All')
-  const [status, setStatus] = useState('All')
+  const [statuses, setStatuses] = useState<string[]>([])
   const [arrival, setArrival] = useState<(typeof ARRIVAL_FILTERS)[number]['value']>('all')
   const [sort, setSort] = useState<SortState>({ field: 'lt_days', dir: 'asc' })
   const [page, setPage] = useState(0)
@@ -83,8 +84,8 @@ export default function InboundPipeline() {
     ['All', ...Array.from(new Set(inbound.map(r => r.supplier_description))).filter(Boolean).sort()]
   , [inbound])
 
-  const statuses = useMemo(() =>
-    ['All', ...Array.from(new Set(inbound.map(r => r.status))).filter(Boolean).sort()]
+  const statusOptions = useMemo(() =>
+    Array.from(new Set(inbound.map(r => r.status))).filter(Boolean).sort()
   , [inbound])
 
   const filteredInbound = useMemo(() => {
@@ -93,7 +94,7 @@ export default function InboundPipeline() {
     return inbound.filter(r => {
       if (brand !== 'All' && r.brand_name !== brand) return false
       if (vendor !== 'All' && r.supplier_description !== vendor) return false
-      if (status !== 'All' && r.status !== status) return false
+      if (statuses.length > 0 && !statuses.includes(r.status)) return false
       if (arrival === 'near' && r.lt_days > 30) return false
       if (arrival === 'mid' && (r.lt_days <= 30 || r.lt_days > 90)) return false
       if (arrival === 'long' && r.lt_days <= 90) return false
@@ -106,7 +107,7 @@ export default function InboundPipeline() {
         r.supplier_description.toLowerCase().includes(q)
       )
     })
-  }, [inbound, search, brand, vendor, status, arrival])
+  }, [inbound, search, brand, vendor, statuses, arrival])
 
   const sortedInbound = useMemo(() => {
     return [...filteredInbound].sort((a, b) => {
@@ -125,7 +126,7 @@ export default function InboundPipeline() {
 
   useEffect(() => {
     setPage(0)
-  }, [search, brand, vendor, status, arrival])
+  }, [search, brand, vendor, statuses, arrival])
 
   const totalUnitsOnOrder = filteredInbound.reduce((s, r) => s + r.on_order, 0)
   const totalOrderValue = filteredInbound.reduce((s, r) => s + r.cost_price * r.on_order, 0)
@@ -167,7 +168,7 @@ export default function InboundPipeline() {
     setSearch('')
     setBrand('All')
     setVendor('All')
-    setStatus('All')
+    setStatuses([])
     setArrival('all')
   }
 
@@ -177,7 +178,7 @@ export default function InboundPipeline() {
     downloadCsv(rows, `inbound_pipeline_${date}.csv`)
   }
 
-  const hasFilters = !!search || brand !== 'All' || vendor !== 'All' || status !== 'All' || arrival !== 'all'
+  const hasFilters = !!search || brand !== 'All' || vendor !== 'All' || statuses.length > 0 || arrival !== 'all'
 
   if (isLoading) return <PageLoader />
   if (error) return (
@@ -254,9 +255,7 @@ export default function InboundPipeline() {
         <select className="select text-sm" value={vendor} onChange={e => setVendor(e.target.value)}>
           {vendors.map(v => <option key={v} value={v}>{v === 'All' ? 'All vendors' : v}</option>)}
         </select>
-        <select className="select text-sm" value={status} onChange={e => setStatus(e.target.value)}>
-          {statuses.map(s => <option key={s} value={s}>{s === 'All' ? 'All statuses' : s}</option>)}
-        </select>
+        <StatusMultiSelect options={statusOptions} selected={statuses} onChange={setStatuses} />
         <select className="select text-sm" value={arrival} onChange={e => setArrival(e.target.value as typeof arrival)}>
           {ARRIVAL_FILTERS.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
         </select>

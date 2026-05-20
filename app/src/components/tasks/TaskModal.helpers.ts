@@ -28,7 +28,7 @@ export interface SkuSelectorSortState {
 
 interface SkuSelectorFilters {
   vendor?: string
-  status?: string
+  status?: string | string[]
   category?: string
 }
 
@@ -61,10 +61,11 @@ export function filterSkuSelectorRows(
   filters: SkuSelectorFilters = {}
 ): InventoryRecord[] {
   const q = query.trim().toLowerCase()
+  const statuses = Array.isArray(filters.status) ? filters.status : filters.status ? [filters.status] : []
 
   return records.filter(r =>
     (!filters.vendor || r.supplier_description === filters.vendor) &&
-    (!filters.status || r.status === filters.status) &&
+    (statuses.length === 0 || statuses.includes(r.status)) &&
     (!filters.category || r.category_name === filters.category) &&
     (!q ||
       r.product_code.toLowerCase().includes(q) ||

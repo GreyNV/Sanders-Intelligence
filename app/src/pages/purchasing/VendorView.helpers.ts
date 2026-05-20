@@ -6,7 +6,7 @@ export type VendorSkuSortState = {
 }
 
 interface VendorSkuFilters {
-  status?: string
+  status?: string | string[]
   category?: string
 }
 
@@ -25,8 +25,9 @@ export function getVendorSkuRows(
   filters: VendorSkuFilters = {}
 ): InventoryRecord[] {
   const q = query.trim().toLowerCase()
+  const statuses = Array.isArray(filters.status) ? filters.status : filters.status ? [filters.status] : []
   const filtered = records.filter(record =>
-    (!filters.status || record.status === filters.status) &&
+    (statuses.length === 0 || statuses.includes(record.status)) &&
     (!filters.category || record.category_name === filters.category) &&
     (!q ||
       record.product_code.toLowerCase().includes(q) ||

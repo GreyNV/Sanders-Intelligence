@@ -5,6 +5,7 @@ import { useUsers } from '@/hooks/useUsers'
 import { useAuth } from '@/contexts/AuthContext'
 import { Task, TaskPriority, InventoryRecord } from '@/types'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
+import StatusMultiSelect from '@/components/ui/StatusMultiSelect'
 import { fmtNumber, fmtCurrency } from '@/lib/utils'
 import { ArrowDown, ArrowUp, ChevronsUpDown, Package, Search, X } from 'lucide-react'
 import {
@@ -100,7 +101,7 @@ export default function TaskModal({
   const [skuSelectorOpen, setSkuSelectorOpen] = useState(false)
   const [skuSearch, setSkuSearch] = useState('')
   const [skuVendorFilter, setSkuVendorFilter] = useState('')
-  const [skuStatusFilter, setSkuStatusFilter] = useState('')
+  const [skuStatusFilter, setSkuStatusFilter] = useState<string[]>([])
   const [skuCategoryFilter, setSkuCategoryFilter] = useState('')
   const [skuSort, setSkuSort] = useState<SkuSelectorSortState>({ field: 'recommended_order_value', dir: 'desc' })
   const [selectedSkuCodes, setSelectedSkuCodes] = useState<Set<string>>(new Set())
@@ -203,7 +204,7 @@ export default function TaskModal({
       setSelectedSkuCodes(new Set((prefillVendorSkus.length > 0 ? prefillVendorSkus : atRiskByVendor[prefillVendor ?? ''] ?? []).map(r => r.product_code)))
       setSkuSearch('')
       setSkuVendorFilter('')
-      setSkuStatusFilter('')
+      setSkuStatusFilter([])
       setSkuCategoryFilter('')
       setSkuSort({ field: 'recommended_order_value', dir: 'desc' })
       setSkuSelectorOpen(false)
@@ -299,7 +300,7 @@ export default function TaskModal({
 
   function clearSkuFilters() {
     setSkuVendorFilter('')
-    setSkuStatusFilter('')
+    setSkuStatusFilter([])
     setSkuCategoryFilter('')
   }
 
@@ -521,10 +522,11 @@ export default function TaskModal({
               </div>
               <div>
                 <label className="block text-[10px] font-semibold text-text2 uppercase tracking-wider mb-1">Status</label>
-                <select className="select text-sm min-w-[140px]" value={skuStatusFilter} onChange={e => setSkuStatusFilter(e.target.value)}>
-                  <option value="">All statuses</option>
-                  {SKU_SELECTOR_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+                <StatusMultiSelect
+                  options={SKU_SELECTOR_STATUS_OPTIONS}
+                  selected={skuStatusFilter}
+                  onChange={setSkuStatusFilter}
+                />
               </div>
               <div>
                 <label className="block text-[10px] font-semibold text-text2 uppercase tracking-wider mb-1">Category</label>
@@ -533,7 +535,7 @@ export default function TaskModal({
                   {skuCategoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
-              {(skuVendorFilter || skuStatusFilter || skuCategoryFilter) && (
+              {(skuVendorFilter || skuStatusFilter.length > 0 || skuCategoryFilter) && (
                 <button type="button" className="btn-ghost text-xs text-danger mb-1" onClick={clearSkuFilters}>
                   Clear filters
                 </button>

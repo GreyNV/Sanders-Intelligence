@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, Fragment } from 'react'
 import { useInventoryAnalysis } from '@/hooks/useInventory'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { StatusBadges } from '@/components/ui/Badge'
+import StatusMultiSelect from '@/components/ui/StatusMultiSelect'
 import { fmtNumber, fmtCurrency, groupBy } from '@/lib/utils'
 import TaskModal from '@/components/tasks/TaskModal'
 import {
@@ -69,7 +70,7 @@ export default function VendorView() {
   const [expandedVendor, setExpanded] = useState<string | null>(null)
   const [expandedSkuSearch, setExpandedSkuSearch] = useState('')
   const [expandedSkuSort, setExpandedSkuSort] = useState<VendorSkuSortState>({ field: 'recommended_order_value', dir: 'desc' })
-  const [expandedSkuStatus, setExpandedSkuStatus] = useState('')
+  const [expandedSkuStatus, setExpandedSkuStatus] = useState<string[]>([])
   const [expandedSkuCategory, setExpandedSkuCategory] = useState('')
   const [page, setPage] = useState(0)
 
@@ -269,7 +270,7 @@ export default function VendorView() {
                       setExpanded(v => v === row.supplier_description ? null : row.supplier_description)
                       setExpandedSkuSearch('')
                       setExpandedSkuSort({ field: 'recommended_order_value', dir: 'desc' })
-                      setExpandedSkuStatus('')
+                      setExpandedSkuStatus([])
                       setExpandedSkuCategory('')
                     }}
                   >
@@ -339,16 +340,12 @@ export default function VendorView() {
                                 onChange={e => setExpandedSkuSearch(e.target.value)}
                               />
                             </div>
-                            <select
-                              className="select py-1.5 text-xs"
-                              value={expandedSkuStatus}
-                              onChange={e => setExpandedSkuStatus(e.target.value)}
-                            >
-                              <option value="">All statuses</option>
-                              {[...new Set(row.records.map(r => r.status))].sort().map(s => (
-                                <option key={s} value={s}>{s}</option>
-                              ))}
-                            </select>
+                            <StatusMultiSelect
+                              options={[...new Set(row.records.map(r => r.status))].sort()}
+                              selected={expandedSkuStatus}
+                              onChange={setExpandedSkuStatus}
+                              className="text-xs"
+                            />
                             <select
                               className="select py-1.5 text-xs"
                               value={expandedSkuCategory}
@@ -359,10 +356,10 @@ export default function VendorView() {
                                 <option key={c} value={c}>{c}</option>
                               ))}
                             </select>
-                            {(expandedSkuSearch || expandedSkuStatus || expandedSkuCategory) && (
+                            {(expandedSkuSearch || expandedSkuStatus.length > 0 || expandedSkuCategory) && (
                               <button
                                 className="btn-ghost text-xs text-danger"
-                                onClick={() => { setExpandedSkuSearch(''); setExpandedSkuStatus(''); setExpandedSkuCategory('') }}
+                                onClick={() => { setExpandedSkuSearch(''); setExpandedSkuStatus([]); setExpandedSkuCategory('') }}
                               >
                                 Clear
                               </button>
