@@ -10,6 +10,36 @@ interface VendorSkuFilters {
   category?: string
 }
 
+export type VendorMetricWindow = 'today' | '7d' | '30d'
+
+export interface VendorWindowMetric {
+  revenue: number
+  profit: number
+  units: number
+  cogsPct: number | null
+  avgSellingPrice: number | null
+}
+
+export interface VendorWindowMetrics {
+  today: VendorWindowMetric
+  '7d': VendorWindowMetric
+  '30d': VendorWindowMetric
+  hasMetrics: boolean
+}
+
+type ProfitMetricLike = Partial<Record<
+  | 'units_today'
+  | 'revenue_today'
+  | 'accrual_profit_today'
+  | 'units_7d'
+  | 'revenue_7d'
+  | 'accrual_profit_7d'
+  | 'units_30d'
+  | 'revenue_30d'
+  | 'accrual_profit_30d',
+  number
+>>
+
 export function isVendorViewAtRiskSku(record: InventoryRecord): boolean {
   return record.status === 'Potential s/o' || record.status === 'Stocked out'
 }
@@ -50,6 +80,46 @@ export function getVendorSkuRows(
 
     return (Number(av) - Number(bv)) * direction
   })
+}
+
+export function buildVendorWindowMetrics(
+  records: InventoryRecord[],
+  profitBySku: Map<string, ProfitMetricLike>
+): VendorWindowMetrics {
+  const windows: VendorMetricWindow[] = ['today', '7d', '30d']
+  const totals: Record<VendorMetricWindow, { revenue: number; profit: number; units: number }> = {
+    today: { revenue: 0, profit: 0, units: 0 },
+    '7d': { revenue: 0, profit: 0, units: 0 },
+    '30d': { revenue: 0, profit: 0, units: 0 },
+  }
+  let hasMetrics = false
+
+  for (const record of records) {
+    const metric = profitBySku.get(record.product_code)
+    if (!metric) continue
+    hasMetrics = true
+
+    for (const window of windows) {
+      totals[window].units += Number(metric[`units_${window}`] ?? 0)
+      totals[window].revenue += Number(metric[`revenue_${window}`] ?? 0)
+      totals[window].profit += Number(metric[`accrual_profit_${window}`] ?? 0)
+    }
+  }
+
+  return {
+    today: deriveWindowMetric(totals.today),
+    '7d': deriveWindowMetric(totals['7d']),
+    '30d': deriveWindowMetric(totals['30d']),
+    hasMetrics,
+  }
+}
+
+function deriveWindowMetric(total: { revenue: number; profit: number; units: number }): VendorWindowMetric {
+  return {
+    ...total,
+    cogsPct: total.revenue > 0 ? ((total.revenue - total.profit) / total.revenue) * 100 : null,
+    avgSellingPrice: total.units > 0 ? total.revenue / total.units : null,
+  }
 }
 
 function compareDefaultVendorSkuRows(a: InventoryRecord, b: InventoryRecord): number {

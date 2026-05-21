@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useInboundItems } from '@/hooks/useInventory'
+import { useSkuMetrics } from '@/hooks/useSkuMetrics'
 import KPICard from '@/components/ui/KPICard'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import StatusMultiSelect from '@/components/ui/StatusMultiSelect'
@@ -67,6 +68,7 @@ function sortValue(record: InventoryRecord, field: SortField): string | number {
 
 export default function InboundPipeline() {
   const { data: inbound = [], isLoading, error } = useInboundItems()
+  const { data: skuMetrics } = useSkuMetrics()
 
   const [search, setSearch] = useState('')
   const [brand, setBrand] = useState('All')
@@ -170,6 +172,11 @@ export default function InboundPipeline() {
     setVendor('All')
     setStatuses([])
     setArrival('all')
+  }
+
+  function MetricCurrency({ value }: { value: number | null | undefined }) {
+    if (value == null || !Number.isFinite(value)) return <span className="text-text2">-</span>
+    return <span className={value < 0 ? 'text-danger' : ''}>{fmtCurrency(value)}</span>
   }
 
   function handleExport() {
@@ -282,40 +289,55 @@ export default function InboundPipeline() {
               <th>Est. Arrival</th>
               <SortableTh field="on_hand" label="On Hand" sort={sort} onSort={toggleSort} className="text-right" />
               <SortableTh field="days_on_hand" label="Days OH" sort={sort} onSort={toggleSort} className="text-right" />
+              <th>Sell Price</th>
+              <th>Profit Today</th>
+              <th>Profit 7d</th>
+              <th>Profit 30d</th>
               <SortableTh field="status" label="Status" sort={sort} onSort={toggleSort} />
             </tr>
           </thead>
           <tbody>
             {sortedInbound.length === 0 ? (
-              <tr><td colSpan={10} className="py-10 text-center text-text2">No inbound items match the current filters</td></tr>
+              <tr><td colSpan={14} className="py-10 text-center text-text2">No inbound items match the current filters</td></tr>
             ) : (
-              pagedInbound.map(r => (
-                <tr key={r.id}>
-                  <td className="font-mono text-[11px] text-accent">{r.product_code}</td>
-                  <td className="max-w-[260px]">
-                    <span className="block truncate" title={r.description}>{r.description}</span>
-                  </td>
-                  <td className="text-xs text-text2">{r.brand_name}</td>
-                  <td className="max-w-[220px]">
-                    <span className="block truncate text-xs text-text2" title={r.supplier_description}>{r.supplier_description}</span>
-                  </td>
-                  <td className="tabular-nums font-semibold text-right">{fmtNumber(r.on_order)}</td>
-                  <td className="tabular-nums text-text2 text-right">{r.lt_days}d</td>
-                  <td className="text-xs">{estimatedArrivalMonth(r.lt_days)}</td>
-                  <td className="tabular-nums text-right">{fmtNumber(r.on_hand)}</td>
-                  <td className="tabular-nums text-right">{r.days_on_hand}d</td>
-                  <td className="text-xs">
-                    <span className={
-                      r.status === 'Potential s/o' || r.status === 'Stocked out' ? 'text-danger font-semibold' :
-                      r.status === 'Ok' ? 'text-success' :
-                      r.status === 'Excess stock' || r.status === 'Surplus orders' ? 'text-accent' :
-                      'text-text2'
-                    }>
-                      {r.status}
-                    </span>
-                  </td>
-                </tr>
-              ))
+              pagedInbound.map(r => {
+                const profit = skuMetrics?.profitBySku.get(r.product_code)
+                const price = skuMetrics?.priceBySku.get(r.product_code)
+
+                return (
+                  <tr key={r.id}>
+                    <td className="font-mono text-[11px] text-accent">{r.product_code}</td>
+                    <td className="max-w-[260px]">
+                      <span className="block truncate" title={r.description}>{r.description}</span>
+                    </td>
+                    <td className="text-xs text-text2">{r.brand_name}</td>
+                    <td className="max-w-[220px]">
+                      <span className="block truncate text-xs text-text2" title={r.supplier_description}>{r.supplier_description}</span>
+                    </td>
+                    <td className="tabular-nums font-semibold text-right">{fmtNumber(r.on_order)}</td>
+                    <td className="tabular-nums text-text2 text-right">{r.lt_days}d</td>
+                    <td className="text-xs">{estimatedArrivalMonth(r.lt_days)}</td>
+                    <td className="tabular-nums text-right">{fmtNumber(r.on_hand)}</td>
+                    <td className="tabular-nums text-right">{r.days_on_hand}d</td>
+                    <td className="tabular-nums" title={price?.price_source ?? undefined}>
+                      <MetricCurrency value={price?.selling_price} />
+                    </td>
+                    <td className="tabular-nums"><MetricCurrency value={profit?.accrual_profit_today} /></td>
+                    <td className="tabular-nums"><MetricCurrency value={profit?.accrual_profit_7d} /></td>
+                    <td className="tabular-nums"><MetricCurrency value={profit?.accrual_profit_30d} /></td>
+                    <td className="text-xs">
+                      <span className={
+                        r.status === 'Potential s/o' || r.status === 'Stocked out' ? 'text-danger font-semibold' :
+                        r.status === 'Ok' ? 'text-success' :
+                        r.status === 'Excess stock' || r.status === 'Surplus orders' ? 'text-accent' :
+                        'text-text2'
+                      }>
+                        {r.status}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })
             )}
           </tbody>
         </table>

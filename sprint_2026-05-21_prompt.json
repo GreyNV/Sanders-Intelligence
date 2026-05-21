@@ -1,0 +1,267 @@
+{
+  "sprint": {
+    "name": "Sanders Intelligence — In-progress bucket (2026-05-21)",
+    "source": "Asana project 'Sanders intelligence app', section 'In progress' (re-pulled 2026-05-21)",
+    "asana_project_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813",
+    "workspace_root": "D:\\Sanders Intelligence\\",
+    "app_source_root": "D:\\Sanders Intelligence\\app\\src\\",
+    "summary": "Three feature tasks, all data/metrics work on the Executive Summary 'Top Risk Supplier' card and the Vendor View page. Tasks A and B both restructure the SAME card and must be implemented together as one coherent layout change. Task C adds profit/COGS metrics to Vendor View using the existing sku_profit_metrics data pipeline.",
+    "stack_reminders": [
+      "React 18 + TypeScript + Vite; Tailwind design tokens (text1/text2/surface/surface2/accent/success/warning/danger)",
+      "TanStack Query v5; existing query keys ['inventory','latest'], ['inventory','trends'], ['sku_metrics']",
+      "Supabase Postgres + RLS; all multi-row fetches must paginate past the 1000-row cap with a .range() loop",
+      "Recharts for charts; lucide-react for icons — do not add new libraries",
+      "Currency/number formatting: always use fmtCurrency / fmtNumber from @/lib/utils",
+      "Pure data transforms belong in *.helpers.ts files next to the page, with unit tests in app/src/__tests__/ (this pattern already exists for ActionCenter, ExecutiveSummary, VendorView, TaskModal)"
+    ],
+    "data_model_facts": {
+      "inventory_records_relevant_fields": {
+        "product_code": "string — primary SKU key; equals sku_profit_metrics.planning_sku and sku_price_metrics.planning_sku",
+        "supplier_description": "string — the vendor name used for grouping throughout the app",
+        "supplier_code": "string — vendor code",
+        "category_name": "string",
+        "status": "one of: Ok | Excess stock | Surplus orders | Potential s/o | Stocked out | New item",
+        "on_hand_value": "number — $ value of on-hand stock at cost",
+        "cost_price": "number — per-unit cost (NOTE: some rows are 0 — guard divisions)",
+        "selling_price": "number — per-unit selling price (NOTE: some rows are 0/empty — guard divisions)",
+        "unsatisfied_customer_orders_units": "number — backorder units; a SKU is 'backordered' when this is > 0",
+        "unsatisfied_customer_orders_value": "number — $ value of unfilled customer orders",
+        "recommended_order_value": "number"
+      },
+      "status_buckets": {
+        "OK": "status === 'Ok'",
+        "At Risk": "status === 'Potential s/o' || status === 'Stocked out'",
+        "Excess": "status === 'Excess stock' || status === 'Surplus orders'",
+        "New Items": "status === 'New item'",
+        "Backordered": "unsatisfied_customer_orders_units > 0 — NOTE: this is orthogonal to status; a backordered SKU is ALSO counted in one of the status buckets above. The four percentages therefore do NOT sum to 100%."
+      },
+      "sku_profit_metrics": {
+        "table": "public.sku_profit_metrics — fetched by useSkuMetrics() hook in app/src/hooks/useSkuMetrics.ts",
+        "key": "planning_sku (= inventory_records.product_code)",
+        "windows_available": "today, 7d, 30d — there is NO 60d or 90d window in this table",
+        "fields_per_window": "units_<w>, revenue_<w>, accrual_profit_<w>, cash_profit_<w> where <w> ∈ {today, 7d, 30d}",
+        "graceful_absence": "useSkuMetrics returns empty maps if the table is missing (Postgres error 42P01) — UI must degrade to '—'."
+      },
+      "sku_price_metrics": {
+        "table": "public.sku_price_metrics — also returned by useSkuMetrics()",
+        "key": "planning_sku",
+        "fields": "selling_price, price_min, price_max, price_avg, price_source, price_source_count — a single current price row per SKU, NOT per-window"
+      }
+    },
+    "shared_conventions": {
+      "vendor_grouping": "Group inventory_records by supplier_description (fallback 'Unknown supplier'), exactly as buildTopRiskSuppliers and VendorView already do.",
+      "sku_metric_join": "For a record r, its profit metric is skuMetrics.profitBySku.get(r.product_code); price metric is skuMetrics.priceBySku.get(r.product_code). Both may be undefined.",
+      "division_guards": "Never divide by zero: percent/ratio is null when the denominator is 0; render null as an em dash '—'.",
+      "helpers_and_tests": "Add new pure functions to ExecutiveSummary.helpers.ts / VendorView.helpers.ts and extend the matching __tests__ files."
+    }
+  },
+
+  "tasks": [
+    {
+      "id": "ASANA-1214748761687759",
+      "title": "Executive Summary — restructure the Top Risk Supplier card into a status breakdown (% + $)",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1214748761687759",
+      "asana_note_verbatim": "We have action items by suppliers. We have to show percent of SKUs are at risk, percent of backordered etc, percent of ok, $ amounts for same statuses.",
+      "type": "feature",
+      "depends_on": "Implement together with ASANA-1214971312304123 (Task B) — both restructure the same card row; design the layout once.",
+      "current_state": {
+        "file": "app/src/pages/csuite/ExecutiveSummary.tsx",
+        "helper": "app/src/pages/csuite/ExecutiveSummary.helpers.ts — buildTopRiskSuppliers(records)",
+        "test": "app/src/__tests__/ExecutiveSummary.helpers.test.ts",
+        "today": "The 'Top Risk Supplier — Requires Attention' section renders one card per vendor (top 10). Each card row currently shows 6 metric cells: '# at-risk SKUs', '$ at risk', 'Lowest Days OH', 'Rec Order $', 'Open Backorders $', 'Fill rate'. Cards are sorted by recOrderValue desc. The TopRiskSupplier interface in the helper defines: supplier, atRiskSkuCount, atRiskOnHandValue, minDaysOnHand, recOrderValue, openBackorderValue, fillRate."
+      },
+      "decision": "REPLACE the current 6 columns entirely with a per-status breakdown (chosen by product owner).",
+      "required_outcome": {
+        "per_vendor_metrics": "For each vendor card, compute and display these four status groups, each as BOTH a percentage of the vendor's SKU count AND a dollar amount:",
+        "groups": [
+          {
+            "label": "OK",
+            "pctOfSkus": "count(status === 'Ok') / totalVendorSkuCount * 100",
+            "dollars": "sum(on_hand_value) over status === 'Ok'",
+            "color": "success (green)"
+          },
+          {
+            "label": "At Risk",
+            "pctOfSkus": "count(Potential s/o | Stocked out) / totalVendorSkuCount * 100",
+            "dollars": "sum(on_hand_value) over At Risk SKUs",
+            "color": "danger (red)"
+          },
+          {
+            "label": "Excess",
+            "pctOfSkus": "count(Excess stock | Surplus orders) / totalVendorSkuCount * 100",
+            "dollars": "sum(on_hand_value) over Excess SKUs",
+            "color": "accent (blue)"
+          },
+          {
+            "label": "Backordered",
+            "pctOfSkus": "count(unsatisfied_customer_orders_units > 0) / totalVendorSkuCount * 100",
+            "dollars": "sum(unsatisfied_customer_orders_value) over backordered SKUs — NOTE: backordered uses BACKORDER $ (value of unfilled orders), not on_hand_value, because that is the meaningful dollar figure for unfilled demand. The other three groups use on_hand_value.",
+            "color": "warning (amber)"
+          }
+        ],
+        "display_format": "Each group shows on two lines: the percentage prominent (e.g. '32%'), the dollar amount secondary beneath it (e.g. '$46,378'). Label above in text-xs text2. Use the group color for the percentage value.",
+        "sublines": "Keep a vendor name + a one-line context subline. Update the subline to read e.g. '<atRiskPct>% at risk · <okPct>% OK' so the card is scannable when collapsed.",
+        "card_sort_order": "Sort vendors by At Risk dollars (sum of on_hand_value over At Risk SKUs) descending. Still slice to top 10. (recOrderValue is no longer displayed; it may be dropped from the interface or kept internally — implementer's choice, but the displayed ranking must be by At Risk $.)",
+        "empty_state": "Preserve the existing 'No at-risk suppliers — inventory health is good' empty state. A vendor with zero At Risk SKUs should not appear (keep the existing .filter(row => atRiskSkuCount > 0))."
+      },
+      "files_to_modify": [
+        "app/src/pages/csuite/ExecutiveSummary.helpers.ts — extend the TopRiskSupplier interface and buildTopRiskSuppliers() to compute okPct/okValue, atRiskPct/atRiskValue, excessPct/excessValue, backorderedPct/backorderedValue, plus totalSkuCount",
+        "app/src/pages/csuite/ExecutiveSummary.tsx — rewrite the Top Risk Supplier card row JSX",
+        "app/src/__tests__/ExecutiveSummary.helpers.test.ts — extend tests for the new fields"
+      ],
+      "edge_cases": [
+        "Vendor with totalVendorSkuCount === 0 cannot occur (a vendor only exists because it has records) but guard the percent division anyway.",
+        "A SKU counted in both At Risk and Backordered is correct and expected — do not de-duplicate; the percentages are independent and need not sum to 100%.",
+        "Dollar values of 0 render as '$0' via fmtCurrency, not '—'."
+      ],
+      "acceptance_criteria": [
+        "Each of the top-10 vendor cards shows four labelled groups — OK, At Risk, Excess, Backordered — each with a percentage and a dollar amount.",
+        "Percentages are computed against the vendor's TOTAL SKU count, so At Risk% + OK% + Excess% can be less than or greater-than-overlapping 100% (Backordered overlaps intentionally).",
+        "At Risk and OK dollar figures equal the sum of on_hand_value over those SKUs; Backordered dollar equals sum of unsatisfied_customer_orders_value.",
+        "Cards are ordered by At Risk $ descending.",
+        "The previous 6 columns (# at-risk SKUs, Lowest Days OH, Rec Order $, Open Backorders $, Fill rate as standalone cells) are gone.",
+        "Clicking a card still navigates to /purchasing/inventory?vendor=<encoded vendor> (preserve existing behavior).",
+        "Helper unit tests cover the four percentages and four dollar sums with a small fixture."
+      ]
+    },
+
+    {
+      "id": "ASANA-1214971312304123",
+      "title": "Executive Summary — add Average Profit, Average Selling Price, and Margin to the Top Risk Supplier card",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1214971312304123",
+      "asana_note_verbatim": "(no description provided in Asana — title only: 'Add Average Profit, Average Selling price into the Executive summary Top Risk supplier section, Margin')",
+      "type": "feature",
+      "depends_on": "Implement together with ASANA-1214748761687759 (Task A) — same card.",
+      "decision": "Use TODAY'S inventory snapshot, averaged across ALL of the vendor's SKUs (chosen by product owner). Do NOT use the sku_profit_metrics 7d/30d accrual data for this task — use inventory_records.selling_price and inventory_records.cost_price directly.",
+      "required_outcome": {
+        "new_metrics_per_vendor": [
+          {
+            "label": "Avg Selling Price",
+            "formula": "mean(selling_price) over the vendor's SKUs where selling_price > 0",
+            "format": "fmtCurrency"
+          },
+          {
+            "label": "Avg Profit",
+            "formula": "mean(selling_price - cost_price) over the same SKU set (selling_price > 0). Equivalent to avgSellingPrice - avgCostPrice over that set.",
+            "format": "fmtCurrency",
+            "note": "Per-unit profit. Color the value danger (red) if negative."
+          },
+          {
+            "label": "Margin",
+            "formula": "(avgSellingPrice - avgCostPrice) / avgSellingPrice * 100",
+            "format": "one decimal percent, e.g. '34.2%'",
+            "note": "Color danger if margin < 0, warning if 0–15%, default otherwise."
+          }
+        ],
+        "sku_set_definition": "ALL SKUs the vendor supplies (every record grouped under that supplier_description), EXCLUDING records with selling_price <= 0 or null from the three averages (those rows have no usable price and would corrupt the mean / cause divide-by-zero in margin).",
+        "no_valid_skus": "If a vendor has zero SKUs with selling_price > 0, render all three metrics as '—'.",
+        "placement": "Add these three metrics into the same Top Risk Supplier card designed in Task A. Recommended layout: a two-tier metric area per card — tier 1 = the four status groups from Task A, tier 2 = Avg Selling Price, Avg Profit, Margin. Use a subtle divider or spacing between tiers. Keep the card height reasonable; the existing card uses a horizontal flex with the vendor name on the left and a metric grid on the right."
+      },
+      "files_to_modify": [
+        "app/src/pages/csuite/ExecutiveSummary.helpers.ts — extend TopRiskSupplier + buildTopRiskSuppliers() with avgSellingPrice, avgProfit, marginPct (number | null)",
+        "app/src/pages/csuite/ExecutiveSummary.tsx — render the three new metrics in tier 2 of the card",
+        "app/src/__tests__/ExecutiveSummary.helpers.test.ts — add tests, including a vendor where some SKUs have selling_price 0 (must be excluded) and a vendor with no priced SKUs (→ null)"
+      ],
+      "edge_cases": [
+        "selling_price > 0 but cost_price === 0 → profit = selling_price, margin = 100%. This is allowed (treat as valid).",
+        "Negative margin (cost_price > selling_price) is allowed and must be shown in red, not hidden.",
+        "Mixing currencies / units is not a concern — all figures are already in the same currency."
+      ],
+      "acceptance_criteria": [
+        "Each top-10 vendor card shows Avg Selling Price, Avg Profit, and Margin in addition to the Task A status breakdown.",
+        "The three averages exclude SKUs with selling_price <= 0.",
+        "Margin equals (avgSellingPrice - avgCostPrice) / avgSellingPrice * 100 and is consistent with the displayed Avg Selling Price and Avg Profit.",
+        "A vendor with no priced SKUs shows '—' for all three.",
+        "Negative Avg Profit / Margin renders in the danger color.",
+        "Helper unit tests cover the exclusion rule and the null case."
+      ]
+    },
+
+    {
+      "id": "ASANA-1209588240582949",
+      "title": "Vendor View — add COGS % of income and Avg Selling Price per time window",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1209588240582949",
+      "asana_note_verbatim": "(no description in Asana — title only: 'Feature on vendor view after SI app data cogs of good % of income & AVG Selling price 30 60 90 day')",
+      "type": "feature",
+      "scope_decision": {
+        "windows": "The Asana title says '30 / 60 / 90 day'. The existing sku_profit_metrics table only carries today / 7d / 30d windows — there is NO 60d or 90d data. Per product-owner decision, BUILD WITH today / 7d / 30d (the windows that exist). Do not block on backend work. If 60d/90d are wanted later, they require new columns on sku_profit_metrics first — out of scope here.",
+        "placement": "BOTH a summary column on the main vendor table AND a per-window breakdown inside the expanded vendor panel (chosen by product owner)."
+      },
+      "current_state": {
+        "file": "app/src/pages/purchasing/VendorView.tsx",
+        "helper": "app/src/pages/purchasing/VendorView.helpers.ts",
+        "today": "VendorView builds VendorRow objects (one per vendor) via a useMemo over useInventoryAnalysis records. The main table has sortable columns: Vendor, Supplier Code, Total SKUs, OK, At Risk, Excess, New Items, Backorder Units, Rec. Order Qty, Rec. Order Value, On-Hand Value. Clicking a row expands a per-vendor SKU sub-table. VendorView does NOT currently use useSkuMetrics().",
+        "data_hook": "app/src/hooks/useSkuMetrics.ts already exists and is used by InventoryBrowser and InboundPipeline. It returns { profitBySku: Map<planning_sku, SkuProfitMetric>, priceBySku: Map<planning_sku, SkuPriceMetric> }."
+      },
+      "definitions": {
+        "window_keys": "w ∈ { today, 7d, 30d }",
+        "per_vendor_window_aggregates": "For each vendor and each window w, sum across that vendor's SKUs (look up profitBySku.get(product_code); treat a missing metric as all-zeros): revenue_w = Σ revenue_<w>; profit_w = Σ accrual_profit_<w>; units_w = Σ units_<w>.",
+        "cogs_pct_of_income": "COGS_w = revenue_w - profit_w (cost of goods sold). COGS % of income_w = revenue_w > 0 ? (COGS_w / revenue_w) * 100 : null. Interpretation: of every dollar of revenue, what share went to cost of goods. Lower is better.",
+        "avg_selling_price": "avgSellingPrice_w = units_w > 0 ? revenue_w / units_w : null. This is the realized average price per unit sold over the window (revenue divided by units sold).",
+        "use_accrual_not_cash": "Use accrual_profit_<w> (not cash_profit_<w>) for the COGS calculation."
+      },
+      "required_outcome": {
+        "main_table_column": {
+          "new_column": "Add ONE new sortable column to the main vendor table: 'COGS %' showing the 30-day COGS % of income (cogsPct30d). Render as a one-decimal percent; '—' when null (no metric data / zero revenue). Place it after 'On-Hand Value'. It must participate in the existing SortableTh sort mechanism (numeric sort; nulls sort last in both directions).",
+          "optional_color": "Optionally color the value: warning when COGS % > 80, default otherwise — implementer discretion."
+        },
+        "expanded_panel_breakdown": {
+          "what": "Inside the expanded vendor panel (the block that appears when a vendor row is clicked), add a compact metrics strip ABOVE the existing per-vendor SKU sub-table.",
+          "content": "A small 3-column-by-2-row grid (or equivalent) showing, for each window today / 7d / 30d: 'COGS %' and 'Avg Selling Price'. Label each window clearly ('Today', '7-day', '30-day').",
+          "empty_state": "If the vendor has no SKUs with profit metrics, show a single muted line: 'No profit metrics available for this vendor.'"
+        },
+        "data_wiring": [
+          "Call useSkuMetrics() inside VendorView (alongside the existing useInventoryAnalysis()).",
+          "Extend the VendorRow build useMemo to compute the per-window aggregates and the derived cogsPct / avgSellingPrice for today/7d/30d. Add skuMetrics to the useMemo dependency array.",
+          "Respect the existing category filter — when a category is selected, the COGS/price aggregates must be computed over the filtered record subset, consistent with all other VendorRow fields.",
+          "While useSkuMetrics is loading, the COGS column may show '—'; do not block the whole page on it (the inventory data is the primary content)."
+        ]
+      },
+      "files_to_modify": [
+        "app/src/pages/purchasing/VendorView.tsx — import & call useSkuMetrics; extend VendorRow type + the vendorRows useMemo; add the 'COGS %' SortableTh + cell; add the expanded-panel metrics strip",
+        "app/src/pages/purchasing/VendorView.helpers.ts — add a pure helper, e.g. buildVendorWindowMetrics(records, profitBySku) returning { cogsPct, avgSellingPrice } per window; keep it pure and testable",
+        "app/src/__tests__/VendorView.helpers.test.ts — unit tests for the new helper (including missing-metric SKUs, zero-revenue, zero-units cases)"
+      ],
+      "edge_cases": [
+        "A SKU with no row in sku_profit_metrics contributes 0 to every sum — it must not break the aggregate.",
+        "revenue_w === 0 → cogsPct_w = null → render '—'.",
+        "units_w === 0 → avgSellingPrice_w = null → render '—'.",
+        "sku_profit_metrics table absent entirely (useSkuMetrics returns empty maps) → every vendor shows '—' for COGS %, and the expanded panel shows the 'No profit metrics available' message. No crash.",
+        "Negative profit (loss) → COGS % > 100 is mathematically possible; display it as-is (do not clamp), it is a meaningful signal."
+      ],
+      "acceptance_criteria": [
+        "The main vendor table has a new sortable 'COGS %' column showing the 30-day COGS % of income; sorting by it works and nulls sort last.",
+        "Expanding a vendor shows a metrics strip with COGS % and Avg Selling Price for Today, 7-day, and 30-day windows.",
+        "COGS % equals (revenue - accrual_profit) / revenue * 100 aggregated across the vendor's SKUs for that window.",
+        "Avg Selling Price equals revenue / units sold for that window.",
+        "Selecting a category filter recomputes the COGS/price metrics over the filtered SKUs.",
+        "When sku_profit_metrics has no data for a vendor, the UI shows '—' / the empty message and does not error.",
+        "The new helper has unit tests covering missing metrics, zero revenue, and zero units.",
+        "No regression to existing Vendor View columns, sorting, expansion, category filter, or the expanded SKU sub-table filters."
+      ],
+      "explicitly_out_of_scope": [
+        "60-day and 90-day windows — not supported by current data; would require new sku_profit_metrics columns and pipeline work.",
+        "Adding COGS/price data to the CSV export.",
+        "Per-SKU COGS rows inside the expanded sub-table (this task is vendor-level aggregates only)."
+      ]
+    }
+  ],
+
+  "global_acceptance": [
+    "App builds and runs: `cd app && npm run dev` and `npm run build` with no new TypeScript or ESLint errors.",
+    "No new console errors or warnings on first paint of /executive and /purchasing/vendors.",
+    "All new pure helpers have unit tests in app/src/__tests__/ and the existing test suite still passes.",
+    "Supabase fetches (useSkuMetrics) continue to paginate correctly and degrade gracefully when a table is missing.",
+    "Tasks A and B are delivered together as one coherent Top Risk Supplier card redesign; Task C is a separate, independent change to Vendor View.",
+    "Each Asana task can be moved to Done after its acceptance criteria are manually verified in the running app."
+  ],
+
+  "verification_plan": [
+    "Task A: open /executive, scroll to 'Top Risk Supplier'; confirm each card shows OK / At Risk / Excess / Backordered as % + $; cross-check one vendor's At Risk % against Vendor View's At Risk count ÷ Total SKUs.",
+    "Task B: on the same cards confirm Avg Selling Price, Avg Profit, Margin appear; pick a vendor and hand-verify Margin = (avgSell - avgCost)/avgSell; confirm a vendor with unpriced SKUs shows '—'.",
+    "Task C: open /purchasing/vendors, confirm the 'COGS %' column sorts; expand a vendor and confirm the Today/7d/30d COGS % + Avg Selling Price strip; apply a category filter and confirm the metrics update; temporarily verify graceful '—' behavior if sku_profit_metrics is empty.",
+    "Regression: confirm Executive Summary's other sections (health bar, KPI strip, charts, weekly stacked bar) and Vendor View's existing columns/expansion/filters are unaffected."
+  ],
+
+  "notes_unrelated_to_this_sprint": "Separate from these 3 tasks, prior QA found open bugs not in the In-progress bucket: (1) the 'Inventory Value Distribution' pie chart on Executive Summary renders no segments, (2) the sidebar collapse toggle does not animate width on expand→collapse, (3) a dev-only false-positive console warning in ActionCenter. These are tracked separately and are out of scope for this prompt."
+}

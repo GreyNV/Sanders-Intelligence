@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useInventoryAnalysis } from '@/hooks/useInventory'
+import { useSkuMetrics } from '@/hooks/useSkuMetrics'
 import KPICard from '@/components/ui/KPICard'
 import Badge, { statusVariant, StatusBadges } from '@/components/ui/Badge'
 import StatusMultiSelect from '@/components/ui/StatusMultiSelect'
@@ -16,6 +17,7 @@ const PAGE_SIZE         = 100
 
 export default function InventoryBrowser() {
   const { data: inventory, isLoading, error } = useInventoryAnalysis()
+  const { data: skuMetrics } = useSkuMetrics()
   const records = inventory.records
   const kpis = inventory.kpis
   const location = useLocation()
@@ -106,6 +108,11 @@ export default function InventoryBrowser() {
     )
   }
 
+  function MetricCurrency({ value }: { value: number | null | undefined }) {
+    if (value == null || !Number.isFinite(value)) return <span className="text-text2">-</span>
+    return <span className={value < 0 ? 'text-danger' : ''}>{fmtCurrency(value)}</span>
+  }
+
   const totalPages = Math.ceil(sorted.length / PAGE_SIZE)
   const paged = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
@@ -188,49 +195,64 @@ export default function InventoryBrowser() {
               <SortTh col="on_order"                label="On Order" />
               <SortTh col="unsatisfied_customer_orders_units" label="Backorders" />
               <SortTh col="cost_price"              label="Cost" />
+              <th>Sell Price</th>
+              <th>Profit Today</th>
+              <th>Profit 7d</th>
+              <th>Profit 30d</th>
               <th>Cls</th>
               <th>Vel</th>
             </tr>
           </thead>
           <tbody>
             {paged.length === 0 ? (
-              <tr><td colSpan={14} className="py-10 text-center text-text2">No records match filters</td></tr>
+              <tr><td colSpan={18} className="py-10 text-center text-text2">No records match filters</td></tr>
             ) : (
-              paged.map(r => (
-                <tr key={r.id}>
-                  <td className="font-mono text-[11px] text-accent whitespace-nowrap">{r.product_code}</td>
-                  <td className="max-w-[240px]">
-                    <span className="block truncate text-text1 text-[12px]" title={r.description}>{r.description}</span>
-                    <span className="text-[10px] text-text2">{r.supplier_description}</span>
-                  </td>
-                  <td className="text-xs text-text2 whitespace-nowrap">{r.brand_name}</td>
-                  <td className="tabular-nums">{fmtNumber(r.on_hand)}</td>
-                  <td className="tabular-nums">
-                    <span className={r.days_on_hand <= 7 ? 'text-danger font-semibold' : r.days_on_hand <= 14 ? 'text-warning' : ''}>
-                      {r.days_on_hand}
-                    </span>
-                  </td>
-                  <td><StatusBadges record={r} /></td>
-                  <td className="tabular-nums">
-                    {r.recommended_order > 0
-                      ? <span className="font-semibold">{fmtNumber(r.recommended_order)}</span>
-                      : <span className="text-text2">—</span>
-                    }
-                  </td>
-                  <td className="tabular-nums text-text2">{r.average_sales.toFixed(1)}</td>
-                  <td className="tabular-nums text-text2">{(r.average_sales / 30).toFixed(2)}</td>
-                  <td className="tabular-nums">{r.on_order > 0 ? fmtNumber(r.on_order) : <span className="text-text2">—</span>}</td>
-                  <td className="tabular-nums">
-                    {r.unsatisfied_customer_orders_units > 0
-                      ? <span className="text-danger font-semibold">{fmtNumber(r.unsatisfied_customer_orders_units)}</span>
-                      : <span className="text-text2">—</span>
-                    }
-                  </td>
-                  <td className="tabular-nums text-text2">{fmtCurrency(r.cost_price)}</td>
-                  <td className="text-xs text-text2">{r.classification}</td>
-                  <td className="text-xs text-text2">{r.velocity}</td>
-                </tr>
-              ))
+              paged.map(r => {
+                const profit = skuMetrics?.profitBySku.get(r.product_code)
+                const price = skuMetrics?.priceBySku.get(r.product_code)
+
+                return (
+                  <tr key={r.id}>
+                    <td className="font-mono text-[11px] text-accent whitespace-nowrap">{r.product_code}</td>
+                    <td className="max-w-[240px]">
+                      <span className="block truncate text-text1 text-[12px]" title={r.description}>{r.description}</span>
+                      <span className="text-[10px] text-text2">{r.supplier_description}</span>
+                    </td>
+                    <td className="text-xs text-text2 whitespace-nowrap">{r.brand_name}</td>
+                    <td className="tabular-nums">{fmtNumber(r.on_hand)}</td>
+                    <td className="tabular-nums">
+                      <span className={r.days_on_hand <= 7 ? 'text-danger font-semibold' : r.days_on_hand <= 14 ? 'text-warning' : ''}>
+                        {r.days_on_hand}
+                      </span>
+                    </td>
+                    <td><StatusBadges record={r} /></td>
+                    <td className="tabular-nums">
+                      {r.recommended_order > 0
+                        ? <span className="font-semibold">{fmtNumber(r.recommended_order)}</span>
+                        : <span className="text-text2">—</span>
+                      }
+                    </td>
+                    <td className="tabular-nums text-text2">{r.average_sales.toFixed(1)}</td>
+                    <td className="tabular-nums text-text2">{(r.average_sales / 30).toFixed(2)}</td>
+                    <td className="tabular-nums">{r.on_order > 0 ? fmtNumber(r.on_order) : <span className="text-text2">—</span>}</td>
+                    <td className="tabular-nums">
+                      {r.unsatisfied_customer_orders_units > 0
+                        ? <span className="text-danger font-semibold">{fmtNumber(r.unsatisfied_customer_orders_units)}</span>
+                        : <span className="text-text2">—</span>
+                      }
+                    </td>
+                    <td className="tabular-nums text-text2">{fmtCurrency(r.cost_price)}</td>
+                    <td className="tabular-nums" title={price?.price_source ?? undefined}>
+                      <MetricCurrency value={price?.selling_price} />
+                    </td>
+                    <td className="tabular-nums"><MetricCurrency value={profit?.accrual_profit_today} /></td>
+                    <td className="tabular-nums"><MetricCurrency value={profit?.accrual_profit_7d} /></td>
+                    <td className="tabular-nums"><MetricCurrency value={profit?.accrual_profit_30d} /></td>
+                    <td className="text-xs text-text2">{r.classification}</td>
+                    <td className="text-xs text-text2">{r.velocity}</td>
+                  </tr>
+                )
+              })
             )}
           </tbody>
         </table>

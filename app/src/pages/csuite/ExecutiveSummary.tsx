@@ -86,6 +86,25 @@ export default function ExecutiveSummary() {
     navigate(`/purchasing/inventory?status=${encodeURIComponent(statusFilter)}`)
   }
 
+  function fmtPct(value: number): string {
+    return `${Math.round(value)}%`
+  }
+
+  function fmtNullableCurrency(value: number | null): string {
+    return value === null ? '—' : fmtCurrency(value)
+  }
+
+  function fmtNullablePct(value: number | null): string {
+    return value === null ? '—' : `${value.toFixed(1)}%`
+  }
+
+  function marginClass(value: number | null): string {
+    if (value === null) return 'text-text2'
+    if (value < 0) return 'text-danger'
+    if (value <= 15) return 'text-warning'
+    return 'text-text1'
+  }
+
   return (
     <div>
       <div className="mb-5">
@@ -253,42 +272,50 @@ export default function ExecutiveSummary() {
             topRiskSuppliers.map(r => (
               <div
                 key={r.supplier}
-                className="card flex items-center gap-4 border-l-2 border-danger cursor-pointer hover:bg-surface2/50 transition-colors"
+                className="card flex flex-col gap-4 border-l-2 border-danger cursor-pointer hover:bg-surface2/50 transition-colors lg:flex-row lg:items-center"
                 onClick={() => navigate(`/purchasing/inventory?vendor=${encodeURIComponent(r.supplier)}`)}
                 title="Click to view supplier in Inventory Browser"
               >
                 <div className="flex-1 min-w-0">
                   <div className="text-[13px] font-medium text-text1 truncate">{r.supplier}</div>
                   <div className="text-[11px] text-text2 mt-0.5">
-                    {fmtNumber(r.atRiskSkuCount)} at-risk SKUs · {r.fillRate.toFixed(1)}% fill rate
+                    {fmtPct(r.atRiskPct)} at risk · {fmtPct(r.okPct)} OK
                   </div>
                 </div>
-                <div className="grid grid-cols-3 xl:grid-cols-6 gap-5 text-right flex-shrink-0">
+                <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-5 text-right flex-1">
                   <div>
-                    <div className="text-xs text-text2"># at-risk SKUs</div>
-                    <div className="font-semibold tabular-nums">{fmtNumber(r.atRiskSkuCount)}</div>
+                    <div className="text-xs text-text2">OK</div>
+                    <div className="font-semibold tabular-nums text-success">{fmtPct(r.okPct)}</div>
+                    <div className="text-[11px] text-text2 tabular-nums">{fmtCurrency(r.okValue)}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-text2">$ at risk</div>
-                    <div className="font-semibold tabular-nums">{fmtCurrency(r.atRiskOnHandValue)}</div>
+                    <div className="text-xs text-text2">At Risk</div>
+                    <div className="font-semibold tabular-nums text-danger">{fmtPct(r.atRiskPct)}</div>
+                    <div className="text-[11px] text-text2 tabular-nums">{fmtCurrency(r.atRiskValue)}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-text2">Lowest Days OH</div>
-                    <div className={`font-semibold tabular-nums ${r.minDaysOnHand !== null && r.minDaysOnHand <= 7 ? 'text-danger' : r.minDaysOnHand !== null && r.minDaysOnHand <= 14 ? 'text-warning' : ''}`}>
-                      {r.minDaysOnHand === null ? '—' : `${r.minDaysOnHand}d`}
+                    <div className="text-xs text-text2">Excess</div>
+                    <div className="font-semibold tabular-nums text-accent">{fmtPct(r.excessPct)}</div>
+                    <div className="text-[11px] text-text2 tabular-nums">{fmtCurrency(r.excessValue)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-text2">Backordered</div>
+                    <div className="font-semibold tabular-nums text-warning">{fmtPct(r.backorderedPct)}</div>
+                    <div className="text-[11px] text-text2 tabular-nums">{fmtCurrency(r.backorderedValue)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-text2">Avg Selling Price</div>
+                    <div className="font-semibold tabular-nums">{fmtNullableCurrency(r.avgSellingPrice)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-text2">Avg Profit</div>
+                    <div className={`font-semibold tabular-nums ${r.avgProfit !== null && r.avgProfit < 0 ? 'text-danger' : 'text-text1'}`}>
+                      {fmtNullableCurrency(r.avgProfit)}
                     </div>
                   </div>
                   <div>
-                    <div className="text-xs text-text2">Rec Order $</div>
-                    <div className="font-semibold tabular-nums">{fmtCurrency(r.recOrderValue)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-text2">Open Backorders $</div>
-                    <div className="font-semibold tabular-nums">{fmtCurrency(r.openBackorderValue)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-text2">Fill rate</div>
-                    <div className="font-semibold tabular-nums">{r.fillRate.toFixed(1)}%</div>
+                    <div className="text-xs text-text2">Margin</div>
+                    <div className={`font-semibold tabular-nums ${marginClass(r.marginPct)}`}>{fmtNullablePct(r.marginPct)}</div>
                   </div>
                 </div>
               </div>

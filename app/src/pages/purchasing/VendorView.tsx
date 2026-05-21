@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, Fragment } from 'react'
 import { useInventoryAnalysis } from '@/hooks/useInventory'
+import { useSkuMetrics } from '@/hooks/useSkuMetrics'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { StatusBadges } from '@/components/ui/Badge'
 import StatusMultiSelect from '@/components/ui/StatusMultiSelect'
@@ -10,7 +11,13 @@ import {
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { InventoryRecord } from '@/types'
-import { getVendorSkuRows, getVendorViewAtRiskSkus, type VendorSkuSortState } from './VendorView.helpers'
+import {
+  buildVendorWindowMetrics,
+  getVendorSkuRows,
+  getVendorViewAtRiskSkus,
+  type VendorSkuSortState,
+  type VendorWindowMetrics,
+} from './VendorView.helpers'
 
 type SortDir = 'asc' | 'desc'
 interface SortState { field: string; dir: SortDir }
@@ -30,6 +37,8 @@ interface VendorRow {
   totalRecommendedQty: number
   totalRecommendedValue: number
   totalBackorderUnits: number
+  cogsPct30d: number | null
+  windowMetrics: VendorWindowMetrics
   records: InventoryRecord[]
 }
 
@@ -58,6 +67,7 @@ function SortableTh({
 
 export default function VendorView() {
   const { data: inventory, isLoading, error } = useInventoryAnalysis()
+  const { data: skuMetrics } = useSkuMetrics()
   const records = inventory.records
   const navigate = useNavigate()
 
@@ -87,6 +97,7 @@ export default function VendorView() {
     const grouped = groupBy(filtered, r => r.supplier_code || r.supplier_description || 'Unknown')
     return Object.entries(grouped).map(([, items]) => {
       const first = items[0]
+      const windowMetrics = buildVendorWindowMetrics(items, skuMetrics?.profitBySku ?? new Map())
       return {
         supplier_code:        first.supplier_code,
         supplier_description: first.supplier_description || 'Unknown',
@@ -101,10 +112,12 @@ export default function VendorView() {
         totalRecommendedQty:  items.reduce((s, r) => s + r.recommended_order, 0),
         totalRecommendedValue: items.reduce((s, r) => s + r.recommended_order_value, 0),
         totalBackorderUnits:  items.reduce((s, r) => s + r.unsatisfied_customer_orders_units, 0),
+        cogsPct30d:           windowMetrics['30d'].cogsPct,
+        windowMetrics,
         records:              items,
       }
     })
-  }, [records, categoryFilter])
+  }, [records, categoryFilter, skuMetrics])
 
   // At-risk map per vendor uses the same scoped rows and status definition as the displayed count.
   const atRiskByVendor = useMemo(() => {
@@ -127,8 +140,11 @@ export default function VendorView() {
       )
     }
     return [...rows].sort((a, b) => {
-      const av = (a as unknown as Record<string, unknown>)[sort.field] as number | string
-      const bv = (b as unknown as Record<string, unknown>)[sort.field] as number | string
+      const av = (a as unknown as Record<string, unknown>)[sort.field] as number | string | null
+      const bv = (b as unknown as Record<string, unknown>)[sort.field] as number | string | null
+      if (av == null && bv == null) return 0
+      if (av == null) return 1
+      if (bv == null) return -1
       if (typeof av === 'string') {
         return sort.dir === 'asc'
           ? (av as string).localeCompare(bv as string)
@@ -155,6 +171,14 @@ export default function VendorView() {
     setTaskVendor(row.supplier_description)
     setTaskVendorSkus(getVendorViewAtRiskSkus(row.records))
     setTaskModal(true)
+  }
+
+  function fmtNullablePct(value: number | null): string {
+    return value === null ? '—' : `${value.toFixed(1)}%`
+  }
+
+  function fmtNullableCurrency(value: number | null): string {
+    return value === null ? '—' : fmtCurrency(value)
   }
 
   if (isLoading) return <PageLoader />
@@ -244,13 +268,14 @@ export default function VendorView() {
               <SortableTh field="totalRecommendedQty"  label="Rec. Order Qty"     sort={sort} onSort={toggleSort} className="text-right" />
               <SortableTh field="totalRecommendedValue" label="Rec. Order Value"  sort={sort} onSort={toggleSort} className="text-right" />
               <SortableTh field="totalOnHandValue"     label="On-Hand Value"      sort={sort} onSort={toggleSort} className="text-right" />
+              <SortableTh field="cogsPct30d"           label="COGS %"             sort={sort} onSort={toggleSort} className="text-right" />
               <th></th>
             </tr>
           </thead>
           <tbody>
             {displayRows.length === 0 ? (
               <tr>
-                <td colSpan={12} className="py-10 text-center text-text2">
+                <td colSpan={13} className="py-10 text-center text-text2">
                   {search || categoryFilter ? 'No vendors match the selected filters' : 'No inventory data available'}
                 </td>
               </tr>
@@ -303,6 +328,11 @@ export default function VendorView() {
                         : <span className="text-text2">—</span>}
                     </td>
                     <td className="tabular-nums text-right text-text2">{fmtCurrency(row.totalOnHandValue)}</td>
+                    <td className="tabular-nums text-right">
+                      {row.cogsPct30d === null
+                        ? <span className="text-text2">—</span>
+                        : <span className={row.cogsPct30d > 80 ? 'text-warning font-semibold' : ''}>{row.cogsPct30d.toFixed(1)}%</span>}
+                    </td>
                     <td onClick={e => e.stopPropagation()}>
                       <div className="flex gap-1 justify-end">
                         <button
@@ -328,8 +358,37 @@ export default function VendorView() {
                   {/* Expanded SKU rows */}
                   {expandedVendor === row.supplier_description && (
                     <tr>
-                      <td colSpan={12} className="p-0 bg-surface2/40">
+                      <td colSpan={13} className="p-0 bg-surface2/40">
                         <div className="px-4 py-2">
+                          {row.windowMetrics.hasMetrics ? (
+                            <div className="mb-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                              {[
+                                ['Today', row.windowMetrics.today],
+                                ['7-day', row.windowMetrics['7d']],
+                                ['30-day', row.windowMetrics['30d']],
+                              ].map(([label, metric]) => (
+                                <div key={label as string} className="rounded border border-border/60 bg-surface/60 px-3 py-2">
+                                  <div className="text-[11px] font-semibold uppercase tracking-wider text-text2">{label as string}</div>
+                                  <div className="mt-1 grid grid-cols-2 gap-3 text-sm">
+                                    <div>
+                                      <div className="text-[11px] text-text2">COGS %</div>
+                                      <div className="font-semibold tabular-nums">
+                                        {fmtNullablePct((metric as VendorWindowMetrics['today']).cogsPct)}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <div className="text-[11px] text-text2">Avg Selling Price</div>
+                                      <div className="font-semibold tabular-nums">
+                                        {fmtNullableCurrency((metric as VendorWindowMetrics['today']).avgSellingPrice)}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="mb-3 text-xs text-text2">No profit metrics available for this vendor.</div>
+                          )}
                           <div className="flex items-center gap-2 mb-2 flex-wrap">
                             <div className="relative max-w-xs flex-1 min-w-0">
                               <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text2" />

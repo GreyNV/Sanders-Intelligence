@@ -17,8 +17,20 @@ export interface WeeklyHealthPoint {
 
 export interface TopRiskSupplier {
   supplier: string
+  totalSkuCount: number
   atRiskSkuCount: number
   atRiskOnHandValue: number
+  okPct: number
+  okValue: number
+  atRiskPct: number
+  atRiskValue: number
+  excessPct: number
+  excessValue: number
+  backorderedPct: number
+  backorderedValue: number
+  avgSellingPrice: number | null
+  avgProfit: number | null
+  marginPct: number | null
   minDaysOnHand: number | null
   recOrderValue: number
   openBackorderValue: number
@@ -41,13 +53,42 @@ export function buildTopRiskSuppliers(records: InventoryRecord[]): TopRiskSuppli
     .map(([supplier, items]) => {
       const atRiskItems = items.filter(r => r.status === 'Potential s/o' || r.status === 'Stocked out')
       const stockedRiskItems = atRiskItems.filter(r => r.status === 'Potential s/o' && r.days_on_hand > 0)
+      const okItems = items.filter(r => r.status === 'Ok')
+      const excessItems = items.filter(r => r.status === 'Excess stock' || r.status === 'Surplus orders')
+      const backorderedItems = items.filter(r => r.unsatisfied_customer_orders_units > 0)
       const activeSkus = items.filter(r => r.average_sales > 0 || r.on_hand > 0 || r.status === 'Ok').length
-      const okCount = items.filter(r => r.status === 'Ok').length
+      const okCount = okItems.length
+      const totalSkuCount = items.length
+      const pricedItems = items.filter(r => r.selling_price > 0)
+      const avgSellingPrice = pricedItems.length > 0
+        ? pricedItems.reduce((sum, r) => sum + r.selling_price, 0) / pricedItems.length
+        : null
+      const avgCostPrice = pricedItems.length > 0
+        ? pricedItems.reduce((sum, r) => sum + r.cost_price, 0) / pricedItems.length
+        : null
+      const avgProfit = avgSellingPrice !== null && avgCostPrice !== null
+        ? avgSellingPrice - avgCostPrice
+        : null
+      const marginPct = avgSellingPrice !== null && avgProfit !== null && avgSellingPrice > 0
+        ? (avgProfit / avgSellingPrice) * 100
+        : null
 
       return {
         supplier,
+        totalSkuCount,
         atRiskSkuCount: atRiskItems.length,
         atRiskOnHandValue: atRiskItems.reduce((s, r) => s + r.on_hand_value, 0),
+        okPct: percent(okItems.length, totalSkuCount),
+        okValue: okItems.reduce((s, r) => s + r.on_hand_value, 0),
+        atRiskPct: percent(atRiskItems.length, totalSkuCount),
+        atRiskValue: atRiskItems.reduce((s, r) => s + r.on_hand_value, 0),
+        excessPct: percent(excessItems.length, totalSkuCount),
+        excessValue: excessItems.reduce((s, r) => s + r.on_hand_value, 0),
+        backorderedPct: percent(backorderedItems.length, totalSkuCount),
+        backorderedValue: backorderedItems.reduce((s, r) => s + r.unsatisfied_customer_orders_value, 0),
+        avgSellingPrice,
+        avgProfit,
+        marginPct,
         minDaysOnHand: stockedRiskItems.length > 0 ? Math.min(...stockedRiskItems.map(r => r.days_on_hand)) : null,
         recOrderValue: atRiskItems.reduce((s, r) => s + r.recommended_order_value, 0),
         openBackorderValue: items.reduce((s, r) => s + r.unsatisfied_customer_orders_value, 0),
@@ -55,7 +96,7 @@ export function buildTopRiskSuppliers(records: InventoryRecord[]): TopRiskSuppli
       }
     })
     .filter(row => row.atRiskSkuCount > 0)
-    .sort((a, b) => b.recOrderValue - a.recOrderValue)
+    .sort((a, b) => b.atRiskValue - a.atRiskValue)
     .slice(0, 10)
 }
 
@@ -133,6 +174,10 @@ function getIsoWeekParts(iso: string): IsoWeekParts {
 
 function sum(points: UploadTrendPoint[], field: 'okValue' | 'healthExcessValue' | 'atRiskValue' | 'newItemValue'): number {
   return points.reduce((total, point) => total + point[field], 0)
+}
+
+function percent(count: number, total: number): number {
+  return total > 0 ? (count / total) * 100 : 0
 }
 
 function groupBy<T>(arr: T[], key: (item: T) => string): Record<string, T[]> {

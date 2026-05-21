@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getVendorSkuRows, getVendorViewAtRiskSkus } from '../pages/purchasing/VendorView.helpers'
+import { buildVendorWindowMetrics, getVendorSkuRows, getVendorViewAtRiskSkus } from '../pages/purchasing/VendorView.helpers'
 import type { InventoryRecord } from '../types'
 
 function makeRecord(overrides: Partial<InventoryRecord>): InventoryRecord {
@@ -80,5 +80,87 @@ describe('Vendor View at-risk SKU helpers', () => {
       status: 'Stocked out',
       category: 'Hardware',
     }).map(r => r.product_code)).toEqual(['KEEP'])
+  })
+
+  it('builds vendor COGS percentage and average selling price by metric window', () => {
+    const rows = [
+      makeRecord({ product_code: 'SKU-1' }),
+      makeRecord({ product_code: 'SKU-2' }),
+    ]
+    const profitBySku = new Map([
+      ['SKU-1', {
+        units_today: 2,
+        revenue_today: 100,
+        accrual_profit_today: 30,
+        units_7d: 4,
+        revenue_7d: 200,
+        accrual_profit_7d: 80,
+        units_30d: 10,
+        revenue_30d: 500,
+        accrual_profit_30d: 125,
+      }],
+      ['SKU-2', {
+        units_today: 3,
+        revenue_today: 150,
+        accrual_profit_today: 60,
+        units_7d: 6,
+        revenue_7d: 300,
+        accrual_profit_7d: 90,
+        units_30d: 20,
+        revenue_30d: 800,
+        accrual_profit_30d: 240,
+      }],
+    ])
+
+    const metrics = buildVendorWindowMetrics(rows, profitBySku)
+
+    expect(metrics.today.avgSellingPrice).toBe(50)
+    expect(metrics.today.cogsPct).toBe(64)
+    expect(metrics['7d'].avgSellingPrice).toBe(50)
+    expect(metrics['7d'].cogsPct).toBe(66)
+    expect(metrics['30d'].avgSellingPrice).toBeCloseTo(43.3333)
+    expect(metrics['30d'].cogsPct).toBeCloseTo(71.9231)
+    expect(metrics.hasMetrics).toBe(true)
+  })
+
+  it('treats missing profit metrics as zero and returns null for zero revenue or units', () => {
+    const rows = [
+      makeRecord({ product_code: 'ZERO' }),
+      makeRecord({ product_code: 'MISSING' }),
+    ]
+    const profitBySku = new Map([
+      ['ZERO', {
+        units_today: 0,
+        revenue_today: 0,
+        accrual_profit_today: -5,
+        units_7d: 0,
+        revenue_7d: 120,
+        accrual_profit_7d: 30,
+        units_30d: 6,
+        revenue_30d: 0,
+        accrual_profit_30d: 0,
+      }],
+    ])
+
+    const metrics = buildVendorWindowMetrics(rows, profitBySku)
+
+    expect(metrics.today.cogsPct).toBeNull()
+    expect(metrics.today.avgSellingPrice).toBeNull()
+    expect(metrics['7d'].cogsPct).toBe(75)
+    expect(metrics['7d'].avgSellingPrice).toBeNull()
+    expect(metrics['30d'].cogsPct).toBeNull()
+    expect(metrics['30d'].avgSellingPrice).toBe(0)
+    expect(metrics.hasMetrics).toBe(true)
+  })
+
+  it('reports no metrics when no vendor SKU has a profit metric row', () => {
+    const metrics = buildVendorWindowMetrics([
+      makeRecord({ product_code: 'MISSING' }),
+    ], new Map())
+
+    expect(metrics.hasMetrics).toBe(false)
+    expect(metrics.today.cogsPct).toBeNull()
+    expect(metrics['7d'].avgSellingPrice).toBeNull()
+    expect(metrics['30d'].cogsPct).toBeNull()
   })
 })

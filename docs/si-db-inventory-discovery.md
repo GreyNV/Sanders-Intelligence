@@ -1136,3 +1136,107 @@ updated_at
 ```
 
 This table should be populated from the read-only SI sources through a service-role ETL job. The SI App MySQL database remains read-only for this workstream.
+
+## SKU Metrics Refresh
+
+Added local migration:
+
+```text
+supabase/migrations/005_sku_metrics.sql
+```
+
+It creates two read-only-to-users materialized metric tables:
+
+```text
+public.sku_profit_metrics
+public.sku_price_metrics
+```
+
+`sku_profit_metrics` stores one row per planning SKU with:
+
+```text
+metric_date
+units_today / revenue_today / accrual_profit_today / cash_profit_today
+units_7d / revenue_7d / accrual_profit_7d / cash_profit_7d
+units_30d / revenue_30d / accrual_profit_30d / cash_profit_30d
+matched_source_skus
+match_methods
+refreshed_at
+```
+
+`sku_price_metrics` stores one row per planning SKU with:
+
+```text
+price_date
+selling_price
+price_min
+price_max
+price_avg
+price_source
+price_source_count
+refreshed_at
+```
+
+Refresh code:
+
+```text
+app/scripts/lib/si-metrics-refresh.mjs
+app/scripts/refresh-si-metrics.mjs
+app/api/cron/refresh-si-metrics.js
+```
+
+NPM commands:
+
+```text
+npm run refresh:si-metrics:dry-run
+npm run refresh:si-metrics
+```
+
+Vercel cron:
+
+```text
+path: /api/cron/refresh-si-metrics
+schedule: 0 2 * * *
+```
+
+The cron endpoint requires:
+
+```text
+Authorization: Bearer $CRON_SECRET
+```
+
+The refresh reads SI MySQL and Supabase, maps source SKUs to planning SKUs using the same matching hierarchy as the bridge audit, and upserts metrics into Supabase. It does not write to SI MySQL.
+
+Dry run on 2026-05-20:
+
+```text
+latest Supabase upload: fullreport (13).csv
+latest upload time: 2026-05-20T12:14:57.91359+00:00
+profit metric date: 2026-05-19
+planning SKUs: 12,805
+
+profit source rows: 8,679
+profit matched source rows: 7,701
+profit materialized rows: 4,441
+
+price source rows: 29,639
+price matched source rows: 15,318
+price materialized rows: 8,214
+```
+
+UI wiring:
+
+```text
+app/src/hooks/useSkuMetrics.ts
+app/src/pages/purchasing/InventoryBrowser.tsx
+app/src/pages/purchasing/InboundPipeline.tsx
+```
+
+Inventory Browser and Inbound Pipeline now display:
+
+```text
+Sell Price
+Profit Today
+Profit 7d
+Profit 30d
+```

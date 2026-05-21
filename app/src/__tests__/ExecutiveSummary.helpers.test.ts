@@ -114,6 +114,64 @@ describe('Executive Summary weekly health helpers', () => {
 })
 
 describe('Executive Summary top risk supplier helpers', () => {
+  it('builds status breakdown dollars and percentages for top risk suppliers', () => {
+    const rows = [
+      makeRecord({ product_code: 'A-OK', supplier_description: 'Vendor A', status: 'Ok', on_hand_value: 100 }),
+      makeRecord({ product_code: 'A-RISK', supplier_description: 'Vendor A', status: 'Potential s/o', on_hand_value: 200 }),
+      makeRecord({ product_code: 'A-EXCESS', supplier_description: 'Vendor A', status: 'Excess stock', on_hand_value: 300 }),
+      makeRecord({
+        product_code: 'A-BACKORDER',
+        supplier_description: 'Vendor A',
+        status: 'Ok',
+        on_hand_value: 400,
+        unsatisfied_customer_orders_units: 3,
+        unsatisfied_customer_orders_value: 90,
+      }),
+      makeRecord({ product_code: 'B-RISK', supplier_description: 'Vendor B', status: 'Stocked out', on_hand_value: 50 }),
+    ]
+
+    const vendorA = buildTopRiskSuppliers(rows).find(row => row.supplier === 'Vendor A')
+
+    expect(vendorA?.totalSkuCount).toBe(4)
+    expect(vendorA?.okPct).toBe(50)
+    expect(vendorA?.okValue).toBe(500)
+    expect(vendorA?.atRiskPct).toBe(25)
+    expect(vendorA?.atRiskValue).toBe(200)
+    expect(vendorA?.excessPct).toBe(25)
+    expect(vendorA?.excessValue).toBe(300)
+    expect(vendorA?.backorderedPct).toBe(25)
+    expect(vendorA?.backorderedValue).toBe(90)
+  })
+
+  it('sorts top risk suppliers by at-risk on-hand value descending', () => {
+    const rows = [
+      makeRecord({ product_code: 'A-RISK', supplier_description: 'Vendor A', status: 'Potential s/o', on_hand_value: 100, recommended_order_value: 1000 }),
+      makeRecord({ product_code: 'B-RISK', supplier_description: 'Vendor B', status: 'Stocked out', on_hand_value: 300, recommended_order_value: 1 }),
+    ]
+
+    expect(buildTopRiskSuppliers(rows).map(row => row.supplier)).toEqual(['Vendor B', 'Vendor A'])
+  })
+
+  it('computes supplier average selling price, average profit, and margin from priced SKUs only', () => {
+    const rows = [
+      makeRecord({ product_code: 'PRICED-1', supplier_description: 'Vendor A', status: 'Potential s/o', selling_price: 20, cost_price: 10 }),
+      makeRecord({ product_code: 'PRICED-2', supplier_description: 'Vendor A', status: 'Ok', selling_price: 40, cost_price: 25 }),
+      makeRecord({ product_code: 'UNPRICED', supplier_description: 'Vendor A', status: 'Ok', selling_price: 0, cost_price: 999 }),
+      makeRecord({ product_code: 'NO-PRICE', supplier_description: 'Vendor B', status: 'Stocked out', selling_price: 0, cost_price: 5 }),
+    ]
+
+    const suppliers = buildTopRiskSuppliers(rows)
+    const vendorA = suppliers.find(row => row.supplier === 'Vendor A')
+    const vendorB = suppliers.find(row => row.supplier === 'Vendor B')
+
+    expect(vendorA?.avgSellingPrice).toBe(30)
+    expect(vendorA?.avgProfit).toBe(12.5)
+    expect(vendorA?.marginPct).toBeCloseTo(41.6667)
+    expect(vendorB?.avgSellingPrice).toBeNull()
+    expect(vendorB?.avgProfit).toBeNull()
+    expect(vendorB?.marginPct).toBeNull()
+  })
+
   it('uses stocked at-risk SKUs for lowest days on hand instead of stockout zeroes', () => {
     const rows = [
       makeRecord({ product_code: 'SO', status: 'Stocked out', days_on_hand: 0, recommended_order_value: 100 }),
