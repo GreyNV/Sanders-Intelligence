@@ -6,7 +6,7 @@ Date: 2026-05-19
 
 This workstream is about tying the Sanders Intelligence app to the SI App MySQL database and deriving the company's real current inventory without relying on Netstock exports. Netstock should be treated as a comparison target only after SI-native sources are isolated and modeled.
 
-The local `fullreport.csv` file is based on the April 30 Netstock export. It is useful for later validation, but should not drive source selection.
+The local sample file at `docs/sample-data/fullreport.csv` is based on the April 30 Netstock export. It is useful for later validation, but should not drive source selection.
 
 ## Safety Rules Followed
 

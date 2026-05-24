@@ -1,4 +1,5 @@
 import { useInventoryAnalysis, useInventoryTrends } from '@/hooks/useInventory'
+import { useSkuMetrics } from '@/hooks/useSkuMetrics'
 import KPICard from '@/components/ui/KPICard'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { fmtNumber, fmtCurrency } from '@/lib/utils'
@@ -18,6 +19,7 @@ export default function ExecutiveSummary() {
   const records = inventory.records
   const kpis = inventory.kpis
   const { data: trends = [], isLoading: trendsLoading } = useInventoryTrends()
+  const { data: skuMetrics } = useSkuMetrics()
   const navigate = useNavigate()
   const weeklyHealth = useMemo(() => buildWeeklyHealthPoints(trends, 12), [trends])
 
@@ -45,10 +47,10 @@ export default function ExecutiveSummary() {
     },
   ], [records])
 
-  // Top 10 at-risk suppliers by recommended order value
+  // Top 10 at-risk suppliers by at-risk on-hand value
   const topRiskSuppliers = useMemo(() => {
-    return buildTopRiskSuppliers(records)
-  }, [records])
+    return buildTopRiskSuppliers(records, skuMetrics?.profitBySku ?? new Map())
+  }, [records, skuMetrics])
 
   // Top brands by excess value
   const brandExcess = useMemo(() => {
@@ -91,11 +93,11 @@ export default function ExecutiveSummary() {
   }
 
   function fmtNullableCurrency(value: number | null): string {
-    return value === null ? '—' : fmtCurrency(value)
+    return value === null ? 'N/A' : fmtCurrency(value)
   }
 
   function fmtNullablePct(value: number | null): string {
-    return value === null ? '—' : `${value.toFixed(1)}%`
+    return value === null ? 'N/A' : `${value.toFixed(1)}%`
   }
 
   function marginClass(value: number | null): string {
@@ -282,7 +284,7 @@ export default function ExecutiveSummary() {
                     {fmtPct(r.atRiskPct)} at risk · {fmtPct(r.okPct)} OK
                   </div>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-5 text-right flex-1">
+                <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-5 text-right flex-1">
                   <div>
                     <div className="text-xs text-text2">OK</div>
                     <div className="font-semibold tabular-nums text-success">{fmtPct(r.okPct)}</div>
@@ -316,6 +318,10 @@ export default function ExecutiveSummary() {
                   <div>
                     <div className="text-xs text-text2">Margin</div>
                     <div className={`font-semibold tabular-nums ${marginClass(r.marginPct)}`}>{fmtNullablePct(r.marginPct)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-text2">COGS</div>
+                    <div className="font-semibold tabular-nums">{fmtNullablePct(r.cogsPct)}</div>
                   </div>
                 </div>
               </div>

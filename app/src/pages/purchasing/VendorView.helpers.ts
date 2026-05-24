@@ -1,4 +1,5 @@
 import type { InventoryRecord } from '@/types'
+import { deriveFinancialPercentages } from '@/lib/financialMetrics'
 
 export type VendorSkuSortState = {
   field: keyof Pick<InventoryRecord, 'product_code' | 'description' | 'category_name' | 'on_hand' | 'days_on_hand' | 'recommended_order' | 'recommended_order_value' | 'status'>
@@ -17,6 +18,7 @@ export interface VendorWindowMetric {
   profit: number
   units: number
   cogsPct: number | null
+  marginPct: number | null
   avgSellingPrice: number | null
 }
 
@@ -115,9 +117,12 @@ export function buildVendorWindowMetrics(
 }
 
 function deriveWindowMetric(total: { revenue: number; profit: number; units: number }): VendorWindowMetric {
+  const percentages = deriveFinancialPercentages(total)
+
   return {
     ...total,
-    cogsPct: total.revenue > 0 ? ((total.revenue - total.profit) / total.revenue) * 100 : null,
+    cogsPct: percentages.cogsPct,
+    marginPct: percentages.marginPct,
     avgSellingPrice: total.units > 0 ? total.revenue / total.units : null,
   }
 }

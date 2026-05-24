@@ -82,7 +82,7 @@ describe('Vendor View at-risk SKU helpers', () => {
     }).map(r => r.product_code)).toEqual(['KEEP'])
   })
 
-  it('builds vendor COGS percentage and average selling price by metric window', () => {
+  it('builds vendor COGS, margin, and average selling price by metric window', () => {
     const rows = [
       makeRecord({ product_code: 'SKU-1' }),
       makeRecord({ product_code: 'SKU-2' }),
@@ -116,10 +116,13 @@ describe('Vendor View at-risk SKU helpers', () => {
 
     expect(metrics.today.avgSellingPrice).toBe(50)
     expect(metrics.today.cogsPct).toBe(64)
+    expect(metrics.today.marginPct).toBe(36)
     expect(metrics['7d'].avgSellingPrice).toBe(50)
     expect(metrics['7d'].cogsPct).toBe(66)
+    expect(metrics['7d'].marginPct).toBe(34)
     expect(metrics['30d'].avgSellingPrice).toBeCloseTo(43.3333)
     expect(metrics['30d'].cogsPct).toBeCloseTo(71.9231)
+    expect(metrics['30d'].marginPct).toBeCloseTo(28.0769)
     expect(metrics.hasMetrics).toBe(true)
   })
 
@@ -145,10 +148,13 @@ describe('Vendor View at-risk SKU helpers', () => {
     const metrics = buildVendorWindowMetrics(rows, profitBySku)
 
     expect(metrics.today.cogsPct).toBeNull()
+    expect(metrics.today.marginPct).toBeNull()
     expect(metrics.today.avgSellingPrice).toBeNull()
     expect(metrics['7d'].cogsPct).toBe(75)
+    expect(metrics['7d'].marginPct).toBe(25)
     expect(metrics['7d'].avgSellingPrice).toBeNull()
     expect(metrics['30d'].cogsPct).toBeNull()
+    expect(metrics['30d'].marginPct).toBeNull()
     expect(metrics['30d'].avgSellingPrice).toBe(0)
     expect(metrics.hasMetrics).toBe(true)
   })
@@ -160,6 +166,7 @@ describe('Vendor View at-risk SKU helpers', () => {
 
     expect(metrics.hasMetrics).toBe(false)
     expect(metrics.today.cogsPct).toBeNull()
+    expect(metrics.today.marginPct).toBeNull()
     expect(metrics['7d'].avgSellingPrice).toBeNull()
     expect(metrics['30d'].cogsPct).toBeNull()
   })

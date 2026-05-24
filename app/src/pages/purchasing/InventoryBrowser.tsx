@@ -9,6 +9,7 @@ import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { fmtNumber, fmtCurrency } from '@/lib/utils'
 import { downloadCsv, inventoryToExportRows } from '@/lib/exportCsv'
 import { Search, Download } from 'lucide-react'
+import { buildInventoryRows, sortInventoryRows, type InventorySortKey } from './InventoryBrowser.helpers'
 
 const STATUS_OPTIONS    = ['Ok', 'Excess stock', 'Surplus orders', 'Potential s/o', 'Stocked out', 'New item']
 const CLASS_OPTIONS     = ['All', 'A', 'B', 'C', 'X', 'S']
@@ -36,7 +37,7 @@ export default function InventoryBrowser() {
   const [brand, setBrand]         = useState(initBrand)
   const [vendor, setVendor]       = useState(initVendor)
   const [page, setPage]           = useState(0)
-  const [sortKey, setSortKey]     = useState<string>('days_on_hand')
+  const [sortKey, setSortKey]     = useState<InventorySortKey>('days_on_hand')
   const [sortAsc, setSortAsc]     = useState(true)
 
   // Re-apply URL params when location changes (e.g. navigating from Vendor View)
@@ -49,9 +50,14 @@ export default function InventoryBrowser() {
     setPage(0)
   }, [location.search])
 
+  const metricRows = useMemo(
+    () => buildInventoryRows(records, skuMetrics),
+    [records, skuMetrics]
+  )
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
-    return records.filter(r => {
+    return metricRows.filter(r => {
       if (statuses.length > 0 && !statuses.includes(r.status)) return false
       if (cls !== 'All' && r.classification !== cls) return false
       if (velocity !== 'All' && r.velocity !== velocity) return false
@@ -67,19 +73,10 @@ export default function InventoryBrowser() {
       }
       return true
     })
-  }, [records, search, statuses, cls, velocity, brand, vendor])
+  }, [metricRows, search, statuses, cls, velocity, brand, vendor])
 
   const sorted = useMemo(() => {
-    return [...filtered].sort((a, b) => {
-      const av = (a as unknown as Record<string,unknown>)[sortKey]
-      const bv = (b as unknown as Record<string,unknown>)[sortKey]
-      if (typeof av === 'number' && typeof bv === 'number') {
-        return sortAsc ? av - bv : bv - av
-      }
-      return sortAsc
-        ? String(av).localeCompare(String(bv))
-        : String(bv).localeCompare(String(av))
-    })
+    return sortInventoryRows(filtered, sortKey, sortAsc)
   }, [filtered, sortKey, sortAsc])
 
   if (isLoading) return <PageLoader />
@@ -94,12 +91,12 @@ export default function InventoryBrowser() {
   const brands  = ['All', ...Array.from(new Set(records.map(r => r.brand_name))).filter(Boolean).sort()]
   const vendors = ['All', ...Array.from(new Set(records.map(r => r.supplier_description))).filter(Boolean).sort()]
 
-  function toggleSort(key: string) {
+  function toggleSort(key: InventorySortKey) {
     if (sortKey === key) setSortAsc(v => !v)
     else { setSortKey(key); setSortAsc(true) }
   }
 
-  function SortTh({ col, label }: { col: string; label: string }) {
+  function SortTh({ col, label }: { col: InventorySortKey; label: string }) {
     const active = sortKey === col
     return (
       <th onClick={() => toggleSort(col)} className="cursor-pointer select-none">
@@ -111,6 +108,11 @@ export default function InventoryBrowser() {
   function MetricCurrency({ value }: { value: number | null | undefined }) {
     if (value == null || !Number.isFinite(value)) return <span className="text-text2">-</span>
     return <span className={value < 0 ? 'text-danger' : ''}>{fmtCurrency(value)}</span>
+  }
+
+  function MetricPercent({ value }: { value: number | null }) {
+    if (value === null) return <span className="text-text2">N/A</span>
+    return <span>{value.toFixed(1)}%</span>
   }
 
   const totalPages = Math.ceil(sorted.length / PAGE_SIZE)
@@ -195,25 +197,22 @@ export default function InventoryBrowser() {
               <SortTh col="on_order"                label="On Order" />
               <SortTh col="unsatisfied_customer_orders_units" label="Backorders" />
               <SortTh col="cost_price"              label="Cost" />
-              <th>Sell Price</th>
-              <th>Profit Today</th>
-              <th>Profit 7d</th>
-              <th>Profit 30d</th>
+              <SortTh col="sellingPrice"             label="Sell Price" />
+              <SortTh col="cogsPct"                  label="COGS %" />
+              <SortTh col="profitToday"               label="Profit Today" />
+              <SortTh col="profit7d"                  label="Profit 7d" />
+              <SortTh col="profit30d"                 label="Profit 30d" />
               <th>Cls</th>
               <th>Vel</th>
             </tr>
           </thead>
           <tbody>
             {paged.length === 0 ? (
-              <tr><td colSpan={18} className="py-10 text-center text-text2">No records match filters</td></tr>
+              <tr><td colSpan={19} className="py-10 text-center text-text2">No records match filters</td></tr>
             ) : (
-              paged.map(r => {
-                const profit = skuMetrics?.profitBySku.get(r.product_code)
-                const price = skuMetrics?.priceBySku.get(r.product_code)
-
-                return (
+              paged.map(r => (
                   <tr key={r.id}>
-                    <td className="font-mono text-[11px] text-accent whitespace-nowrap">{r.product_code}</td>
+                    <td className="font-mono text-[11px] text-text1 whitespace-nowrap">{r.product_code}</td>
                     <td className="max-w-[240px]">
                       <span className="block truncate text-text1 text-[12px]" title={r.description}>{r.description}</span>
                       <span className="text-[10px] text-text2">{r.supplier_description}</span>
@@ -242,17 +241,17 @@ export default function InventoryBrowser() {
                       }
                     </td>
                     <td className="tabular-nums text-text2">{fmtCurrency(r.cost_price)}</td>
-                    <td className="tabular-nums" title={price?.price_source ?? undefined}>
-                      <MetricCurrency value={price?.selling_price} />
+                    <td className="tabular-nums" title={r.priceSource ?? undefined}>
+                      <MetricCurrency value={r.sellingPrice} />
                     </td>
-                    <td className="tabular-nums"><MetricCurrency value={profit?.accrual_profit_today} /></td>
-                    <td className="tabular-nums"><MetricCurrency value={profit?.accrual_profit_7d} /></td>
-                    <td className="tabular-nums"><MetricCurrency value={profit?.accrual_profit_30d} /></td>
+                    <td className="tabular-nums"><MetricPercent value={r.cogsPct} /></td>
+                    <td className="tabular-nums"><MetricCurrency value={r.profitToday} /></td>
+                    <td className="tabular-nums"><MetricCurrency value={r.profit7d} /></td>
+                    <td className="tabular-nums"><MetricCurrency value={r.profit30d} /></td>
                     <td className="text-xs text-text2">{r.classification}</td>
                     <td className="text-xs text-text2">{r.velocity}</td>
                   </tr>
-                )
-              })
+              ))
             )}
           </tbody>
         </table>
