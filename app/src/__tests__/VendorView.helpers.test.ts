@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildVendorWindowMetrics, getVendorSkuRows, getVendorViewAtRiskSkus } from '../pages/purchasing/VendorView.helpers'
+import { buildVendorWindowMetrics, getVendorSkuRows, getVendorViewAtRiskSkus, sortVendorSummaryRows } from '../pages/purchasing/VendorView.helpers'
 import type { InventoryRecord } from '../types'
 
 function makeRecord(overrides: Partial<InventoryRecord>): InventoryRecord {
@@ -169,5 +169,18 @@ describe('Vendor View at-risk SKU helpers', () => {
     expect(metrics.today.marginPct).toBeNull()
     expect(metrics['7d'].avgSellingPrice).toBeNull()
     expect(metrics['30d'].cogsPct).toBeNull()
+  })
+
+  it('sorts total 30-day profit with unavailable vendor values last', () => {
+    const rows = [
+      { supplier_description: 'Low', totalProfit30d: 20 },
+      { supplier_description: 'High', totalProfit30d: 70 },
+      { supplier_description: 'Missing', totalProfit30d: null },
+    ]
+
+    expect(sortVendorSummaryRows(rows, { field: 'totalProfit30d', dir: 'asc' }).map(row => row.supplier_description))
+      .toEqual(['Low', 'High', 'Missing'])
+    expect(sortVendorSummaryRows(rows, { field: 'totalProfit30d', dir: 'desc' }).map(row => row.supplier_description))
+      .toEqual(['High', 'Low', 'Missing'])
   })
 })

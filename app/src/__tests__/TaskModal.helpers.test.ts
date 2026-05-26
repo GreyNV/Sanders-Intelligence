@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildSkuSelectorRows,
   buildVendorTaskDescription,
   filterSkuSelectorRows,
   sortSkuSelectorRows,
@@ -111,5 +112,36 @@ describe('vendor order SKU selection helpers', () => {
 
     expect(sortSkuSelectorRows(rows, { field: 'status', dir: 'asc' }, new Set()).map(r => r.product_code))
       .toEqual(['OK', 'EXCESS', 'POTENTIAL', 'STOCKOUT'])
+  })
+
+  it('enriches selector rows with 30-day accrual margin percentage', () => {
+    const rows = buildSkuSelectorRows(
+      [makeRecord({ product_code: 'SKU-MARGIN' })],
+      new Map([['SKU-MARGIN', { revenue_30d: 200, accrual_profit_30d: 50 }]])
+    )
+
+    expect(rows[0].marginPct).toBe(25)
+  })
+
+  it('sets selector margin to null when 30-day revenue is unavailable', () => {
+    const rows = buildSkuSelectorRows(
+      [makeRecord({ product_code: 'SKU-NO-MARGIN' })],
+      new Map([['SKU-NO-MARGIN', { revenue_30d: 0, accrual_profit_30d: 0 }]])
+    )
+
+    expect(rows[0].marginPct).toBeNull()
+  })
+
+  it('sorts margin percentage with unavailable values last in both directions', () => {
+    const rows = [
+      { ...makeRecord({ product_code: 'LOW' }), marginPct: 10 },
+      { ...makeRecord({ product_code: 'HIGH' }), marginPct: 40 },
+      { ...makeRecord({ product_code: 'MISSING' }), marginPct: null },
+    ]
+
+    expect(sortSkuSelectorRows(rows, { field: 'marginPct', dir: 'asc' }, new Set()).map(r => r.product_code))
+      .toEqual(['LOW', 'HIGH', 'MISSING'])
+    expect(sortSkuSelectorRows(rows, { field: 'marginPct', dir: 'desc' }, new Set()).map(r => r.product_code))
+      .toEqual(['HIGH', 'LOW', 'MISSING'])
   })
 })

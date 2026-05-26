@@ -112,4 +112,5 @@ export type FreshnessStatus = 'fresh' | 'stale' | 'no_data'
 export interface Freshness {
   status: FreshnessStatus
   date: string | null
+  metricsRefreshedAt: string | null
 }

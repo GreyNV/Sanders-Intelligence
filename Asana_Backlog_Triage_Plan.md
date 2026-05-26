@@ -3,7 +3,7 @@
 **Prepared:** 2026-05-22 (Friday)
 **Asana project:** Sanders intelligence app
 **Backlog reviewed:** 29 open tasks
-**Active implementation spec:** `In_Progress_Implementation_Spec.md`
+**Active implementation scope:** `Next_Sprint_Implementation_Prompts.json`
 
 ---
 
@@ -47,8 +47,8 @@ sequenced into the first three weeks of the roadmap:
 4. BUG: Corrupted record with numeric-only SKU "546"
 5. BUG: Sorting profit data in the Inventory Browser — *completed*
 6. Feature: Inventory Browser — sort by % of COGS — *completed*
-7. Feature: Task-creation SKU table — add PM% column + sort by Margin %
-8. Feature: Vendor view — total profit by vendor
+7. Feature: Task-creation SKU table — add PM% column + sort by Margin % — *completed*
+8. Feature: Vendor view — total profit by vendor — *completed*
 9. MVP hardening trio — Inbound Pipeline verification, mobile responsiveness,
    and the QA pass on error / empty / loading states
 
@@ -56,10 +56,10 @@ sequenced into the first three weeks of the roadmap:
 
 ## The three tasks moved to In progress
 
-These are the highest-importance items that are also genuinely completable now.
+These were the highest-importance items initially selected for implementation.
 They were chosen because each undermines trust in, or usability of, the live
-app, and each is concrete and well-defined. Detailed implementation prompts for
-all three are in `In_Progress_Implementation_Prompts.json`.
+app, and each is concrete and well-defined. The active next-sprint prompts now
+live in `Next_Sprint_Implementation_Prompts.json`.
 
 | Task | Due | Why it is top priority |
 |---|---|---|
@@ -90,8 +90,8 @@ change is needed beyond the warning patterns already present.
 
 | Task | Due |
 |---|---|
-| Feature: Task-creation SKU table — add PM% + sort by Margin % | 2026-06-10 |
-| Feature: Vendor view — total profit by vendor | 2026-06-11 |
+| Feature: Task-creation SKU table — add PM% + sort by Margin % — **Completed** | 2026-06-10 |
+| Feature: Vendor view — total profit by vendor — **Completed** | 2026-06-11 |
 | MVP: Inbound Pipeline — verify arrival-month grouping & ETA accuracy | 2026-06-15 |
 | MVP: Mobile responsiveness review | 2026-06-18 |
 | MVP: QA pass — error / empty / loading states across all views | 2026-06-19 |
@@ -163,6 +163,9 @@ change is needed beyond the warning patterns already present.
 ## What happens next
 
 The completed/cancelled Tier 1 work and completed Tier 2 Inventory Browser
-metrics-sorting work are reflected above. The next remaining quick-win item is
-the source-data issue for SKU `546`, which is currently treated as cancelled in
-the implementation spec unless the source-data policy changes.
+metrics-sorting work are reflected above. The corrupted SKU `546` source-data
+issue remains out of scope unless the source-data policy changes. Current
+the Task-creation SKU table Margin % and Vendor View total profit features are
+now implemented. The next Tier 3 implementation candidates are MVP Inbound
+Pipeline verification, mobile responsiveness review, and the QA pass for error,
+empty, and loading states.

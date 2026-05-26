@@ -1,4 +1,5 @@
 import type { InventoryRecord, InventoryStatus } from '@/types'
+import { deriveFinancialPercentages } from '@/lib/financialMetrics'
 import { fmtCurrency, fmtNumber } from '@/lib/utils'
 
 export const SKU_SELECTOR_STATUS_OPTIONS: InventoryStatus[] = [
@@ -20,6 +21,7 @@ export type SkuSelectorSortField =
   | 'days_on_hand'
   | 'recommended_order'
   | 'recommended_order_value'
+  | 'marginPct'
 
 export interface SkuSelectorSortState {
   field: SkuSelectorSortField
@@ -30,6 +32,15 @@ interface SkuSelectorFilters {
   vendor?: string
   status?: string | string[]
   category?: string
+}
+
+interface SkuSelectorProfitMetric {
+  revenue_30d?: number | null
+  accrual_profit_30d?: number | null
+}
+
+export type SkuSelectorRow = InventoryRecord & {
+  marginPct: number | null
 }
 
 const STATUS_SEVERITY: Record<string, number> = {
@@ -55,11 +66,11 @@ export function buildVendorTaskDescription(vendor: string, skus: InventoryRecord
   return lines.join('\n')
 }
 
-export function filterSkuSelectorRows(
-  records: InventoryRecord[],
+export function filterSkuSelectorRows<T extends InventoryRecord>(
+  records: T[],
   query: string,
   filters: SkuSelectorFilters = {}
-): InventoryRecord[] {
+): T[] {
   const q = query.trim().toLowerCase()
   const statuses = Array.isArray(filters.status) ? filters.status : filters.status ? [filters.status] : []
 
@@ -77,14 +88,34 @@ export function filterSkuSelectorRows(
   )
 }
 
-export function sortSkuSelectorRows(
+export function buildSkuSelectorRows(
   records: InventoryRecord[],
+  profitBySku?: ReadonlyMap<string, SkuSelectorProfitMetric>
+): SkuSelectorRow[] {
+  return records.map(record => {
+    const profit = profitBySku?.get(record.product_code)
+
+    return {
+      ...record,
+      marginPct: deriveFinancialPercentages({
+        revenue: profit?.revenue_30d ?? 0,
+        profit: profit?.accrual_profit_30d ?? 0,
+      }).marginPct,
+    }
+  })
+}
+
+export function sortSkuSelectorRows<T extends InventoryRecord & { marginPct?: number | null }>(
+  records: T[],
   sort: SkuSelectorSortState,
   selectedSkuCodes: Set<string>
-): InventoryRecord[] {
+): T[] {
   const direction = sort.dir === 'asc' ? 1 : -1
 
   return [...records].sort((a, b) => {
+    const missingValueOrder = compareMissingValues(a, b, sort.field)
+    if (missingValueOrder !== 0) return missingValueOrder
+
     const primary = compareSkuSelectorField(a, b, sort.field) * direction
     if (primary !== 0) return primary
 
@@ -96,8 +127,8 @@ export function sortSkuSelectorRows(
 }
 
 function compareSkuSelectorField(
-  a: InventoryRecord,
-  b: InventoryRecord,
+  a: InventoryRecord & { marginPct?: number | null },
+  b: InventoryRecord & { marginPct?: number | null },
   field: SkuSelectorSortField
 ): number {
   if (field === 'status') {
@@ -109,6 +140,22 @@ function compareSkuSelectorField(
 
   if (typeof av === 'number' && typeof bv === 'number') return av - bv
   return String(av).localeCompare(String(bv))
+}
+
+function compareMissingValues(
+  a: InventoryRecord & { marginPct?: number | null },
+  b: InventoryRecord & { marginPct?: number | null },
+  field: SkuSelectorSortField
+): number {
+  const av = a[field]
+  const bv = b[field]
+  const aMissing = av == null
+  const bMissing = bv == null
+
+  if (aMissing && bMissing) return 0
+  if (aMissing) return 1
+  if (bMissing) return -1
+  return 0
 }
 
 export function dedupeInventoryRecords(records: InventoryRecord[]): InventoryRecord[] {

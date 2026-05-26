@@ -6,6 +6,11 @@ export type VendorSkuSortState = {
   dir: 'asc' | 'desc'
 }
 
+export interface VendorSummarySortState {
+  field: string
+  dir: 'asc' | 'desc'
+}
+
 interface VendorSkuFilters {
   status?: string | string[]
   category?: string
@@ -81,6 +86,28 @@ export function getVendorSkuRows(
     }
 
     return (Number(av) - Number(bv)) * direction
+  })
+}
+
+export function sortVendorSummaryRows<T extends object>(
+  rows: T[],
+  sort: VendorSummarySortState
+): T[] {
+  return [...rows].sort((a, b) => {
+    const av = (a as Record<string, unknown>)[sort.field] as number | string | null
+    const bv = (b as Record<string, unknown>)[sort.field] as number | string | null
+
+    if (av == null && bv == null) return 0
+    if (av == null) return 1
+    if (bv == null) return -1
+
+    if (typeof av === 'string' || typeof bv === 'string') {
+      return sort.dir === 'asc'
+        ? String(av).localeCompare(String(bv))
+        : String(bv).localeCompare(String(av))
+    }
+
+    return sort.dir === 'asc' ? av - bv : bv - av
   })
 }
 

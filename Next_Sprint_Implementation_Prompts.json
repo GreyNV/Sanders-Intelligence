@@ -1,0 +1,96 @@
+{
+  "$schema_note": "Implementation prompts for the next sprint - 'Profit & margin features'. Two backlog tasks in the Sanders intelligence app project. Each entry is a self-contained brief for a future coding session.",
+  "generated": "2026-05-24",
+  "sprint": "Profit & margin features",
+  "project": {
+    "name": "Sanders intelligence app",
+    "asana_project_id": "1214535706843813",
+    "repo_root": "D:\\Sanders Intelligence",
+    "app_source": "D:\\Sanders Intelligence\\app\\src",
+    "stack": "React 18 + TypeScript + Vite, Tailwind, React Router v6, TanStack Query v5, Supabase, Recharts",
+    "dev_command": "cd app && npm run dev"
+  },
+  "instructions_for_implementer": "Work these two tasks in due-date order. For EACH task: before writing any code, read the 'clarifying_questions' array and ask the user those questions, then wait for explicit direction. Do not assume answers. Treat 'likely_files' as a starting point for investigation, not a definitive list. After direction is given, implement against 'requirements' and validate against 'completion_criteria'. Both tasks reuse app/src/lib/financialMetrics.ts - the shared COGS/Margin definition established in the prior sprint - so the same metric definition stays consistent across the whole app.",
+  "shared_context": "Both tasks surface profit/margin metrics that already exist in the data layer but are not yet exposed in these two views. The 30-day accrual metrics live in useSkuMetrics() as profitBySku (revenue_30d, accrual_profit_30d). The canonical formulas are in app/src/lib/financialMetrics.ts: COGS% = (revenue - profit) / revenue, Margin% = profit / revenue, both null when revenue <= 0. The Inventory Browser sprint already established the row-enrichment + null-last sorting pattern in app/src/pages/purchasing/InventoryBrowser.helpers.ts - reuse it as the reference implementation.",
+  "tasks": [
+    {
+      "order": 1,
+      "asana_task_id": "1215004196463569",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1215004196463569",
+      "title": "Feature: Task-creation SKU table - add PM% column and sort by Margin %",
+      "type": "feature",
+      "section": "Backlog",
+      "due_date": "2026-06-10",
+      "technical_description": "The New/Edit Task modal (app/src/components/tasks/TaskModal.tsx) contains a 'Select SKUs' sub-modal with a SKU picker table. It currently shows checkbox, SKU, Description, Vendor, Category, Status, On Hand, Days OH, Rec. Order, Order Value - all sortable via the SortableTh component. Sort logic lives in app/src/components/tasks/TaskModal.helpers.ts (filterSkuSelectorRows, sortSkuSelectorRows, compareSkuSelectorField, and the SkuSelectorSortField union). There is no profit-margin column. TaskModal does NOT currently consume useSkuMetrics(); selectableSkus is a deduped array of raw InventoryRecord objects, and compareSkuSelectorField reads a[field] directly off the record - so a margin field cannot be sorted unless the rows are enriched with metric data first. Adding PM%/Margin% therefore requires joining the 30-day accrual profit metrics into the selector rows, the same way the Inventory Browser does.",
+      "likely_files": [
+        "app/src/components/tasks/TaskModal.tsx - the Select SKUs sub-modal table (headers approx lines 550-562, cells approx lines 584-595)",
+        "app/src/components/tasks/TaskModal.helpers.ts - SkuSelectorSortField, sortSkuSelectorRows, compareSkuSelectorField",
+        "app/src/lib/financialMetrics.ts - deriveFinancialPercentages (reuse; returns marginPct)",
+        "app/src/hooks/useSkuMetrics.ts - profitBySku source (revenue_30d, accrual_profit_30d)",
+        "app/src/pages/purchasing/InventoryBrowser.helpers.ts - reference pattern for row enrichment and null-last sorting"
+      ],
+      "requirements": [
+        "Source Margin % per SKU from the shared module: marginPct = deriveFinancialPercentages({ revenue: revenue_30d, profit: accrual_profit_30d }).marginPct - the same 30-day accrual definition used elsewhere. Do not use the static selling_price/cost_price columns.",
+        "Make profit metrics available to TaskModal: call useSkuMetrics() inside TaskModal or pass the metric maps in as a prop, then enrich the selector rows (mirror buildInventoryRows in InventoryBrowser.helpers.ts).",
+        "Add a Margin % (PM%) column to the Select SKUs table with a SortableTh header.",
+        "Extend SkuSelectorSortField with the margin field and update sortSkuSelectorRows / compareSkuSelectorField so it sorts correctly; null margins (SKUs with no revenue) must sort last in both directions.",
+        "Cell display: one decimal place + '%', or 'N/A' when null - consistent with the Inventory Browser and Vendor View.",
+        "Update the colSpan on the 'No SKUs match your search' empty-state row to match the new column count (currently 10)."
+      ],
+      "completion_criteria": [
+        "The Select SKUs table shows a Margin % column for every row.",
+        "Each cell shows the 30-day Margin % or 'N/A'.",
+        "Clicking the Margin % header sorts the SKU list by margin ascending and descending; SKUs with no margin data sort last in both directions.",
+        "Margin % matches the app-wide definition (profit / revenue, 30-day accrual).",
+        "Existing SKU-selector filters (search, vendor, status, category), row selection, and the 200-row cap still work.",
+        "No console errors, no TypeScript errors, and the existing TaskModal.helpers tests still pass."
+      ],
+      "expected_outcomes": [
+        "A purchasing user assembling a task can see each candidate SKU's profit margin and sort the picker by it, making it easy to prioritise high- or low-margin SKUs when building an order."
+      ],
+      "clarifying_questions": [
+        "Column label - 'Margin %', 'PM %', or 'Profit Margin %'? The Asana task says 'PM%'; the rest of the app uses 'Margin %'.",
+        "Where should the Margin % column sit - after Order Value at the end of the table, or grouped with another column?",
+        "Should margin also appear in the compact selected-SKU list on the main task form, or only inside the Select SKUs picker?"
+      ],
+      "pre_implementation_instruction": "Before writing any code, ask the user the questions in 'clarifying_questions' and wait for explicit direction."
+    },
+    {
+      "order": 2,
+      "asana_task_id": "1215004196463567",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1215004196463567",
+      "title": "Feature: Vendor View - total profit by vendor",
+      "type": "feature",
+      "section": "Backlog",
+      "due_date": "2026-06-11",
+      "technical_description": "The Vendor View (app/src/pages/purchasing/VendorView.tsx) renders one row per vendor with columns including Total SKUs, OK, At Risk, Excess, New Items, Backorder Units, Rec. Order Qty, Rec. Order Value, On-Hand Value, COGS %, and Margin %. Each VendorRow already carries windowMetrics, built by buildVendorWindowMetrics in VendorView.helpers.ts, and each window metric (today / 7d / 30d) already includes a summed profit field - the metric shape is { revenue, profit, units, cogsPct, marginPct, avgSellingPrice }. So the 30-day total profit per vendor is already computed as windowMetrics['30d'].profit; it is simply not surfaced as a column. The top-level VendorRow exposes cogsPct30d and marginPct30d for sorting but no profit field - a totalProfit30d field should be added the same way.",
+      "likely_files": [
+        "app/src/pages/purchasing/VendorView.tsx - VendorRow interface, the vendorRows builder, the table header + cells, and the KPI strip",
+        "app/src/pages/purchasing/VendorView.helpers.ts - buildVendorWindowMetrics already sums profit per window (likely no change needed)"
+      ],
+      "requirements": [
+        "Add totalProfit30d: windowMetrics['30d'].profit to the VendorRow object, alongside the existing cogsPct30d / marginPct30d.",
+        "Add a 'Total Profit' column to the vendor table with a SortableTh (key totalProfit30d). Display with the existing currency formatting; show 'N/A' when the vendor has no profit metrics (windowMetrics.hasMetrics is false); render negative values in the danger color, consistent with other profit displays.",
+        "Null/absent profit must sort last, consistent with the table's existing nullable-sort handling.",
+        "Add a matching 'Total Profit' KPI card to the KPI strip showing the sum of 30-day profit across all vendors.",
+        "Update any colSpan on empty-state rows to match the new column count."
+      ],
+      "completion_criteria": [
+        "The vendor table shows a Total Profit column with the 30-day accrual profit per vendor.",
+        "The column sorts ascending and descending; vendors with no metrics sort last.",
+        "A 'Total Profit' KPI card shows the all-vendor 30-day total.",
+        "Per-vendor profit reconciles with the per-window profit already shown in the expanded vendor metrics panel.",
+        "No console errors, no TypeScript errors, and the existing VendorView.helpers tests still pass."
+      ],
+      "expected_outcomes": [
+        "Purchasing can see and rank vendors by the actual profit they generate - not just inventory value or COGS% - supporting vendor-level prioritisation decisions."
+      ],
+      "clarifying_questions": [
+        "Confirm 30-day accrual profit is the right basis for the headline 'Total Profit' column (consistent with the COGS %/Margin % columns), rather than 7-day or today.",
+        "Should the column be labelled 'Total Profit (30d)' to make the time window explicit, since the other columns are not time-windowed in their labels?",
+        "Should the new KPI card replace one of the existing four KPI cards, or be added as a fifth?"
+      ],
+      "pre_implementation_instruction": "Before writing any code, ask the user the questions in 'clarifying_questions' and wait for explicit direction."
+    }
+  ]
+}
