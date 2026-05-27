@@ -2,6 +2,7 @@ import { useState, useEffect, FormEvent, useMemo } from 'react'
 import Modal from '@/components/ui/Modal'
 import { useCreateTask, useUpdateTask } from '@/hooks/useTasks'
 import { useUsers } from '@/hooks/useUsers'
+import { useSkuMetrics } from '@/hooks/useSkuMetrics'
 import { useAuth } from '@/contexts/AuthContext'
 import { Task, TaskPriority, InventoryRecord } from '@/types'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
@@ -9,6 +10,7 @@ import StatusMultiSelect from '@/components/ui/StatusMultiSelect'
 import { fmtNumber, fmtCurrency } from '@/lib/utils'
 import { ArrowDown, ArrowUp, ChevronsUpDown, Package, Search, X } from 'lucide-react'
 import {
+  buildSkuSelectorRows,
   buildVendorTaskDescription,
   dedupeInventoryRecords,
   filterSkuSelectorRows,
@@ -80,6 +82,7 @@ export default function TaskModal({
   const { data: users = [] }  = useUsers()
   const createTask = useCreateTask()
   const updateTask = useUpdateTask()
+  const { data: skuMetrics } = useSkuMetrics()
 
   const isEdit = !!task
 
@@ -132,6 +135,11 @@ export default function TaskModal({
     [prefillVendorSkus, atRiskByVendor, availableSkus]
   )
 
+  const selectableSkuRows = useMemo(
+    () => buildSkuSelectorRows(selectableSkus, skuMetrics?.profitBySku),
+    [selectableSkus, skuMetrics]
+  )
+
   const selectableSkuMap = useMemo(
     () => new Map(selectableSkus.map(r => [r.product_code, r])),
     [selectableSkus]
@@ -160,14 +168,14 @@ export default function TaskModal({
   }, [selectedSkuCodes, selectableSkuMap])
 
   const selectorRows = useMemo(() => {
-    const filteredRows = filterSkuSelectorRows(selectableSkus, skuSearch, {
+    const filteredRows = filterSkuSelectorRows(selectableSkuRows, skuSearch, {
       vendor: skuVendorFilter,
       status: skuStatusFilter,
       category: skuCategoryFilter,
     })
 
     return sortSkuSelectorRows(filteredRows, skuSort, selectedSkuCodes).slice(0, 200)
-  }, [selectableSkus, skuSearch, skuVendorFilter, skuStatusFilter, skuCategoryFilter, skuSort, selectedSkuCodes])
+  }, [selectableSkuRows, skuSearch, skuVendorFilter, skuStatusFilter, skuCategoryFilter, skuSort, selectedSkuCodes])
 
   // Distinct departments from all users for dropdown
   const departments = useMemo(
@@ -555,6 +563,7 @@ export default function TaskModal({
                     <SortableTh field="supplier_description" label="Vendor" sort={skuSort} onSort={toggleSkuSort} />
                     <SortableTh field="category_name" label="Category" sort={skuSort} onSort={toggleSkuSort} />
                     <SortableTh field="status" label="Status" sort={skuSort} onSort={toggleSkuSort} />
+                    <SortableTh field="marginPct" label="Margin %" sort={skuSort} onSort={toggleSkuSort} />
                     <SortableTh field="on_hand" label="On Hand" sort={skuSort} onSort={toggleSkuSort} />
                     <SortableTh field="days_on_hand" label="Days OH" sort={skuSort} onSort={toggleSkuSort} />
                     <SortableTh field="recommended_order" label="Rec. Order" sort={skuSort} onSort={toggleSkuSort} />
@@ -563,7 +572,7 @@ export default function TaskModal({
                 </thead>
                 <tbody>
                   {selectorRows.length === 0 ? (
-                    <tr><td colSpan={10} className="py-10 text-center text-text2">No SKUs match your search</td></tr>
+                    <tr><td colSpan={11} className="py-10 text-center text-text2">No SKUs match your search</td></tr>
                   ) : (
                     selectorRows.map(r => {
                       const selected = selectedSkuCodes.has(r.product_code)
@@ -589,6 +598,7 @@ export default function TaskModal({
                           <td className="max-w-[160px]"><span className="block truncate" title={r.supplier_description}>{r.supplier_description}</span></td>
                           <td className="max-w-[140px]"><span className="block truncate" title={r.category_name}>{r.category_name}</span></td>
                           <td className="text-xs text-text2">{r.status}</td>
+                          <td className="tabular-nums">{r.marginPct == null ? 'N/A' : `${r.marginPct.toFixed(1)}%`}</td>
                           <td className="tabular-nums">{fmtNumber(r.on_hand)}</td>
                           <td className="tabular-nums">{r.days_on_hand}d</td>
                           <td className="tabular-nums font-semibold">{fmtNumber(r.recommended_order)}</td>

@@ -1,5 +1,6 @@
 import type { UploadTrendPoint } from '@/hooks/useInventory'
 import type { InventoryRecord } from '@/types'
+import { deriveFinancialPercentages } from '@/lib/financialMetrics'
 
 export interface WeeklyHealthPoint {
   weekKey: string
@@ -30,12 +31,20 @@ export interface TopRiskSupplier {
   backorderedValue: number
   avgSellingPrice: number | null
   avgProfit: number | null
+  cogsPct: number | null
   marginPct: number | null
   minDaysOnHand: number | null
   recOrderValue: number
   openBackorderValue: number
   fillRate: number
 }
+
+type ProfitMetricLike = Partial<Record<
+  | 'units_30d'
+  | 'revenue_30d'
+  | 'accrual_profit_30d',
+  number
+>>
 
 interface IsoWeekParts {
   key: string
@@ -46,7 +55,10 @@ export function getIsoWeekKey(iso: string): string {
   return getIsoWeekParts(iso).key
 }
 
-export function buildTopRiskSuppliers(records: InventoryRecord[]): TopRiskSupplier[] {
+export function buildTopRiskSuppliers(
+  records: InventoryRecord[],
+  profitBySku: Map<string, ProfitMetricLike> = new Map()
+): TopRiskSupplier[] {
   const grouped = groupBy(records, r => r.supplier_description || 'Unknown supplier')
 
   return Object.entries(grouped)
@@ -59,19 +71,21 @@ export function buildTopRiskSuppliers(records: InventoryRecord[]): TopRiskSuppli
       const activeSkus = items.filter(r => r.average_sales > 0 || r.on_hand > 0 || r.status === 'Ok').length
       const okCount = okItems.length
       const totalSkuCount = items.length
-      const pricedItems = items.filter(r => r.selling_price > 0)
-      const avgSellingPrice = pricedItems.length > 0
-        ? pricedItems.reduce((sum, r) => sum + r.selling_price, 0) / pricedItems.length
+      const financialTotals = items.reduce((total, item) => {
+        const metric = profitBySku.get(item.product_code)
+        return {
+          units: total.units + Number(metric?.units_30d ?? 0),
+          revenue: total.revenue + Number(metric?.revenue_30d ?? 0),
+          profit: total.profit + Number(metric?.accrual_profit_30d ?? 0),
+        }
+      }, { units: 0, revenue: 0, profit: 0 })
+      const avgSellingPrice = financialTotals.units > 0
+        ? financialTotals.revenue / financialTotals.units
         : null
-      const avgCostPrice = pricedItems.length > 0
-        ? pricedItems.reduce((sum, r) => sum + r.cost_price, 0) / pricedItems.length
+      const avgProfit = financialTotals.units > 0
+        ? financialTotals.profit / financialTotals.units
         : null
-      const avgProfit = avgSellingPrice !== null && avgCostPrice !== null
-        ? avgSellingPrice - avgCostPrice
-        : null
-      const marginPct = avgSellingPrice !== null && avgProfit !== null && avgSellingPrice > 0
-        ? (avgProfit / avgSellingPrice) * 100
-        : null
+      const { cogsPct, marginPct } = deriveFinancialPercentages(financialTotals)
 
       return {
         supplier,
@@ -88,6 +102,7 @@ export function buildTopRiskSuppliers(records: InventoryRecord[]): TopRiskSuppli
         backorderedValue: backorderedItems.reduce((s, r) => s + r.unsatisfied_customer_orders_value, 0),
         avgSellingPrice,
         avgProfit,
+        cogsPct,
         marginPct,
         minDaysOnHand: stockedRiskItems.length > 0 ? Math.min(...stockedRiskItems.map(r => r.days_on_hand)) : null,
         recOrderValue: atRiskItems.reduce((s, r) => s + r.recommended_order_value, 0),

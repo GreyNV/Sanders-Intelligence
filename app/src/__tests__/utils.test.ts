@@ -3,6 +3,7 @@ import {
   fmtNumber,
   fmtCurrency,
   fmtCurrencyFull,
+  fmtDateTime,
   isOverdue,
   estimatedArrivalMonth,
   parseMonthLabel,
@@ -61,6 +62,14 @@ describe('fmtCurrencyFull', () => {
   })
   it('handles whole numbers', () => {
     expect(fmtCurrencyFull(1000)).toBe('$1,000.00')
+  })
+})
+
+describe('fmtDateTime', () => {
+  it('includes date and time for refresh timestamps', () => {
+    const value = fmtDateTime('2026-05-26T12:34:00Z')
+    expect(value).toContain('May 26, 2026')
+    expect(value).toMatch(/12:34|3:34/)
   })
 })
 

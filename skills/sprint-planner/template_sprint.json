@@ -1,0 +1,69 @@
+{
+  "$schema_note": "Canonical sprint brief shape for Sanders Intelligence micro-sprints. Replace every <PLACEHOLDER> and keep every key. Do not add or remove top-level keys without updating SKILL.md.",
+  "sprint_id": "<YYYY-MM-DD>",
+  "sprint_date": "<YYYY-MM-DD>",
+  "planned_on": "<YYYY-MM-DD>",
+  "cadence": "micro-sprint (1 day)",
+  "theme": "<one-line theme tying the picks together>",
+  "project": {
+    "name": "Sanders intelligence app",
+    "asana_project_id": "1214535706843813",
+    "repo_root": "D:\\Sanders Intelligence",
+    "app_source": "D:\\Sanders Intelligence\\app\\src",
+    "stack": "React 18 + TypeScript + Vite, Tailwind, React Router v6, TanStack Query v5, Supabase, Recharts",
+    "dev_command": "cd app && npm run dev",
+    "test_command": "cd app && npm test"
+  },
+  "selection_rationale": "<2-3 sentences: why these picks, why these dates, what got deprioritized>",
+  "instructions_for_implementer": "Work tasks in the 'order' field. For EACH task: read 'clarifying_questions' first and ask the user before writing code. Treat 'likely_files' as starting points for investigation, not the full surface. Implement against 'requirements', validate against 'completion_criteria', and write/extend tests per 'test_coverage'. When done, update the matching Asana task's completion status and leave a comment citing the file/line evidence.",
+  "tasks": [
+    {
+      "order": 1,
+      "asana_task_id": "<gid>",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/<gid>",
+      "title": "<task title>",
+      "type": "feature | bug | refactor | spike",
+      "scope": "small | medium | large",
+      "estimated_hours": "<n-m>",
+      "due_date": "<YYYY-MM-DD>",
+      "outline": "<one paragraph: what the user-visible change is and why it matters now>",
+      "technical_description": "<where it lives in code, what already exists, what existing patterns to reuse>",
+      "likely_files": [
+        "<path/to/file.tsx> - <what to look at, approx line range>"
+      ],
+      "requirements": [
+        "<atomic must-have #1>",
+        "<atomic must-have #2>"
+      ],
+      "completion_criteria": [
+        "<testable acceptance check #1>",
+        "<testable acceptance check #2>"
+      ],
+      "expected_outcomes": [
+        "<the user-facing payoff in one or two sentences>"
+      ],
+      "test_coverage": {
+        "unit": [
+          "<file>: <case description>"
+        ],
+        "integration": [
+          "<scenario>"
+        ],
+        "manual_qa": [
+          "<step-by-step click path>"
+        ]
+      },
+      "clarifying_questions": [
+        "<question the implementer should ask the user before any code is written>"
+      ],
+      "pre_implementation_instruction": "Ask the clarifying questions and wait for explicit direction before editing files."
+    }
+  ],
+  "sprint_close_checklist": [
+    "All sprint tasks marked completed in Asana with a comment citing file paths and line numbers.",
+    "All new tests pass: cd app && npm test.",
+    "Run cd app && npm run dev and smoke-test the affected pages end-to-end.",
+    "Update CLAUDE.md if any new module or convention was added.",
+    "Update memory (project_sanders_intelligence.md) if the architecture changed."
+  ]
+}

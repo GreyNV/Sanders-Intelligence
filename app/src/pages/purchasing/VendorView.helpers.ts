@@ -1,7 +1,13 @@
 import type { InventoryRecord } from '@/types'
+import { deriveFinancialPercentages } from '@/lib/financialMetrics'
 
 export type VendorSkuSortState = {
   field: keyof Pick<InventoryRecord, 'product_code' | 'description' | 'category_name' | 'on_hand' | 'days_on_hand' | 'recommended_order' | 'recommended_order_value' | 'status'>
+  dir: 'asc' | 'desc'
+}
+
+export interface VendorSummarySortState {
+  field: string
   dir: 'asc' | 'desc'
 }
 
@@ -17,6 +23,7 @@ export interface VendorWindowMetric {
   profit: number
   units: number
   cogsPct: number | null
+  marginPct: number | null
   avgSellingPrice: number | null
 }
 
@@ -82,6 +89,28 @@ export function getVendorSkuRows(
   })
 }
 
+export function sortVendorSummaryRows<T extends object>(
+  rows: T[],
+  sort: VendorSummarySortState
+): T[] {
+  return [...rows].sort((a, b) => {
+    const av = (a as Record<string, unknown>)[sort.field] as number | string | null
+    const bv = (b as Record<string, unknown>)[sort.field] as number | string | null
+
+    if (av == null && bv == null) return 0
+    if (av == null) return 1
+    if (bv == null) return -1
+
+    if (typeof av === 'string' || typeof bv === 'string') {
+      return sort.dir === 'asc'
+        ? String(av).localeCompare(String(bv))
+        : String(bv).localeCompare(String(av))
+    }
+
+    return sort.dir === 'asc' ? av - bv : bv - av
+  })
+}
+
 export function buildVendorWindowMetrics(
   records: InventoryRecord[],
   profitBySku: Map<string, ProfitMetricLike>
@@ -115,9 +144,12 @@ export function buildVendorWindowMetrics(
 }
 
 function deriveWindowMetric(total: { revenue: number; profit: number; units: number }): VendorWindowMetric {
+  const percentages = deriveFinancialPercentages(total)
+
   return {
     ...total,
-    cogsPct: total.revenue > 0 ? ((total.revenue - total.profit) / total.revenue) * 100 : null,
+    cogsPct: percentages.cogsPct,
+    marginPct: percentages.marginPct,
     avgSellingPrice: total.units > 0 ? total.revenue / total.units : null,
   }
 }

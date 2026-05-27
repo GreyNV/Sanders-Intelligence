@@ -152,23 +152,28 @@ describe('Executive Summary top risk supplier helpers', () => {
     expect(buildTopRiskSuppliers(rows).map(row => row.supplier)).toEqual(['Vendor B', 'Vendor A'])
   })
 
-  it('computes supplier average selling price, average profit, and margin from priced SKUs only', () => {
+  it('computes supplier COGS and margin from 30-day accrual revenue and profit metrics', () => {
     const rows = [
-      makeRecord({ product_code: 'PRICED-1', supplier_description: 'Vendor A', status: 'Potential s/o', selling_price: 20, cost_price: 10 }),
-      makeRecord({ product_code: 'PRICED-2', supplier_description: 'Vendor A', status: 'Ok', selling_price: 40, cost_price: 25 }),
-      makeRecord({ product_code: 'UNPRICED', supplier_description: 'Vendor A', status: 'Ok', selling_price: 0, cost_price: 999 }),
+      makeRecord({ product_code: 'SKU-1', supplier_description: 'Vendor A', status: 'Potential s/o', selling_price: 0, cost_price: 999 }),
+      makeRecord({ product_code: 'SKU-2', supplier_description: 'Vendor A', status: 'Ok', selling_price: 0, cost_price: 999 }),
       makeRecord({ product_code: 'NO-PRICE', supplier_description: 'Vendor B', status: 'Stocked out', selling_price: 0, cost_price: 5 }),
     ]
+    const profitBySku = new Map([
+      ['SKU-1', { units_30d: 10, revenue_30d: 500, accrual_profit_30d: 125 }],
+      ['SKU-2', { units_30d: 20, revenue_30d: 800, accrual_profit_30d: 240 }],
+    ])
 
-    const suppliers = buildTopRiskSuppliers(rows)
+    const suppliers = buildTopRiskSuppliers(rows, profitBySku)
     const vendorA = suppliers.find(row => row.supplier === 'Vendor A')
     const vendorB = suppliers.find(row => row.supplier === 'Vendor B')
 
-    expect(vendorA?.avgSellingPrice).toBe(30)
-    expect(vendorA?.avgProfit).toBe(12.5)
-    expect(vendorA?.marginPct).toBeCloseTo(41.6667)
+    expect(vendorA?.avgSellingPrice).toBeCloseTo(43.3333)
+    expect(vendorA?.avgProfit).toBeCloseTo(12.1667)
+    expect(vendorA?.cogsPct).toBeCloseTo(71.9231)
+    expect(vendorA?.marginPct).toBeCloseTo(28.0769)
     expect(vendorB?.avgSellingPrice).toBeNull()
     expect(vendorB?.avgProfit).toBeNull()
+    expect(vendorB?.cogsPct).toBeNull()
     expect(vendorB?.marginPct).toBeNull()
   })
 

@@ -15,6 +15,7 @@ import {
   buildVendorWindowMetrics,
   getVendorSkuRows,
   getVendorViewAtRiskSkus,
+  sortVendorSummaryRows,
   type VendorSkuSortState,
   type VendorWindowMetrics,
 } from './VendorView.helpers'
@@ -37,7 +38,9 @@ interface VendorRow {
   totalRecommendedQty: number
   totalRecommendedValue: number
   totalBackorderUnits: number
+  totalProfit30d: number | null
   cogsPct30d: number | null
+  marginPct30d: number | null
   windowMetrics: VendorWindowMetrics
   records: InventoryRecord[]
 }
@@ -112,7 +115,9 @@ export default function VendorView() {
         totalRecommendedQty:  items.reduce((s, r) => s + r.recommended_order, 0),
         totalRecommendedValue: items.reduce((s, r) => s + r.recommended_order_value, 0),
         totalBackorderUnits:  items.reduce((s, r) => s + r.unsatisfied_customer_orders_units, 0),
+        totalProfit30d:       windowMetrics.hasMetrics ? windowMetrics['30d'].profit : null,
         cogsPct30d:           windowMetrics['30d'].cogsPct,
+        marginPct30d:         windowMetrics['30d'].marginPct,
         windowMetrics,
         records:              items,
       }
@@ -139,19 +144,7 @@ export default function VendorView() {
         r.supplier_code.toLowerCase().includes(q)
       )
     }
-    return [...rows].sort((a, b) => {
-      const av = (a as unknown as Record<string, unknown>)[sort.field] as number | string | null
-      const bv = (b as unknown as Record<string, unknown>)[sort.field] as number | string | null
-      if (av == null && bv == null) return 0
-      if (av == null) return 1
-      if (bv == null) return -1
-      if (typeof av === 'string') {
-        return sort.dir === 'asc'
-          ? (av as string).localeCompare(bv as string)
-          : (bv as string).localeCompare(av as string)
-      }
-      return sort.dir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number)
-    })
+    return sortVendorSummaryRows(rows, sort)
   }, [vendorRows, search, sort])
 
   useEffect(() => {
@@ -174,11 +167,11 @@ export default function VendorView() {
   }
 
   function fmtNullablePct(value: number | null): string {
-    return value === null ? '—' : `${value.toFixed(1)}%`
+    return value === null ? 'N/A' : `${value.toFixed(1)}%`
   }
 
   function fmtNullableCurrency(value: number | null): string {
-    return value === null ? '—' : fmtCurrency(value)
+    return value === null ? 'N/A' : fmtCurrency(value)
   }
 
   if (isLoading) return <PageLoader />
@@ -195,6 +188,10 @@ export default function VendorView() {
   const vendorsAtRisk = vendorRows.filter(r => r.atRiskCount > 0).length
   const totalRecQty   = vendorRows.reduce((s, r) => s + r.totalRecommendedQty, 0)
   const totalRecVal   = vendorRows.reduce((s, r) => s + r.totalRecommendedValue, 0)
+  const hasTotalProfit30d = vendorRows.some(r => r.totalProfit30d !== null)
+  const totalProfit30d = hasTotalProfit30d
+    ? vendorRows.reduce((s, r) => s + (r.totalProfit30d ?? 0), 0)
+    : null
   const totalPages = Math.ceil(displayRows.length / PAGE_SIZE)
   const pagedRows = displayRows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
@@ -208,7 +205,7 @@ export default function VendorView() {
       </div>
 
       {/* KPI strip */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
         <div className="card">
           <div className="text-[11px] text-text2 font-semibold uppercase tracking-wider">Total Vendors</div>
           <div className="text-2xl font-bold text-text1 mt-1">{fmtNumber(totalVendors)}</div>
@@ -224,6 +221,12 @@ export default function VendorView() {
         <div className="card">
           <div className="text-[11px] text-text2 font-semibold uppercase tracking-wider">Total Rec. Order Value</div>
           <div className="text-2xl font-bold text-text1 mt-1">{fmtCurrency(totalRecVal)}</div>
+        </div>
+        <div className="card">
+          <div className="text-[11px] text-text2 font-semibold uppercase tracking-wider">Total Profit (30d)</div>
+          <div className={`text-2xl font-bold mt-1 ${totalProfit30d !== null && totalProfit30d < 0 ? 'text-danger' : 'text-text1'}`}>
+            {fmtNullableCurrency(totalProfit30d)}
+          </div>
         </div>
       </div>
 
@@ -269,13 +272,15 @@ export default function VendorView() {
               <SortableTh field="totalRecommendedValue" label="Rec. Order Value"  sort={sort} onSort={toggleSort} className="text-right" />
               <SortableTh field="totalOnHandValue"     label="On-Hand Value"      sort={sort} onSort={toggleSort} className="text-right" />
               <SortableTh field="cogsPct30d"           label="COGS %"             sort={sort} onSort={toggleSort} className="text-right" />
+              <SortableTh field="marginPct30d"         label="Margin %"           sort={sort} onSort={toggleSort} className="text-right" />
+              <SortableTh field="totalProfit30d"       label="Total Profit (30d)" sort={sort} onSort={toggleSort} className="text-right" />
               <th></th>
             </tr>
           </thead>
           <tbody>
             {displayRows.length === 0 ? (
               <tr>
-                <td colSpan={13} className="py-10 text-center text-text2">
+                <td colSpan={15} className="py-10 text-center text-text2">
                   {search || categoryFilter ? 'No vendors match the selected filters' : 'No inventory data available'}
                 </td>
               </tr>
@@ -330,8 +335,18 @@ export default function VendorView() {
                     <td className="tabular-nums text-right text-text2">{fmtCurrency(row.totalOnHandValue)}</td>
                     <td className="tabular-nums text-right">
                       {row.cogsPct30d === null
-                        ? <span className="text-text2">—</span>
+                        ? <span className="text-text2">N/A</span>
                         : <span className={row.cogsPct30d > 80 ? 'text-warning font-semibold' : ''}>{row.cogsPct30d.toFixed(1)}%</span>}
+                    </td>
+                    <td className="tabular-nums text-right">
+                      {row.marginPct30d === null
+                        ? <span className="text-text2">N/A</span>
+                        : <span className={row.marginPct30d < 15 ? 'text-warning font-semibold' : ''}>{row.marginPct30d.toFixed(1)}%</span>}
+                    </td>
+                    <td className="tabular-nums text-right">
+                      {row.totalProfit30d === null
+                        ? <span className="text-text2">N/A</span>
+                        : <span className={row.totalProfit30d < 0 ? 'text-danger font-semibold' : ''}>{fmtCurrency(row.totalProfit30d)}</span>}
                     </td>
                     <td onClick={e => e.stopPropagation()}>
                       <div className="flex gap-1 justify-end">
@@ -358,7 +373,7 @@ export default function VendorView() {
                   {/* Expanded SKU rows */}
                   {expandedVendor === row.supplier_description && (
                     <tr>
-                      <td colSpan={13} className="p-0 bg-surface2/40">
+                      <td colSpan={15} className="p-0 bg-surface2/40">
                         <div className="px-4 py-2">
                           {row.windowMetrics.hasMetrics ? (
                             <div className="mb-3 grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -369,11 +384,17 @@ export default function VendorView() {
                               ].map(([label, metric]) => (
                                 <div key={label as string} className="rounded border border-border/60 bg-surface/60 px-3 py-2">
                                   <div className="text-[11px] font-semibold uppercase tracking-wider text-text2">{label as string}</div>
-                                  <div className="mt-1 grid grid-cols-2 gap-3 text-sm">
+                                  <div className="mt-1 grid grid-cols-3 gap-3 text-sm">
                                     <div>
                                       <div className="text-[11px] text-text2">COGS %</div>
                                       <div className="font-semibold tabular-nums">
                                         {fmtNullablePct((metric as VendorWindowMetrics['today']).cogsPct)}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <div className="text-[11px] text-text2">Margin %</div>
+                                      <div className="font-semibold tabular-nums">
+                                        {fmtNullablePct((metric as VendorWindowMetrics['today']).marginPct)}
                                       </div>
                                     </div>
                                     <div>
