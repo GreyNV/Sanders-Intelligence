@@ -11,6 +11,7 @@ import {
 import { AlertTriangle, TrendingUp, Package, DollarSign, Clock } from 'lucide-react'
 import { useMemo } from 'react'
 import { groupBy } from '@/lib/utils'
+import { sumExcessValue } from '@/lib/financialMetrics'
 import { useNavigate } from 'react-router-dom'
 import { buildTopRiskSuppliers, buildWeeklyHealthPoints } from './ExecutiveSummary.helpers'
 
@@ -32,7 +33,7 @@ export default function ExecutiveSummary() {
     },
     {
       name: 'Excess', statusFilter: 'Excess stock',
-      value: records.filter(r => r.status === 'Excess stock' || r.status === 'Surplus orders').reduce((s, r) => s + r.on_hand_value, 0),
+      value: sumExcessValue(records),
       fill: '#6c8aff',
     },
     {
@@ -61,7 +62,7 @@ export default function ExecutiveSummary() {
     return Object.entries(grouped)
       .map(([brand, items]) => ({
         brand,
-        excessValue: items.reduce((s, r) => s + r.excess_value, 0),
+        excessValue: sumExcessValue(items),
       }))
       .sort((a, b) => b.excessValue - a.excessValue)
       .slice(0, 8)
@@ -231,7 +232,7 @@ export default function ExecutiveSummary() {
         {/* Excess Value by Brand — clickable bars */}
         <div className="card">
           <h3 className="text-[13px] font-semibold mb-1">Excess Value by Brand (Top {brandExcess.length})</h3>
-          <p className="text-[11px] text-text2 mb-3">Click a bar to open filtered view</p>
+          <p className="text-[11px] text-text2 mb-3">On-hand value of overstocked SKUs by brand</p>
           {brandExcess.length === 0 ? (
             <div className="text-center py-10 text-text2 text-sm">No excess stock</div>
           ) : (

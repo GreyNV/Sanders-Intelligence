@@ -14,6 +14,7 @@ const VendorView = lazy(() => import('@/pages/purchasing/VendorView'))
 const ExecutiveSummary = lazy(() => import('@/pages/csuite/ExecutiveSummary'))
 const DepartmentOverview = lazy(() => import('@/pages/csuite/DepartmentOverview'))
 const TasksPage = lazy(() => import('@/pages/tasks/TasksPage'))
+const DailyView = lazy(() => import('@/pages/work/DailyView'))
 const UsersPage = lazy(() => import('@/pages/admin/UsersPage'))
 const UploadsPage = lazy(() => import('@/pages/admin/UploadsPage'))
 
@@ -139,6 +140,9 @@ export default function App() {
 
           <Route path="/tasks" element={
             <RoleGuard allow={['admin', 'purchasing', 'csuite']}><TasksPage /></RoleGuard>
+          } />
+          <Route path="/daily" element={
+            <RoleGuard allow={['admin', 'purchasing', 'csuite']}><DailyView /></RoleGuard>
           } />
 
           <Route path="/admin/users" element={

@@ -1,6 +1,6 @@
 import type { UploadTrendPoint } from '@/hooks/useInventory'
 import type { InventoryRecord } from '@/types'
-import { deriveFinancialPercentages } from '@/lib/financialMetrics'
+import { deriveFinancialPercentages, sumExcessValue } from '@/lib/financialMetrics'
 
 export interface WeeklyHealthPoint {
   weekKey: string
@@ -97,7 +97,7 @@ export function buildTopRiskSuppliers(
         atRiskPct: percent(atRiskItems.length, totalSkuCount),
         atRiskValue: atRiskItems.reduce((s, r) => s + r.on_hand_value, 0),
         excessPct: percent(excessItems.length, totalSkuCount),
-        excessValue: excessItems.reduce((s, r) => s + r.on_hand_value, 0),
+        excessValue: sumExcessValue(excessItems),
         backorderedPct: percent(backorderedItems.length, totalSkuCount),
         backorderedValue: backorderedItems.reduce((s, r) => s + r.unsatisfied_customer_orders_value, 0),
         avgSellingPrice,

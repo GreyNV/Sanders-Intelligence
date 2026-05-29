@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils'
 import type { InventoryRecord } from '@/types'
 
-type BadgeVariant = 'ok' | 'excess' | 'stockout' | 'surplus' | 'new_item' | 'todo' | 'in_progress' | 'done' | 'cancelled' |
+type BadgeVariant = 'ok' | 'excess' | 'stockout' | 'surplus' | 'new_item' | 'todo' | 'in_progress' | 'done' | 'cancelled' | 'postponed' |
                    'low' | 'medium' | 'high' | 'urgent' | 'neutral' | 'info'
 
 const styles: Record<BadgeVariant, string> = {
@@ -14,6 +14,7 @@ const styles: Record<BadgeVariant, string> = {
   in_progress: 'bg-accent/15 text-accent',
   done:        'bg-success/15 text-success',
   cancelled:   'bg-surface2 text-text2',
+  postponed:   'bg-warning/10 text-warning',
   low:         'bg-success/10 text-success',
   medium:      'bg-warning/10 text-warning',
   high:        'bg-orange/10 text-orange',
@@ -33,6 +34,7 @@ const labels: Partial<Record<string, string>> = {
   'in_progress':    'In Progress',
   'done':           'Done',
   'cancelled':      'Cancelled',
+  'postponed':      'Postponed',
 }
 
 interface BadgeProps {

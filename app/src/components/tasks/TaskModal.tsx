@@ -1,14 +1,15 @@
 import { useState, useEffect, FormEvent, useMemo } from 'react'
 import Modal from '@/components/ui/Modal'
 import { useCreateTask, useUpdateTask } from '@/hooks/useTasks'
+import { useAddTaskComment, useTaskActivityEvents, useTaskComments } from '@/hooks/useTaskComments'
 import { useUsers } from '@/hooks/useUsers'
 import { useSkuMetrics } from '@/hooks/useSkuMetrics'
 import { useAuth } from '@/contexts/AuthContext'
-import { Task, TaskPriority, InventoryRecord } from '@/types'
+import { Task, TaskPriority, InventoryRecord, TaskActivityEvent, TaskComment } from '@/types'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import StatusMultiSelect from '@/components/ui/StatusMultiSelect'
-import { fmtNumber, fmtCurrency } from '@/lib/utils'
-import { ArrowDown, ArrowUp, ChevronsUpDown, Package, Search, X } from 'lucide-react'
+import { fmtNumber, fmtCurrency, fmtDateTime } from '@/lib/utils'
+import { ArrowDown, ArrowUp, ChevronsUpDown, MessageSquare, Package, Search, X } from 'lucide-react'
 import {
   buildSkuSelectorRows,
   buildVendorTaskDescription,
@@ -72,6 +73,48 @@ function SortableTh({
   )
 }
 
+type TimelineEntry =
+  | { id: string; kind: 'comment'; label: string; actorName: string; createdAt: string; body: string }
+  | { id: string; kind: 'activity'; label: string; actorName: string; createdAt: string; body: string }
+
+const STATUS_LABELS: Record<string, string> = {
+  todo: 'To Do',
+  in_progress: 'In Progress',
+  done: 'Done',
+  cancelled: 'Cancelled',
+  postponed: 'Postponed',
+}
+
+function statusLabel(status: string | null): string {
+  return status ? (STATUS_LABELS[status] ?? status) : 'None'
+}
+
+function buildActivityBody(event: TaskActivityEvent): string {
+  if (event.kind === 'created') return `Created task with status ${statusLabel(event.to_status)}.`
+  return `Changed status from ${statusLabel(event.from_status)} to ${statusLabel(event.to_status)}.`
+}
+
+function buildTaskTimeline(comments: TaskComment[], activityEvents: TaskActivityEvent[]): TimelineEntry[] {
+  return [
+    ...activityEvents.map(event => ({
+      id: `activity-${event.id}`,
+      kind: 'activity' as const,
+      label: event.kind === 'created' ? 'Created' : 'Status',
+      actorName: event.actor?.name ?? 'System',
+      createdAt: event.created_at,
+      body: buildActivityBody(event),
+    })),
+    ...comments.map(comment => ({
+      id: `comment-${comment.id}`,
+      kind: 'comment' as const,
+      label: comment.kind,
+      actorName: comment.author?.name ?? 'Unknown user',
+      createdAt: comment.created_at,
+      body: comment.body,
+    })),
+  ].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+}
+
 export default function TaskModal({
   open, onClose, task,
   prefillSku = '', prefillTitle = '',
@@ -82,6 +125,9 @@ export default function TaskModal({
   const { data: users = [] }  = useUsers()
   const createTask = useCreateTask()
   const updateTask = useUpdateTask()
+  const addComment = useAddTaskComment()
+  const { data: comments = [] } = useTaskComments(task?.id)
+  const { data: activityEvents = [] } = useTaskActivityEvents(task?.id)
   const { data: skuMetrics } = useSkuMetrics()
 
   const isEdit = !!task
@@ -108,6 +154,7 @@ export default function TaskModal({
   const [skuCategoryFilter, setSkuCategoryFilter] = useState('')
   const [skuSort, setSkuSort] = useState<SkuSelectorSortState>({ field: 'recommended_order_value', dir: 'desc' })
   const [selectedSkuCodes, setSelectedSkuCodes] = useState<Set<string>>(new Set())
+  const [commentBody, setCommentBody] = useState('')
 
   // Single-SKU mode
   const [skuCode, setSkuCode] = useState('')
@@ -218,6 +265,7 @@ export default function TaskModal({
       setSkuSelectorOpen(false)
     }
     setError(null)
+    setCommentBody('')
   }, [open, task?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-fill title when vendor changes (create / vendor mode)
@@ -247,6 +295,7 @@ export default function TaskModal({
 
   // Does the task being edited have a vendor prefix?
   const editHasVendor = isEdit && !!parseVendorLine(task?.description)
+  const timeline = useMemo(() => buildTaskTimeline(comments, activityEvents), [comments, activityEvents])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -313,6 +362,12 @@ export default function TaskModal({
   }
 
   const isPending = createTask.isPending || updateTask.isPending
+
+  async function handleAddComment() {
+    if (!task || !commentBody.trim()) return
+    await addComment.mutateAsync({ task_id: task.id, body: commentBody, kind: 'comment' })
+    setCommentBody('')
+  }
 
   return (
     <Modal open={open} onClose={onClose} title={isEdit ? 'Edit Task' : 'New Task'}>
@@ -489,6 +544,59 @@ export default function TaskModal({
             )}
           </select>
         </div>
+
+        {isEdit && (
+          <div className="border-t border-border pt-4">
+            <div className="flex items-center gap-2 mb-3">
+              <MessageSquare size={14} className="text-text2" />
+              <h3 className="text-sm font-semibold text-text1">Timeline</h3>
+              <span className="text-xs text-text2 bg-surface2 px-2 py-0.5 rounded-full">{timeline.length}</span>
+            </div>
+
+            {timeline.length === 0 ? (
+              <div className="text-xs text-text2 bg-surface2 rounded-lg px-3 py-3 mb-3">No timeline events yet.</div>
+            ) : (
+              <div className="space-y-2 max-h-48 overflow-y-auto mb-3">
+                {timeline.map(entry => (
+                  <div key={entry.id} className="rounded-lg border border-border bg-surface2 px-3 py-2">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <div className="text-xs font-medium text-text1">{entry.actorName}</div>
+                      <div className="text-[10px] text-text2">{fmtDateTime(entry.createdAt)}</div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <span className={`text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 shrink-0 ${
+                        entry.kind === 'activity' ? 'text-warning bg-warning/10' : 'text-accent bg-accent/10'
+                      }`}>
+                        {entry.label}
+                      </span>
+                      <p className="text-xs text-text2 whitespace-pre-wrap">{entry.body}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <textarea
+                className="input w-full resize-none"
+                rows={3}
+                value={commentBody}
+                onChange={event => setCommentBody(event.target.value)}
+                placeholder="Add a note..."
+              />
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleAddComment}
+                  disabled={!commentBody.trim() || addComment.isPending}
+                  className="btn-secondary text-xs"
+                >
+                  Add note
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="text-danger text-xs bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">{error}</div>

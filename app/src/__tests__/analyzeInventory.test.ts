@@ -115,10 +115,10 @@ describe('analyzeInventory — at-risk items', () => {
 
 describe('analyzeInventory — excess items', () => {
   it('includes "Excess stock" items in excessItems', () => {
-    const r = makeRecord({ status: 'Excess stock', excess_value: 2000 })
+    const r = makeRecord({ status: 'Excess stock', on_hand_value: 2400, excess_value: 2000 })
     const { excessItems, kpis } = analyzeInventory([r], false)
     expect(excessItems).toHaveLength(1)
-    expect(kpis.excessValue).toBe(2000)
+    expect(kpis.excessValue).toBe(2400)
     expect(kpis.excessCount).toBe(1)
   })
 
@@ -130,12 +130,22 @@ describe('analyzeInventory — excess items', () => {
 
   it('accumulates excessValue across multiple excess records', () => {
     const records = [
-      makeRecord({ id: '1', status: 'Excess stock',   excess_value: 1000 }),
-      makeRecord({ id: '2', status: 'Surplus orders', excess_value: 500 }),
+      makeRecord({ id: '1', status: 'Excess stock',   on_hand_value: 1800, excess_value: 1000 }),
+      makeRecord({ id: '2', status: 'Surplus orders', on_hand_value: 700, excess_value: 500 }),
     ]
     const { kpis } = analyzeInventory(records, false)
-    expect(kpis.excessValue).toBe(1500)
+    expect(kpis.excessValue).toBe(2500)
     expect(kpis.excessCount).toBe(2)
+  })
+
+  it('uses on-hand value for excessValue even when the CSV excess_value column differs', () => {
+    const records = [
+      makeRecord({ id: '1', status: 'Excess stock', on_hand_value: 3000, excess_value: 0 }),
+      makeRecord({ id: '2', status: 'Surplus orders', on_hand_value: 2000, excess_value: 100 }),
+    ]
+    const { kpis } = analyzeInventory(records, false)
+
+    expect(kpis.excessValue).toBe(5000)
   })
 
   it('does NOT include "Ok" items in excessItems', () => {
@@ -290,7 +300,7 @@ describe('analyzeInventory — mixed real-world scenario', () => {
     expect(kpis.backorderCount).toBe(1)
     expect(kpis.totalOnHandValue).toBe(4200)
     expect(kpis.recOrderValue).toBe(1500)
-    expect(kpis.excessValue).toBe(1500)
+    expect(kpis.excessValue).toBe(3000)
     expect(kpis.totalBackorderValue).toBe(500)
 
     // activeSkus = records 1-4 (record 5 has average_sales=0 AND on_hand=0 so inactive)

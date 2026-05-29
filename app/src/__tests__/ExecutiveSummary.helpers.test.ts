@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildTopRiskSuppliers, buildWeeklyHealthPoints, getIsoWeekKey } from '../pages/csuite/ExecutiveSummary.helpers'
+import { sumExcessValue } from '../lib/financialMetrics'
 import type { InventoryRecord } from '../types'
 
 function makeRecord(overrides: Partial<InventoryRecord>): InventoryRecord {
@@ -118,7 +119,7 @@ describe('Executive Summary top risk supplier helpers', () => {
     const rows = [
       makeRecord({ product_code: 'A-OK', supplier_description: 'Vendor A', status: 'Ok', on_hand_value: 100 }),
       makeRecord({ product_code: 'A-RISK', supplier_description: 'Vendor A', status: 'Potential s/o', on_hand_value: 200 }),
-      makeRecord({ product_code: 'A-EXCESS', supplier_description: 'Vendor A', status: 'Excess stock', on_hand_value: 300 }),
+      makeRecord({ product_code: 'A-EXCESS', supplier_description: 'Vendor A', status: 'Excess stock', on_hand_value: 300, excess_value: 9999 }),
       makeRecord({
         product_code: 'A-BACKORDER',
         supplier_description: 'Vendor A',
@@ -141,6 +142,23 @@ describe('Executive Summary top risk supplier helpers', () => {
     expect(vendorA?.excessValue).toBe(300)
     expect(vendorA?.backorderedPct).toBe(25)
     expect(vendorA?.backorderedValue).toBe(90)
+  })
+
+  it('uses the canonical on-hand excess value even when CSV excess_value differs', () => {
+    const rows = [
+      makeRecord({ product_code: 'A-RISK', supplier_description: 'Vendor A', status: 'Potential s/o', on_hand_value: 100 }),
+      makeRecord({ product_code: 'A-EXCESS', supplier_description: 'Vendor A', status: 'Excess stock', on_hand_value: 900, excess_value: 1 }),
+      makeRecord({ product_code: 'A-SURPLUS', supplier_description: 'Vendor A', status: 'Surplus orders', on_hand_value: 600, excess_value: 2 }),
+      makeRecord({ product_code: 'B-RISK', supplier_description: 'Vendor B', status: 'Stocked out', on_hand_value: 50 }),
+      makeRecord({ product_code: 'B-EXCESS', supplier_description: 'Vendor B', status: 'Excess stock', on_hand_value: 250, excess_value: 99999 }),
+    ]
+
+    const suppliers = buildTopRiskSuppliers(rows)
+    const supplierExcessTotal = suppliers.reduce((total, supplier) => total + supplier.excessValue, 0)
+
+    expect(suppliers.find(row => row.supplier === 'Vendor A')?.excessValue).toBe(1500)
+    expect(suppliers.find(row => row.supplier === 'Vendor B')?.excessValue).toBe(250)
+    expect(supplierExcessTotal).toBe(sumExcessValue(rows))
   })
 
   it('sorts top risk suppliers by at-risk on-hand value descending', () => {

@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { InventoryRecord } from '@/types'
+import { sumExcessValue } from '@/lib/financialMetrics'
 
 // ─── Trend types ──────────────────────────────────────────────────────────────
 export interface UploadTrendPoint {
@@ -57,7 +58,6 @@ export function analyzeInventory(records: InventoryRecord[], isLoading: boolean)
   let okCount = 0
   let newItemCount = 0
   let totalBackorderValue = 0
-  let excessValue = 0
   let recOrderValue = 0
   let activeSkus = 0
   let atRiskCount = 0
@@ -80,7 +80,6 @@ export function analyzeInventory(records: InventoryRecord[], isLoading: boolean)
     }
 
     if (isExcess) {
-      excessValue += record.excess_value
       excessItems.push(record)
     }
 
@@ -110,7 +109,7 @@ export function analyzeInventory(records: InventoryRecord[], isLoading: boolean)
       newItemCount,
       backorderCount: backorderItems.length,
       totalBackorderValue,
-      excessValue,
+      excessValue: sumExcessValue(records),
       recOrderValue,
       fillRate: activeSkus > 0 ? (okCount / activeSkus) * 100 : 0,
       totalSkus: records.length,
@@ -134,7 +133,7 @@ async function fetchInventoryTrends(): Promise<UploadTrendPoint[]> {
   const PAGE_SIZE = 1000
   const results: UploadTrendPoint[] = await Promise.all(
     uploads.map(async (upload) => {
-      type Row = { status: string; on_hand_value: number; excess_value: number; recommended_order_value: number; average_sales: number }
+      type Row = { status: InventoryRecord['status']; on_hand_value: number; excess_value: number; recommended_order_value: number; average_sales: number }
       const all: Row[] = []
       let from = 0
       while (true) {
@@ -159,7 +158,7 @@ async function fetchInventoryTrends(): Promise<UploadTrendPoint[]> {
         .reduce((s, r) => s + r.on_hand_value, 0)
       const newItemValue  = all.filter(r => r.status === 'New item').reduce((s, r) => s + r.on_hand_value, 0)
       const atRiskCount   = all.filter(r => r.status === 'Potential s/o' || r.status === 'Stocked out').length
-      const excessValue   = all.reduce((s, r) => s + r.excess_value, 0)
+      const excessValue   = sumExcessValue(all)
       const totalRecVal   = all.reduce((s, r) => s + r.recommended_order_value, 0)
       const totalSkus     = all.length
       const activeSkus    = all.filter(r => r.average_sales > 0 || r.on_hand_value > 0).length

@@ -1,128 +1,52 @@
-import { useState, useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useTasks, useUpdateTaskStatus, useDeleteTask } from '@/hooks/useTasks'
+import { useAddTaskComment, useTaskCommentCounts } from '@/hooks/useTaskComments'
 import { useAuth } from '@/contexts/AuthContext'
 import TaskModal from '@/components/tasks/TaskModal'
-import Badge, { priorityVariant, taskStatusVariant } from '@/components/ui/Badge'
+import TaskCard from '@/components/tasks/TaskCard'
+import TaskActionNoteModal from '@/components/tasks/TaskActionNoteModal'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
-import { fmtDate, isOverdue } from '@/lib/utils'
-import { Plus, Trash2, CheckCircle, Circle, Clock, AlertCircle, Pencil, LayoutList, Columns3, Tag, Store, Layers } from 'lucide-react'
-import { Task, TaskStatus } from '@/types'
-
-// ── Constants ─────────────────────────────────────────────────────────────────
+import { Plus, CheckCircle, Circle, Clock, AlertCircle, LayoutList, Columns3, Tag, Store, Layers, User } from 'lucide-react'
+import type { Task, TaskStatus } from '@/types'
+import { calculatePostponedUntil, extractVendor, groupTasksByAssignee } from './TasksPage.helpers'
 
 const STATUS_COLS: { key: TaskStatus; label: string; icon: React.ReactNode }[] = [
-  { key: 'todo',        label: 'To Do',      icon: <Circle      size={14} className="text-text2" /> },
+  { key: 'todo',        label: 'To Do',       icon: <Circle      size={14} className="text-text2" /> },
   { key: 'in_progress', label: 'In Progress', icon: <Clock       size={14} className="text-accent" /> },
+  { key: 'postponed',   label: 'Postponed',   icon: <Clock       size={14} className="text-warning" /> },
   { key: 'done',        label: 'Done',        icon: <CheckCircle size={14} className="text-success" /> },
   { key: 'cancelled',   label: 'Cancelled',   icon: <AlertCircle size={14} className="text-text2" /> },
 ]
 
 const NEXT_STATUS: Record<TaskStatus, TaskStatus> = {
-  todo:        'in_progress',
+  todo: 'in_progress',
   in_progress: 'done',
-  done:        'done',
-  cancelled:   'cancelled',
+  postponed: 'todo',
+  done: 'done',
+  cancelled: 'cancelled',
 }
 
-type GroupMode = 'status' | 'vendor' | 'category'
-
-/** Extract vendor name from task description that starts with "Vendor: <name>" */
-function extractVendor(task: Task): string | null {
-  if (!task.description) return null
-  const match = task.description.match(/^Vendor:\s*(.+)/m)
-  return match ? match[1].trim() : null
-}
-
-// ── TaskCard (standalone — not nested, to avoid React remount on every render) ──
-
-interface TaskCardProps {
-  task: Task
-  profile: { id: string; role: string; department: string | null } | null
-  showDept: boolean
-  updateStatus: ReturnType<typeof useUpdateTaskStatus>
-  deleteTask: ReturnType<typeof useDeleteTask>
-  onEdit: (task: Task) => void
-}
-
-function TaskCard({ task, profile, showDept, updateStatus, deleteTask, onEdit }: TaskCardProps) {
-  const overdue    = isOverdue(task.due_date)
-  const canAdvance = task.status !== 'done' && task.status !== 'cancelled'
-  const canDelete  = profile?.role === 'admin' || task.created_by === profile?.id
-
-  return (
-    <div className="card mb-2 flex flex-col gap-2">
-      <div className="flex items-start gap-2">
-        <button
-          onClick={() => canAdvance && updateStatus.mutate({ id: task.id, status: NEXT_STATUS[task.status] })}
-          className="mt-0.5 flex-shrink-0 text-text2 hover:text-success transition-colors disabled:opacity-40"
-          disabled={!canAdvance}
-          title={canAdvance ? `Mark as ${NEXT_STATUS[task.status]}` : undefined}
-        >
-          {task.status === 'done'
-            ? <CheckCircle size={16} className="text-success" />
-            : <Circle size={16} />}
-        </button>
-        <div className="flex-1 min-w-0">
-          <div className={`text-[13px] font-medium ${task.status === 'done' ? 'line-through text-text2' : 'text-text1'}`}>
-            {task.title}
-          </div>
-          {task.description && (
-            <div className="text-[11px] text-text2 mt-0.5 line-clamp-2">{task.description}</div>
-          )}
-        </div>
-        <button
-          onClick={() => onEdit(task)}
-          className="p-1 text-text2 hover:text-accent transition-colors flex-shrink-0"
-          title="Edit task"
-        >
-          <Pencil size={13} />
-        </button>
-        {canDelete && (
-          <button
-            onClick={() => deleteTask.mutate(task.id)}
-            className="p-1 text-text2 hover:text-danger transition-colors flex-shrink-0"
-            title="Delete task"
-          >
-            <Trash2 size={13} />
-          </button>
-        )}
-      </div>
-
-      <div className="flex items-center gap-2 flex-wrap pl-6">
-        <Badge variant={priorityVariant(task.priority)} value={task.priority} />
-        <Badge variant={taskStatusVariant(task.status)} value={task.status} />
-        {showDept && task.department && (
-          <span className="text-[10px] bg-surface2 text-text2 px-1.5 py-0.5 rounded">{task.department}</span>
-        )}
-        {task.sku_code && (
-          <span className="font-mono text-[10px] text-accent bg-accent/10 px-1.5 py-0.5 rounded">{task.sku_code}</span>
-        )}
-        {task.due_date && (
-          <span className={`text-[11px] ${overdue && task.status !== 'done' ? 'text-danger font-semibold' : 'text-text2'}`}>
-            {overdue && task.status !== 'done' ? '⚠ ' : ''}Due {fmtDate(task.due_date)}
-          </span>
-        )}
-        {task.assignee && (
-          <span className="text-[11px] text-text2">→ {task.assignee.name}</span>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ── Main page ─────────────────────────────────────────────────────────────────
+type GroupMode = 'status' | 'vendor' | 'category' | 'assignee'
+type ActionModal = { type: 'cancel' | 'postpone'; task: Task } | null
 
 export default function TasksPage() {
-  const { profile }                         = useAuth()
+  const { profile } = useAuth()
   const { data: tasks = [], isLoading, error } = useTasks()
   const updateStatus = useUpdateTaskStatus()
-  const deleteTask   = useDeleteTask()
+  const deleteTask = useDeleteTask()
+  const addComment = useAddTaskComment()
 
-  const [modal, setModal]             = useState(false)
+  const [modal, setModal] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
-  const [deptFilter, setDeptFilter]   = useState('all')
-  const [groupMode, setGroupMode]   = useState<GroupMode>('status')
-  const [view, setView]               = useState<'board' | 'list'>('list')
+  const [actionModal, setActionModal] = useState<ActionModal>(null)
+  const [postponeDays, setPostponeDays] = useState(7)
+  const [deptFilter, setDeptFilter] = useState('all')
+  const [groupMode, setGroupMode] = useState<GroupMode>('status')
+  const [view, setView] = useState<'board' | 'list'>('list')
+  const [showPostponed, setShowPostponed] = useState(false)
+
+  const taskIds = useMemo(() => tasks.map(task => task.id), [tasks])
+  const { data: commentCounts = new Map<string, number>() } = useTaskCommentCounts(taskIds)
 
   if (isLoading) return <PageLoader />
 
@@ -134,20 +58,62 @@ export default function TasksPage() {
     </div>
   )
 
-  const isAllAccess  = profile?.role === 'admin' || profile?.role === 'csuite'
-  const departments  = isAllAccess
+  const isAllAccess = profile?.role === 'admin' || profile?.role === 'csuite'
+  const departments = isAllAccess
     ? Array.from(new Set(tasks.map(t => t.department).filter(Boolean))).sort() as string[]
     : []
 
-  const filtered = deptFilter === 'all' ? tasks : tasks.filter(t => t.department === deptFilter)
+  const departmentFiltered = deptFilter === 'all' ? tasks : tasks.filter(t => t.department === deptFilter)
+  const postponedCount = departmentFiltered.filter(t => t.status === 'postponed').length
+  const filtered = showPostponed
+    ? departmentFiltered
+    : departmentFiltered.filter(t => t.status !== 'postponed')
 
-  const cardProps = { profile, showDept: isAllAccess && groupMode === 'status', updateStatus, deleteTask, onEdit: setEditingTask }
+  function handleAdvance(task: Task) {
+    updateStatus.mutate({ id: task.id, status: NEXT_STATUS[task.status] })
+  }
 
-  // ── Board view (always by status) ──────────────────────────────────────────
+  async function handleActionSubmit(note: string) {
+    if (!actionModal) return
+    const { task, type } = actionModal
+    const status = type === 'cancel' ? 'cancelled' : 'postponed'
+    const postponed_until = type === 'postpone' ? calculatePostponedUntil(postponeDays) : null
+
+    await updateStatus.mutateAsync({ id: task.id, status, postponed_until })
+    if (note.trim()) {
+      await addComment.mutateAsync({ task_id: task.id, body: note, kind: type })
+    }
+    setActionModal(null)
+  }
+
+  const cardProps = {
+    profile,
+    showDept: isAllAccess && groupMode === 'status',
+    onAdvance: handleAdvance,
+    onCancel: (task: Task) => setActionModal({ type: 'cancel', task }),
+    onPostpone: (task: Task) => {
+      setPostponeDays(7)
+      setActionModal({ type: 'postpone', task })
+    },
+    onEdit: setEditingTask,
+    onDelete: (id: string) => deleteTask.mutate(id),
+  }
+
+  function renderTask(task: Task) {
+    return (
+      <TaskCard
+        key={task.id}
+        task={task}
+        commentCount={commentCounts.get(task.id) ?? 0}
+        {...cardProps}
+      />
+    )
+  }
+
   function BoardView() {
     return (
       <div className="grid grid-cols-4 gap-4">
-        {STATUS_COLS.map(col => {
+        {STATUS_COLS.filter(col => showPostponed || col.key !== 'postponed').map(col => {
           const colTasks = filtered.filter(t => t.status === col.key)
           return (
             <div key={col.key} className="bg-surface2 rounded-xl p-3">
@@ -156,9 +122,7 @@ export default function TasksPage() {
                 <span className="text-[12px] font-semibold text-text1">{col.label}</span>
                 <span className="text-[10px] text-text2 bg-surface px-1.5 py-0.5 rounded-full ml-auto">{colTasks.length}</span>
               </div>
-              <div className="space-y-2">
-                {colTasks.map(t => <TaskCard key={t.id} task={t} {...cardProps} />)}
-              </div>
+              <div className="space-y-2">{colTasks.map(renderTask)}</div>
             </div>
           )
         })}
@@ -166,7 +130,6 @@ export default function TasksPage() {
     )
   }
 
-  // ── Grouped section renderer ────────────────────────────────────────────────
   function GroupSection({ label, icon, tasks: group }: { label: string; icon: React.ReactNode; tasks: Task[] }) {
     if (group.length === 0) return null
     return (
@@ -176,18 +139,17 @@ export default function TasksPage() {
           <h2 className="text-[13px] font-semibold text-text1">{label}</h2>
           <span className="text-xs text-text2 bg-surface2 px-2 py-0.5 rounded-full">{group.length}</span>
         </div>
-        {group.map(t => <TaskCard key={t.id} task={t} {...cardProps} />)}
+        {group.map(renderTask)}
       </div>
     )
   }
 
-  // ── List view ──────────────────────────────────────────────────────────────
   function ListView() {
     if (groupMode === 'status') {
       return (
         <div className="space-y-6">
           {STATUS_COLS
-            .filter(col => col.key !== 'cancelled' || filtered.some(t => t.status === 'cancelled'))
+            .filter(col => (showPostponed || col.key !== 'postponed') && (col.key !== 'cancelled' || filtered.some(t => t.status === 'cancelled')))
             .map(col => (
               <GroupSection
                 key={col.key}
@@ -201,81 +163,52 @@ export default function TasksPage() {
     }
 
     if (groupMode === 'vendor') {
-      // Group by vendor extracted from description; fallback to "Other"
       const vendorMap: Record<string, Task[]> = { Other: [] }
-      for (const t of filtered) {
-        const v = extractVendor(t)
-        if (v) {
-          (vendorMap[v] ||= []).push(t)
-        } else {
-          vendorMap['Other'].push(t)
-        }
+      for (const task of filtered) {
+        const vendor = extractVendor(task)
+        if (vendor) (vendorMap[vendor] ||= []).push(task)
+        else vendorMap.Other.push(task)
       }
-      const vendors = Object.keys(vendorMap)
-        .filter(k => k !== 'Other')
-        .sort()
+      const vendors = Object.keys(vendorMap).filter(k => k !== 'Other').sort()
 
       return (
         <div className="space-y-6">
-          {vendors.map(v => (
-            <GroupSection
-              key={v}
-              label={v}
-              icon={<Store size={14} className="text-accent" />}
-              tasks={vendorMap[v]}
-            />
-          ))}
-          {vendorMap['Other'].length > 0 && (
-            <GroupSection
-              label="Other"
-              icon={<Tag size={14} className="text-text2" />}
-              tasks={vendorMap['Other']}
-            />
-          )}
+          {vendors.map(vendor => <GroupSection key={vendor} label={vendor} icon={<Store size={14} className="text-accent" />} tasks={vendorMap[vendor]} />)}
+          {vendorMap.Other.length > 0 && <GroupSection label="Other" icon={<Tag size={14} className="text-text2" />} tasks={vendorMap.Other} />}
         </div>
       )
     }
 
     if (groupMode === 'category') {
-      // Group by department (= category); tasks without department go to "Other"
       const deptMap: Record<string, Task[]> = { Other: [] }
-      for (const t of filtered) {
-        const d = t.department
-        if (d) {
-          (deptMap[d] ||= []).push(t)
-        } else {
-          deptMap['Other'].push(t)
-        }
+      for (const task of filtered) {
+        if (task.department) (deptMap[task.department] ||= []).push(task)
+        else deptMap.Other.push(task)
       }
-      const depts = Object.keys(deptMap)
-        .filter(k => k !== 'Other')
-        .sort()
+      const depts = Object.keys(deptMap).filter(k => k !== 'Other').sort()
 
       return (
         <div className="space-y-6">
-          {depts.map(d => (
-            <GroupSection
-              key={d}
-              label={d}
-              icon={<Layers size={14} className="text-accent" />}
-              tasks={deptMap[d]}
-            />
-          ))}
-          {deptMap['Other'].length > 0 && (
-            <GroupSection
-              label="Other"
-              icon={<Tag size={14} className="text-text2" />}
-              tasks={deptMap['Other']}
-            />
-          )}
+          {depts.map(dept => <GroupSection key={dept} label={dept} icon={<Layers size={14} className="text-accent" />} tasks={deptMap[dept]} />)}
+          {deptMap.Other.length > 0 && <GroupSection label="Other" icon={<Tag size={14} className="text-text2" />} tasks={deptMap.Other} />}
         </div>
       )
     }
 
-    return null
+    return (
+      <div className="space-y-6">
+        {groupTasksByAssignee(filtered).map(group => (
+          <GroupSection
+            key={group.label}
+            label={group.label}
+            icon={<User size={14} className={group.isUnassigned ? 'text-text2' : 'text-accent'} />}
+            tasks={group.tasks}
+          />
+        ))}
+      </div>
+    )
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
@@ -293,37 +226,33 @@ export default function TasksPage() {
             </select>
           )}
 
-          {/* Group by toggle */}
+          {postponedCount > 0 && (
+            <button onClick={() => setShowPostponed(value => !value)} className="btn-secondary text-xs">
+              {showPostponed ? 'Hide' : 'Show'} postponed ({postponedCount})
+            </button>
+          )}
+
           {view === 'list' && (
             <div className="flex rounded-lg border border-border overflow-hidden text-[12px]">
-              <button
-                onClick={() => setGroupMode('status')}
-                className={`flex items-center gap-1 px-2.5 py-1.5 transition-colors ${groupMode === 'status' ? 'bg-accent/15 text-accent font-medium' : 'text-text2 hover:bg-surface2'}`}
-                title="Group by status"
-              >
-                <LayoutList size={12} /> Status
-              </button>
-              <button
-                onClick={() => setGroupMode('vendor')}
-                className={`flex items-center gap-1 px-2.5 py-1.5 transition-colors ${groupMode === 'vendor' ? 'bg-accent/15 text-accent font-medium' : 'text-text2 hover:bg-surface2'}`}
-                title="Group by vendor"
-              >
-                <Store size={12} /> Vendor
-              </button>
-              <button
-                onClick={() => setGroupMode('category')}
-                className={`flex items-center gap-1 px-2.5 py-1.5 transition-colors ${groupMode === 'category' ? 'bg-accent/15 text-accent font-medium' : 'text-text2 hover:bg-surface2'}`}
-                title="Group by department / category"
-              >
-                <Layers size={12} /> Category
-              </button>
+              {([
+                ['status', <LayoutList size={12} />, 'Status'],
+                ['vendor', <Store size={12} />, 'Vendor'],
+                ['category', <Layers size={12} />, 'Category'],
+                ['assignee', <User size={12} />, 'Assignee'],
+              ] as const).map(([mode, icon, label]) => (
+                <button
+                  key={mode}
+                  onClick={() => setGroupMode(mode)}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 transition-colors ${groupMode === mode ? 'bg-accent/15 text-accent font-medium' : 'text-text2 hover:bg-surface2'}`}
+                  title={`Group by ${label.toLowerCase()}`}
+                >
+                  {icon} {label}
+                </button>
+              ))}
             </div>
           )}
 
-          <button
-            onClick={() => setView(v => v === 'board' ? 'list' : 'board')}
-            className="btn-secondary text-xs flex items-center gap-1"
-          >
+          <button onClick={() => setView(v => v === 'board' ? 'list' : 'board')} className="btn-secondary text-xs flex items-center gap-1">
             {view === 'list' ? <><Columns3 size={13} /> Board</> : <><LayoutList size={13} /> List</>}
           </button>
 
@@ -344,11 +273,18 @@ export default function TasksPage() {
       )}
 
       {modal && <TaskModal open={modal} onClose={() => setModal(false)} />}
-      {editingTask && (
-        <TaskModal
-          open={!!editingTask}
-          task={editingTask}
-          onClose={() => setEditingTask(null)}
+      {editingTask && <TaskModal open={!!editingTask} task={editingTask} onClose={() => setEditingTask(null)} />}
+      {actionModal && (
+        <TaskActionNoteModal
+          open={!!actionModal}
+          title={actionModal.type === 'cancel' ? 'Cancel Task' : 'Postpone Task'}
+          label={actionModal.type === 'cancel' ? 'Cancellation note' : 'Postpone note'}
+          submitLabel={actionModal.type === 'cancel' ? 'Cancel task' : 'Postpone task'}
+          durationDays={actionModal.type === 'postpone' ? postponeDays : undefined}
+          onDurationChange={actionModal.type === 'postpone' ? setPostponeDays : undefined}
+          isPending={updateStatus.isPending || addComment.isPending}
+          onClose={() => setActionModal(null)}
+          onSubmit={handleActionSubmit}
         />
       )}
     </div>
