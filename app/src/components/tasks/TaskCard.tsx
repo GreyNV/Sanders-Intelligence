@@ -1,6 +1,7 @@
 import Badge, { priorityVariant, taskStatusVariant } from '@/components/ui/Badge'
 import { fmtDate, isOverdue } from '@/lib/utils'
 import { CheckCircle, Circle, Clock3, MessageSquare, Pencil, Trash2, XCircle } from 'lucide-react'
+import type { MouseEvent } from 'react'
 import type { Task } from '@/types'
 
 interface TaskCardProps {
@@ -31,12 +32,29 @@ export default function TaskCard({
   const canAdvance = task.status === 'todo' || task.status === 'in_progress'
   const canPostpone = task.status === 'todo' || task.status === 'in_progress'
   const canDelete = profile?.role === 'admin' || task.created_by === profile?.id
+  const stopCardClick = (event: MouseEvent) => event.stopPropagation()
 
   return (
-    <div className={`card mb-2 flex flex-col gap-2 ${task.status === 'postponed' ? 'border-warning/30 bg-warning/5' : ''}`}>
+    <div
+      className={`card mb-2 flex flex-col gap-2 cursor-pointer hover:bg-surface2/50 transition-colors ${task.status === 'postponed' ? 'border-warning/30 bg-warning/5' : ''}`}
+      role="button"
+      tabIndex={0}
+      onClick={() => onEdit(task)}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onEdit(task)
+        }
+      }}
+      title="Open task"
+    >
       <div className="flex items-start gap-2">
         <button
-          onClick={() => canAdvance && onAdvance(task)}
+          onClick={(event) => {
+            stopCardClick(event)
+            if (canAdvance) onAdvance(task)
+          }}
           className="mt-0.5 flex-shrink-0 text-text2 hover:text-success transition-colors disabled:opacity-40"
           disabled={!canAdvance}
           title={canAdvance ? (task.status === 'todo' ? 'Mark in progress' : 'Mark done') : undefined}
@@ -55,7 +73,10 @@ export default function TaskCard({
         </div>
         {commentCount > 0 && (
           <button
-            onClick={() => onEdit(task)}
+            onClick={(event) => {
+              stopCardClick(event)
+              onEdit(task)
+            }}
             className="p-1 text-text2 hover:text-accent transition-colors flex-shrink-0"
             title={`${commentCount} notes`}
           >
@@ -66,7 +87,10 @@ export default function TaskCard({
         )}
         {canPostpone && (
           <button
-            onClick={() => onPostpone(task)}
+            onClick={(event) => {
+              stopCardClick(event)
+              onPostpone(task)
+            }}
             className="p-1 text-text2 hover:text-warning transition-colors flex-shrink-0"
             title="Postpone task"
           >
@@ -75,7 +99,10 @@ export default function TaskCard({
         )}
         {canAdvance && (
           <button
-            onClick={() => onCancel(task)}
+            onClick={(event) => {
+              stopCardClick(event)
+              onCancel(task)
+            }}
             className="p-1 text-text2 hover:text-danger transition-colors flex-shrink-0"
             title="Cancel task"
           >
@@ -83,7 +110,10 @@ export default function TaskCard({
           </button>
         )}
         <button
-          onClick={() => onEdit(task)}
+          onClick={(event) => {
+            stopCardClick(event)
+            onEdit(task)
+          }}
           className="p-1 text-text2 hover:text-accent transition-colors flex-shrink-0"
           title="Edit task"
         >
@@ -91,7 +121,10 @@ export default function TaskCard({
         </button>
         {canDelete && (
           <button
-            onClick={() => onDelete(task.id)}
+            onClick={(event) => {
+              stopCardClick(event)
+              onDelete(task.id)
+            }}
             className="p-1 text-text2 hover:text-danger transition-colors flex-shrink-0"
             title="Delete task"
           >
