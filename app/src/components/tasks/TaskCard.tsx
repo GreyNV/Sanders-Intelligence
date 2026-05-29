@@ -3,6 +3,7 @@ import { fmtDate, isOverdue } from '@/lib/utils'
 import { CheckCircle, Circle, Clock3, MessageSquare, Pencil, Trash2, XCircle } from 'lucide-react'
 import type { MouseEvent } from 'react'
 import type { Task } from '@/types'
+import { extractVendor, formatRuleLabel, getTaskSkuCount } from '@/pages/tasks/TasksPage.helpers'
 
 interface TaskCardProps {
   task: Task
@@ -33,6 +34,10 @@ export default function TaskCard({
   const canPostpone = task.status === 'todo' || task.status === 'in_progress'
   const canDelete = profile?.role === 'admin' || task.created_by === profile?.id
   const stopCardClick = (event: MouseEvent) => event.stopPropagation()
+  const vendor = extractVendor(task)
+  const rule = formatRuleLabel(task.rule_id)
+  const skuCount = getTaskSkuCount(task)
+  const showCompactAutoMetadata = task.source === 'auto' && (vendor || rule || skuCount > 0)
 
   return (
     <div
@@ -67,7 +72,13 @@ export default function TaskCard({
           <div className={`text-[13px] font-medium ${isClosed ? 'line-through text-text2' : 'text-text1'}`}>
             {task.title}
           </div>
-          {task.description && (
+          {showCompactAutoMetadata ? (
+            <div className="flex items-center gap-1.5 flex-wrap mt-1">
+              {vendor && <span className="text-[10px] bg-surface2 text-text2 px-1.5 py-0.5 rounded">{vendor}</span>}
+              {rule && <span className="text-[10px] bg-accent/10 text-accent px-1.5 py-0.5 rounded">{rule}</span>}
+              {skuCount > 0 && <span className="text-[10px] bg-surface2 text-text2 px-1.5 py-0.5 rounded">{skuCount} SKU{skuCount === 1 ? '' : 's'}</span>}
+            </div>
+          ) : task.description && (
             <div className="text-[11px] text-text2 mt-0.5 line-clamp-2">{task.description}</div>
           )}
         </div>

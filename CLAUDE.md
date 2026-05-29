@@ -149,7 +149,15 @@ Full CSV row per product per upload. Key fields: `upload_id`, `product_code`, `s
 **Avg sales/day** = `average_sales / 30` (computed in UI, not stored).
 
 ### `public.tasks`
-`id` · `title` · `description` · `status` (todo/in_progress/done/cancelled) · `priority` (low/medium/high/urgent) · `due_date` · `department` · `assigned_to` (→ users) · `created_by` · `sku_code` · `source` (manual/auto)
+`id` · `title` · `description` · `status` (todo/in_progress/done/cancelled/postponed) · `priority` (low/medium/high/urgent) · `due_date` · `department` · `assigned_to` (→ users) · `created_by` · `sku_code` · `source` (manual/auto) · `postponed_until`
+
+Auto-task metadata: `rule_id`, `vendor_supplier_code`, `vendor_name`, `affected_skus`, `upload_id`, `reopened_from_task_id`.
+
+### `public.automation_config`
+Singleton row `key = 'auto_tasks'`. Controls server-side task generation and stores `system_user_id`, `enabled`, and `default_assignee_user_id`. Admin users update the default assignee through `set_default_auto_assignee(p_user_id)`.
+
+### `public.task_comments` / `public.task_activity_events`
+Task modal timeline sources. Comments store user notes/cancel/postpone notes; activity events store created/status-change audit rows.
 
 ### `public.dismissed_actions`
 `id` · `product_code` · `action_type` (at_risk/backorder) · `dismissed_by` (→ users) · `dismissed_until` (date, null = permanent) · `reason` · `created_at`
@@ -190,7 +198,7 @@ src/
 │   │   ├── ExecutiveSummary.tsx  $ health bar; pie + bar charts (clickable drill-through)
 │   │   └── DepartmentOverview.tsx
 │   ├── tasks/
-│   │   └── TasksPage.tsx       Kanban; edit button per task
+│   │   └── TasksPage.tsx       Board/List/Table views; row/card click opens task modal
 │   └── admin/
 │       ├── UsersPage.tsx       Invite, deactivate, reset PW
 │       └── UploadsPage.tsx     Upload CSV; download CSV per upload row

@@ -18,6 +18,12 @@ function makeTask(overrides: Partial<Task>): Task {
     postponed_until: null,
     sku_code: null,
     source: 'manual',
+    rule_id: null,
+    vendor_supplier_code: null,
+    vendor_name: null,
+    affected_skus: null,
+    upload_id: null,
+    reopened_from_task_id: null,
     assignee: null,
     creator: null,
     ...overrides,
@@ -58,5 +64,19 @@ describe('DailyView helpers', () => {
     ], 'me', today)
 
     expect(counters).toEqual({ createdToday: 3, completedToday: 1, dueToday: 1 })
+  })
+
+  it('separates came-back tasks and excludes them from created-today count', () => {
+    const tasks = [
+      makeTask({ id: 'reopened', created_at: '2026-05-28T08:00:00.000Z', due_date: '2026-05-28', reopened_from_task_id: 'old-task' }),
+      makeTask({ id: 'created', created_at: '2026-05-28T09:00:00.000Z', due_date: '2026-05-28' }),
+    ]
+
+    const partition = partitionDailyTasks(tasks, 'me', today)
+    const counters = computeDailyCounters(tasks, 'me', today)
+
+    expect(partition.cameBackTasks.map(task => task.id)).toEqual(['reopened'])
+    expect(partition.todayTasks.map(task => task.id)).toEqual(['created'])
+    expect(counters.createdToday).toBe(1)
   })
 })

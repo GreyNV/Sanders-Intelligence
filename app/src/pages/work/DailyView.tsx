@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle, ChevronDown, ChevronRight, Clock, Plus, Sparkles } from 'lucide-react'
+import { CheckCircle, ChevronDown, ChevronRight, Clock, Plus, RotateCcw, Sparkles } from 'lucide-react'
 import KPICard from '@/components/ui/KPICard'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import TaskCard from '@/components/tasks/TaskCard'
@@ -30,8 +30,8 @@ export default function DailyView() {
 
   const taskIds = useMemo(() => tasks.map(task => task.id), [tasks])
   const { data: commentCounts = new Map<string, number>() } = useTaskCommentCounts(taskIds)
-  const { todayTasks, completedYesterday } = useMemo(
-    () => profile ? partitionDailyTasks(tasks, profile.id) : { todayTasks: [], completedYesterday: [] },
+  const { todayTasks, cameBackTasks, completedYesterday } = useMemo(
+    () => profile ? partitionDailyTasks(tasks, profile.id) : { todayTasks: [], cameBackTasks: [], completedYesterday: [] },
     [tasks, profile]
   )
   const counters = useMemo(
@@ -118,6 +118,18 @@ export default function DailyView() {
           <div>{todayTasks.map(renderTask)}</div>
         )}
       </section>
+
+      {cameBackTasks.length > 0 && (
+        <section className="mb-7">
+          <div className="flex items-center gap-2 mb-3">
+            <RotateCcw size={15} className="text-warning" />
+            <h2 className="text-sm font-semibold text-text1">Came Back</h2>
+            <span className="text-xs text-text2 bg-surface2 px-2 py-0.5 rounded-full">{cameBackTasks.length}</span>
+          </div>
+          <div className="text-xs text-text2 mb-3">These issues were closed or cancelled recently, then reappeared in the latest data.</div>
+          <div>{cameBackTasks.map(renderTask)}</div>
+        </section>
+      )}
 
       <section>
         <button

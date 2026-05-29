@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { useUsers, useInviteUser, useUpdateUser } from '@/hooks/useUsers'
+import { useUsers, useInviteUser, useUpdateUser, useAutomationConfig, useSetDefaultAutoAssignee } from '@/hooks/useUsers'
 import Modal from '@/components/ui/Modal'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import { AppUser, UserRole } from '@/types'
-import { UserPlus, CheckCircle, XCircle, Edit2, KeyRound } from 'lucide-react'
+import { UserPlus, CheckCircle, XCircle, Edit2, KeyRound, Bot, Star } from 'lucide-react'
 import { fmtDate } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 
@@ -13,8 +13,10 @@ const DEPARTMENTS          = ['purchasing', 'warehouse', 'marketing', 'operation
 
 export default function UsersPage() {
   const { data: users = [], isLoading, error } = useUsers()
+  const { data: automationConfig } = useAutomationConfig()
   const inviteUser  = useInviteUser()
   const updateUser  = useUpdateUser()
+  const setDefaultAssignee = useSetDefaultAutoAssignee()
 
   const [inviteModal, setInviteModal] = useState(false)
   const [editUser, setEditUser]       = useState<AppUser | null>(null)
@@ -59,6 +61,12 @@ export default function UsersPage() {
     await updateUser.mutateAsync({ id: user.id, is_active: !user.is_active })
   }
 
+  async function handleSetDefaultAssignee(user: AppUser) {
+    await setDefaultAssignee.mutateAsync(
+      automationConfig?.default_assignee_user_id === user.id ? null : user.id
+    )
+  }
+
   if (isLoading) return <PageLoader />
   if (error) return (
     <div className="card text-center py-16">
@@ -80,6 +88,21 @@ export default function UsersPage() {
         </button>
       </div>
 
+      <div className="card mb-5 flex items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-text1">
+            <Bot size={15} className="text-accent" />
+            Default Auto-Task Assignee
+          </div>
+          <p className="text-xs text-text2 mt-1">
+            {automationConfig?.default_assignee_user_id
+              ? users.find(user => user.id === automationConfig.default_assignee_user_id)?.name ?? 'Configured user'
+              : 'No default assignee configured'}
+          </p>
+        </div>
+        <span className="text-[11px] text-text2">Use the star in the users table to change this.</span>
+      </div>
+
       <div className="tbl-wrap">
         <table className="tbl">
           <thead>
@@ -89,6 +112,7 @@ export default function UsersPage() {
               <th>Role</th>
               <th>Department</th>
               <th>Status</th>
+              <th>Auto Tasks</th>
               <th>Joined</th>
               <th></th>
             </tr>
@@ -109,6 +133,17 @@ export default function UsersPage() {
                     ? <span className="flex items-center gap-1 text-success text-xs"><CheckCircle size={12} /> Active</span>
                     : <span className="flex items-center gap-1 text-text2 text-xs"><XCircle size={12} /> Inactive</span>
                   }
+                </td>
+                <td>
+                  <button
+                    onClick={() => handleSetDefaultAssignee(user)}
+                    disabled={!user.is_active || setDefaultAssignee.isPending}
+                    className={`btn-ghost text-xs py-1 px-2 ${automationConfig?.default_assignee_user_id === user.id ? 'text-accent' : ''}`}
+                    title={automationConfig?.default_assignee_user_id === user.id ? 'Clear default auto-assignee' : 'Set as default auto-assignee'}
+                  >
+                    <Star size={12} className={automationConfig?.default_assignee_user_id === user.id ? 'fill-current' : ''} />
+                    {automationConfig?.default_assignee_user_id === user.id ? 'Default' : 'Set default'}
+                  </button>
                 </td>
                 <td className="text-text2 text-xs">{fmtDate(user.created_at)}</td>
                 <td>

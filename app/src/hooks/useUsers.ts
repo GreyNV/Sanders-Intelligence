@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
-import { AppUser, UserRole } from '@/types'
+import { AppUser, AutomationConfig, UserRole } from '@/types'
 
 export function useUsers() {
   return useQuery({
@@ -53,5 +53,30 @@ export function useUpdateUser() {
       if (error) throw error
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  })
+}
+
+export function useAutomationConfig() {
+  return useQuery({
+    queryKey: ['automation_config'],
+    queryFn: async (): Promise<AutomationConfig | null> => {
+      const { data, error } = await supabase.rpc('get_automation_config')
+      if (error) throw error
+      return (data?.[0] ?? null) as AutomationConfig | null
+    },
+  })
+}
+
+export function useSetDefaultAutoAssignee() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (userId: string | null) => {
+      const { error } = await supabase.rpc('set_default_auto_assignee', { p_user_id: userId })
+      if (error) throw error
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['automation_config'] })
+      qc.invalidateQueries({ queryKey: ['tasks'] })
+    },
   })
 }

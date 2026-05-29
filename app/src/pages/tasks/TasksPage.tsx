@@ -1,14 +1,22 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTasks, useUpdateTaskStatus, useDeleteTask } from '@/hooks/useTasks'
 import { useAddTaskComment, useTaskCommentCounts } from '@/hooks/useTaskComments'
 import { useAuth } from '@/contexts/AuthContext'
 import TaskModal from '@/components/tasks/TaskModal'
 import TaskCard from '@/components/tasks/TaskCard'
 import TaskActionNoteModal from '@/components/tasks/TaskActionNoteModal'
+import ColumnPicker from '@/components/tasks/ColumnPicker'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
-import { Plus, CheckCircle, Circle, Clock, AlertCircle, LayoutList, Columns3, Tag, Store, Layers, User } from 'lucide-react'
+import { Plus, CheckCircle, Circle, Clock, AlertCircle, LayoutList, Columns3, Tag, Store, Layers, User, Table2 } from 'lucide-react'
 import type { Task, TaskStatus } from '@/types'
 import { calculatePostponedUntil, extractVendor, groupTasksByAssignee } from './TasksPage.helpers'
+import TasksTable from './TasksTable'
+import {
+  TASK_TABLE_COLUMNS_STORAGE_KEY,
+  readTaskTableColumnIds,
+  type TaskTableColumnId,
+  type TaskTableSort,
+} from './TasksTable.helpers'
 
 const STATUS_COLS: { key: TaskStatus; label: string; icon: React.ReactNode }[] = [
   { key: 'todo',        label: 'To Do',       icon: <Circle      size={14} className="text-text2" /> },
@@ -42,11 +50,17 @@ export default function TasksPage() {
   const [postponeDays, setPostponeDays] = useState(7)
   const [deptFilter, setDeptFilter] = useState('all')
   const [groupMode, setGroupMode] = useState<GroupMode>('status')
-  const [view, setView] = useState<'board' | 'list'>('list')
+  const [view, setView] = useState<'board' | 'list' | 'table'>('list')
   const [showPostponed, setShowPostponed] = useState(false)
+  const [tableColumns, setTableColumns] = useState<TaskTableColumnId[]>(() => readTaskTableColumnIds())
+  const [tableSort, setTableSort] = useState<TaskTableSort>(null)
 
   const taskIds = useMemo(() => tasks.map(task => task.id), [tasks])
   const { data: commentCounts = new Map<string, number>() } = useTaskCommentCounts(taskIds)
+
+  useEffect(() => {
+    localStorage.setItem(TASK_TABLE_COLUMNS_STORAGE_KEY, JSON.stringify(tableColumns))
+  }, [tableColumns])
 
   if (isLoading) return <PageLoader />
 
@@ -252,9 +266,25 @@ export default function TasksPage() {
             </div>
           )}
 
-          <button onClick={() => setView(v => v === 'board' ? 'list' : 'board')} className="btn-secondary text-xs flex items-center gap-1">
-            {view === 'list' ? <><Columns3 size={13} /> Board</> : <><LayoutList size={13} /> List</>}
-          </button>
+          {view === 'table' && (
+            <ColumnPicker visibleColumns={tableColumns} onChange={setTableColumns} />
+          )}
+
+          <div className="flex rounded-lg border border-border overflow-hidden text-[12px]">
+            {([
+              ['list', <LayoutList size={12} />, 'List'],
+              ['board', <Columns3 size={12} />, 'Board'],
+              ['table', <Table2 size={12} />, 'Table'],
+            ] as const).map(([mode, icon, label]) => (
+              <button
+                key={mode}
+                onClick={() => setView(mode)}
+                className={`flex items-center gap-1 px-2.5 py-1.5 transition-colors ${view === mode ? 'bg-accent/15 text-accent font-medium' : 'text-text2 hover:bg-surface2'}`}
+              >
+                {icon} {label}
+              </button>
+            ))}
+          </div>
 
           {(profile?.role === 'admin' || profile?.role === 'purchasing') && (
             <button onClick={() => setModal(true)} className="btn-primary text-xs">
@@ -268,6 +298,15 @@ export default function TasksPage() {
         <div className="card text-center py-12 text-text2 text-sm">No tasks</div>
       ) : view === 'board' ? (
         <BoardView />
+      ) : view === 'table' ? (
+        <TasksTable
+          tasks={filtered}
+          commentCounts={commentCounts}
+          visibleColumns={tableColumns}
+          sort={tableSort}
+          onSortChange={setTableSort}
+          onEdit={setEditingTask}
+        />
       ) : (
         <ListView />
       )}

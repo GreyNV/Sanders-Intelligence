@@ -20,6 +20,7 @@ import {
   type SkuSelectorSortField,
   type SkuSelectorSortState,
 } from './TaskModal.helpers'
+import { formatRuleLabel } from '@/pages/tasks/TasksPage.helpers'
 
 interface TaskModalProps {
   open: boolean
@@ -296,6 +297,7 @@ export default function TaskModal({
   // Does the task being edited have a vendor prefix?
   const editHasVendor = isEdit && !!parseVendorLine(task?.description)
   const timeline = useMemo(() => buildTaskTimeline(comments, activityEvents), [comments, activityEvents])
+  const structuredSkuCount = task?.affected_skus?.length ?? 0
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -466,6 +468,43 @@ export default function TaskModal({
             required
           />
         </div>
+
+        {isEdit && task?.source === 'auto' && (task.rule_id || task.vendor_name || structuredSkuCount > 0 || task.upload_id) && (
+          <div className="rounded-lg border border-border bg-surface2 p-3">
+            <div className="text-xs font-semibold text-text1 mb-2">Auto-task metadata</div>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              {task.vendor_name && (
+                <div>
+                  <div className="text-text2">Vendor</div>
+                  <div className="text-text1">{task.vendor_name}</div>
+                </div>
+              )}
+              {task.rule_id && (
+                <div>
+                  <div className="text-text2">Rule</div>
+                  <div className="text-text1">{formatRuleLabel(task.rule_id)}</div>
+                </div>
+              )}
+              {structuredSkuCount > 0 && (
+                <div className="col-span-2">
+                  <div className="text-text2">Affected SKUs</div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {task.affected_skus!.slice(0, 30).map(sku => (
+                      <span key={sku} className="font-mono text-[10px] bg-surface text-accent px-1.5 py-0.5 rounded">{sku}</span>
+                    ))}
+                    {structuredSkuCount > 30 && <span className="text-[10px] text-text2">+{structuredSkuCount - 30} more</span>}
+                  </div>
+                </div>
+              )}
+              {task.upload_id && (
+                <div className="col-span-2">
+                  <div className="text-text2">Upload ID</div>
+                  <div className="font-mono text-[10px] text-text1 break-all">{task.upload_id}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Description */}
         <div>

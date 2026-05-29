@@ -7,10 +7,26 @@ export const PRIORITY_RANK: Record<TaskPriority, number> = {
   low: 3,
 }
 
-export function extractVendor(task: Pick<Task, 'description'>): string | null {
+export function extractVendor(task: Pick<Task, 'description' | 'vendor_name'>): string | null {
+  if (task.vendor_name?.trim()) return task.vendor_name.trim()
   if (!task.description) return null
   const match = task.description.match(/^Vendor:\s*(.+)/m)
   return match ? match[1].trim() : null
+}
+
+export function formatRuleLabel(ruleId: string | null): string | null {
+  if (!ruleId) return null
+  const labels: Record<string, string> = {
+    price_review_cogs_rise: 'COGS rise',
+    entered_at_risk: 'New at risk',
+    entered_excess: 'New excess',
+    vendor_at_risk_value_share: 'Risk share',
+  }
+  return labels[ruleId] ?? ruleId.replace(/_/g, ' ')
+}
+
+export function getTaskSkuCount(task: Pick<Task, 'affected_skus' | 'sku_code'>): number {
+  return task.affected_skus?.length ?? (task.sku_code ? 1 : 0)
 }
 
 export function groupTasksByAssignee(tasks: Task[]): Array<{ label: string; tasks: Task[]; isUnassigned: boolean }> {
