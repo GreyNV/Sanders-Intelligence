@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import {
   LayoutDashboard, Package, Truck, BarChart3,
   CheckSquare, Users, Upload, Building2, LogOut, Store,
-  PanelLeftClose, PanelLeftOpen,
+  PanelLeftClose, PanelLeftOpen, CalendarDays,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -28,6 +28,7 @@ const NAV: NavItem[] = [
   { to: '/executive/departments',  label: 'Departments',       icon: <Building2 size={16} />, roles: ['admin', 'csuite'], group: 'C-Suite' },
 
   // Shared
+  { to: '/daily', label: 'My Day', icon: <CalendarDays size={16} />, roles: ['admin', 'purchasing', 'csuite'], group: 'Work' },
   { to: '/tasks', label: 'Tasks', icon: <CheckSquare size={16} />, roles: ['admin', 'purchasing', 'csuite'], group: 'Work' },
 
   // Admin

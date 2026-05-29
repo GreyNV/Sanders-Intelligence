@@ -73,9 +73,11 @@ export interface InventoryRecord {
 
 // ─── Tasks ───────────────────────────────────────────────────────────────────
 
-export type TaskStatus   = 'todo' | 'in_progress' | 'done' | 'cancelled'
+export type TaskStatus   = 'todo' | 'in_progress' | 'done' | 'cancelled' | 'postponed'
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
 export type TaskSource   = 'manual' | 'auto'
+export type TaskCommentKind = 'comment' | 'cancel' | 'postpone'
+export type TaskActivityKind = 'created' | 'status_changed'
 
 export interface Task {
   id: string
@@ -89,10 +91,32 @@ export interface Task {
   created_by: string
   created_at: string
   updated_at: string
+  postponed_until: string | null
   sku_code: string | null
   source: TaskSource
   assignee?: { name: string; email: string } | null
   creator?: { name: string; email: string } | null
+}
+
+export interface TaskComment {
+  id: string
+  task_id: string
+  author_id: string
+  body: string
+  kind: TaskCommentKind
+  created_at: string
+  author?: { name: string; email: string } | null
+}
+
+export interface TaskActivityEvent {
+  id: string
+  task_id: string
+  actor_id: string | null
+  kind: TaskActivityKind
+  from_status: TaskStatus | null
+  to_status: TaskStatus | null
+  created_at: string
+  actor?: { name: string; email: string } | null
 }
 
 export interface TaskFormValues {

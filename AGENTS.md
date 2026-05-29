@@ -74,6 +74,12 @@ All 6 raw CSV values — must match exactly (case-sensitive):
 - **At Risk** = `Potential s/o` OR `Stocked out`
 - **Excess** = `Excess stock` OR `Surplus orders`
 
+## Inventory Aggregate Definitions
+
+- UI **Excess Value** = sum of `on_hand_value` for rows whose status is `Excess stock` or `Surplus orders`.
+- Use `sumExcessValue()` in `app/src/lib/financialMetrics.ts` for Executive Summary and KPI aggregates.
+- The CSV `excess_value` column remains available for source-detail views, but it is not the canonical Executive Summary "Excess Value" aggregate.
+
 Badge variants are defined in `Badge.tsx`: `ok`, `excess`, `stockout`, `surplus`, `new_item`.
 
 ---

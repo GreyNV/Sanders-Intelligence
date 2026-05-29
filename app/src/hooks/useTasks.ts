@@ -4,6 +4,8 @@ import { useAuth } from '@/contexts/AuthContext'
 import { Task, TaskFormValues, TaskStatus } from '@/types'
 
 async function fetchTasks(role: string, department: string | null): Promise<Task[]> {
+  await supabase.rpc('reactivate_expired_postponed_tasks')
+
   let query = supabase
     .from('tasks')
     .select(`
@@ -62,10 +64,10 @@ export function useCreateTask() {
 export function useUpdateTaskStatus() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: TaskStatus }) => {
+    mutationFn: async ({ id, status, postponed_until = null }: { id: string; status: TaskStatus; postponed_until?: string | null }) => {
       const { error } = await supabase
         .from('tasks')
-        .update({ status, updated_at: new Date().toISOString() })
+        .update({ status, postponed_until, updated_at: new Date().toISOString() })
         .eq('id', id)
       if (error) throw error
     },
