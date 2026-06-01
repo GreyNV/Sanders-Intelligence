@@ -157,7 +157,23 @@ Deno.serve(async (req) => {
     }
 
     // ── Mark upload complete ──────────────────────────────────────────────────
-    await admin.from('uploads').update({ status: 'complete', row_count: inserted }).eq('id', uploadId)
+    const { error: completeErr } = await admin
+      .from('uploads')
+      .update({ status: 'complete', row_count: inserted, notes: null })
+      .eq('id', uploadId)
+
+    if (completeErr) {
+      await admin
+        .from('uploads')
+        .update({
+          status: 'failed',
+          row_count: inserted,
+          notes: `Failed to mark upload complete: ${completeErr.message}`,
+        })
+        .eq('id', uploadId)
+
+      return json({ error: 'Failed to mark upload complete: ' + completeErr.message }, 500)
+    }
 
     return json({ success: true, uploadId, rowCount: inserted }, 200)
 
