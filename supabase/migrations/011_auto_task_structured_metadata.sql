@@ -1,5 +1,5 @@
--- Migration 010: Structured metadata for auto-created tasks.
--- Run after 009_auto_task_default_assignee_admin.sql.
+-- Migration 011: Structured metadata for auto-created tasks.
+-- Run after 010_auto_task_default_assignee_admin.sql.
 
 alter table public.tasks
   add column if not exists rule_id text,

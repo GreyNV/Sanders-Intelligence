@@ -1,5 +1,5 @@
--- Migration 009: Harden auto-task default assignee config and admin controls.
--- Run after 008_task_activity_events.sql.
+-- Migration 010: Harden auto-task default assignee config and admin controls.
+-- Run after 009_harden_upload_completion_trigger.sql.
 
 alter table public.automation_config
   add column if not exists default_assignee_user_id uuid references public.users(id);

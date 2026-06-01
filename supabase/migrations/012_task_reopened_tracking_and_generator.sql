@@ -1,5 +1,5 @@
--- Migration 011: Track auto-tasks that came back after closure and write structured metadata.
--- Run after 010_auto_task_structured_metadata.sql.
+-- Migration 012: Track auto-tasks that came back after closure and write structured metadata.
+-- Run after 011_auto_task_structured_metadata.sql.
 
 alter table public.tasks
   add column if not exists reopened_from_task_id uuid references public.tasks(id);
