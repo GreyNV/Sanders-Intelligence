@@ -48,6 +48,9 @@ create index if not exists auto_task_events_rule_vendor_created_idx
 
 alter table public.auto_task_events enable row level security;
 
+drop policy if exists "Authenticated users can read auto task events"
+  on public.auto_task_events;
+
 create policy "Authenticated users can read auto task events"
   on public.auto_task_events for select
   to authenticated using (true);
@@ -484,13 +487,17 @@ security definer
 set search_path = public
 as $$
 begin
-  if tg_op = 'INSERT' then
-    if new.status = 'complete' then
+  begin
+    if tg_op = 'INSERT' then
+      if new.status = 'complete' then
+        perform public.generate_auto_tasks_for_upload(new.id);
+      end if;
+    elsif new.status = 'complete' and old.status is distinct from 'complete' then
       perform public.generate_auto_tasks_for_upload(new.id);
     end if;
-  elsif new.status = 'complete' and old.status is distinct from 'complete' then
-    perform public.generate_auto_tasks_for_upload(new.id);
-  end if;
+  exception when others then
+    raise warning 'Auto-task generation failed for upload %: %', new.id, sqlerrm;
+  end;
 
   return new;
 end;
