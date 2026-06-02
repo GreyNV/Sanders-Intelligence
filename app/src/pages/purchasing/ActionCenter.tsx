@@ -1,4 +1,4 @@
-import { useState, useMemo, Fragment, useEffect, useRef } from 'react'
+import { useState, useMemo, Fragment, useEffect, useRef, useDeferredValue } from 'react'
 import { useInventoryAnalysis } from '@/hooks/useInventory'
 import { useDismissedSet, useDismissAction, useRestoreAction } from '@/hooks/useDismissedActions'
 import { useTasks } from '@/hooks/useTasks'
@@ -56,6 +56,13 @@ export default function ActionCenter() {
   const backorders = inventory.backorderItems
   const excess = inventory.excessItems
   const kpis = inventory.kpis
+  const deferredAtRisk = useDeferredValue(atRisk)
+  const deferredBackorders = useDeferredValue(backorders)
+  const deferredExcess = useDeferredValue(excess)
+  const inventoryRowsSettling =
+    deferredAtRisk !== atRisk ||
+    deferredBackorders !== backorders ||
+    deferredExcess !== excess
   const { data: tasks = [] }                      = useTasks()
   const dismissedAtRisk    = useDismissedSet('at_risk')
   const dismissedBackorder = useDismissedSet('backorder')
@@ -117,19 +124,19 @@ export default function ActionCenter() {
   }, [inventory.records])
 
   // Distinct vendor/category lists
-  const arVendors    = useMemo(() => [...new Set(atRisk.map(r => r.supplier_description))].filter(Boolean).sort(), [atRisk])
-  const arCategories = useMemo(() => [...new Set(atRisk.map(r => r.category_name))].filter(Boolean).sort(), [atRisk])
-  const boVendors    = useMemo(() => [...new Set(backorders.map(r => r.supplier_description))].filter(Boolean).sort(), [backorders])
-  const boCategories = useMemo(() => [...new Set(backorders.map(r => r.category_name))].filter(Boolean).sort(), [backorders])
-  const osOpenVendors = useMemo(() => [...new Set(excess.filter(r => r.on_order > 0).map(r => r.supplier_description))].filter(Boolean).sort(), [excess])
-  const osOpenCategories = useMemo(() => [...new Set(excess.filter(r => r.on_order > 0).map(r => r.category_name))].filter(Boolean).sort(), [excess])
-  const osNoVendors = useMemo(() => [...new Set(excess.filter(r => r.on_order === 0).map(r => r.supplier_description))].filter(Boolean).sort(), [excess])
-  const osNoCategories = useMemo(() => [...new Set(excess.filter(r => r.on_order === 0).map(r => r.category_name))].filter(Boolean).sort(), [excess])
+  const arVendors    = useMemo(() => [...new Set(deferredAtRisk.map(r => r.supplier_description))].filter(Boolean).sort(), [deferredAtRisk])
+  const arCategories = useMemo(() => [...new Set(deferredAtRisk.map(r => r.category_name))].filter(Boolean).sort(), [deferredAtRisk])
+  const boVendors    = useMemo(() => [...new Set(deferredBackorders.map(r => r.supplier_description))].filter(Boolean).sort(), [deferredBackorders])
+  const boCategories = useMemo(() => [...new Set(deferredBackorders.map(r => r.category_name))].filter(Boolean).sort(), [deferredBackorders])
+  const osOpenVendors = useMemo(() => [...new Set(deferredExcess.filter(r => r.on_order > 0).map(r => r.supplier_description))].filter(Boolean).sort(), [deferredExcess])
+  const osOpenCategories = useMemo(() => [...new Set(deferredExcess.filter(r => r.on_order > 0).map(r => r.category_name))].filter(Boolean).sort(), [deferredExcess])
+  const osNoVendors = useMemo(() => [...new Set(deferredExcess.filter(r => r.on_order === 0).map(r => r.supplier_description))].filter(Boolean).sort(), [deferredExcess])
+  const osNoCategories = useMemo(() => [...new Set(deferredExcess.filter(r => r.on_order === 0).map(r => r.category_name))].filter(Boolean).sort(), [deferredExcess])
 
   // Base sets (dismissed filter applied)
-  const baseAtRisk     = arShowDismissed ? atRisk    : atRisk.filter(r => !dismissedAtRisk.has(r.product_code))
-  const baseBackorders = backorders.filter(r => !dismissedBackorder.has(r.product_code))
-  const baseOverstock  = osShowDismissed ? excess    : excess.filter(r => !dismissedOverstock.has(r.product_code))
+  const baseAtRisk     = arShowDismissed ? deferredAtRisk    : deferredAtRisk.filter(r => !dismissedAtRisk.has(r.product_code))
+  const baseBackorders = deferredBackorders.filter(r => !dismissedBackorder.has(r.product_code))
+  const baseOverstock  = osShowDismissed ? deferredExcess    : deferredExcess.filter(r => !dismissedOverstock.has(r.product_code))
 
   // Apply vendor/category filters + sort
   const visibleAtRisk = useMemo(() => {
@@ -254,6 +261,10 @@ export default function ActionCenter() {
         <KPICard label="Active Backorders"       value={fmtNumber(kpis.backorderCount)}        sub={`${fmtCurrency(kpis.totalBackorderValue)} in value`} variant="danger" icon={<Clock size={16} />} />
         <KPICard label="Open Tasks"              value={openTasks.length}                      sub="purchasing department"             variant="info"    icon={<CheckSquare size={16} />} />
       </div>
+
+      {inventoryRowsSettling && (
+        <div className="card mb-4 text-sm text-text2">Loading inventory rows...</div>
+      )}
 
       {/* ── Attention Required ── */}
       <div className="mb-6">

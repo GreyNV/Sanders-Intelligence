@@ -108,4 +108,19 @@ describe('Action Center helpers', () => {
     expect(result.withOrders.map(r => r.product_code)).toEqual(['OPEN-A'])
     expect(result.noOrders.map(r => r.product_code)).toEqual(['NONE-A', 'NONE-B'])
   })
+
+  it('groups a production-sized fixture quickly enough for first render', () => {
+    const rows = Array.from({ length: 12000 }, (_, index) => makeRecord({
+      id: `row-${index}`,
+      product_code: `SKU-${index}`,
+      supplier_description: `Vendor ${index % 100}`,
+      category_name: `Category ${index % 20}`,
+    }))
+    const started = performance.now()
+
+    const grouped = groupRecordsByVendorCategory(rows)
+
+    expect(grouped).toHaveLength(100)
+    expect(performance.now() - started).toBeLessThan(250)
+  })
 })

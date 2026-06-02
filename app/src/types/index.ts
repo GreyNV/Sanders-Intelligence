@@ -94,8 +94,22 @@ export interface Task {
   postponed_until: string | null
   sku_code: string | null
   source: TaskSource
+  rule_id: string | null
+  vendor_supplier_code: string | null
+  vendor_name: string | null
+  affected_skus: string[] | null
+  upload_id: string | null
+  reopened_from_task_id: string | null
   assignee?: { name: string; email: string } | null
   creator?: { name: string; email: string } | null
+}
+
+export interface AutomationConfig {
+  key: string
+  enabled: boolean
+  system_user_id: string | null
+  default_assignee_user_id: string | null
+  updated_at: string
 }
 
 export interface TaskComment {

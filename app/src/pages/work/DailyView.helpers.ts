@@ -20,17 +20,26 @@ export function partitionDailyTasks(tasks: Task[], userId: string, today = new D
   const assigned = tasks.filter(task => task.assigned_to === userId)
 
   const todayTasks = sortTasksForDailyView(assigned.filter(task => {
+    if (task.reopened_from_task_id) return false
     if (task.status === 'done' || task.status === 'cancelled' || task.status === 'postponed') return false
     if (task.status === 'in_progress') return true
     if (!task.due_date) return false
     return task.due_date <= todayKey
   }))
 
+  const cameBackTasks = sortTasksForDailyView(assigned.filter(task =>
+    !!task.reopened_from_task_id &&
+    dateKey(task.created_at) === todayKey &&
+    task.status !== 'done' &&
+    task.status !== 'cancelled' &&
+    task.status !== 'postponed'
+  ))
+
   const completedYesterday = assigned
     .filter(task => task.status === 'done' && dateKey(task.updated_at) === yesterdayKey)
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
 
-  return { todayTasks, completedYesterday }
+  return { todayTasks, cameBackTasks, completedYesterday }
 }
 
 export function computeDailyCounters(tasks: Task[], userId: string, today = new Date()) {
@@ -38,7 +47,7 @@ export function computeDailyCounters(tasks: Task[], userId: string, today = new 
   const assigned = tasks.filter(task => task.assigned_to === userId)
 
   return {
-    createdToday: assigned.filter(task => dateKey(task.created_at) === todayKey).length,
+    createdToday: assigned.filter(task => dateKey(task.created_at) === todayKey && !task.reopened_from_task_id).length,
     completedToday: assigned.filter(task => task.status === 'done' && dateKey(task.updated_at) === todayKey).length,
     dueToday: assigned.filter(task =>
       task.due_date === todayKey &&
