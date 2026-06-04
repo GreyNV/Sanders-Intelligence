@@ -62,7 +62,7 @@ export function calculatePostponedUntil(days: number, from = new Date()): string
   return `${date.getFullYear()}-${month}-${day}`
 }
 
-export function sortTasksForDailyView(tasks: Task[]): Task[] {
+export function sortTasksForTodayView(tasks: Task[]): Task[] {
   return [...tasks].sort((a, b) => {
     const priority = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
     if (priority !== 0) return priority

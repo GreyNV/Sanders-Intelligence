@@ -50,6 +50,8 @@ Role guard: `<RoleGuard allow={['admin', 'purchasing']}>` in `App.tsx`.
 /executive/departments          DepartmentOverview.tsx [admin, csuite]
 
 /tasks                          TasksPage.tsx         [all roles]
+/today                          TodayView.tsx         [all roles]
+/daily                          → /today
 
 /admin/users                    UsersPage.tsx         [admin]
 /admin/uploads                  UploadsPage.tsx       [admin, purchasing]
@@ -158,6 +160,12 @@ Singleton row `key = 'auto_tasks'`. Controls server-side task generation and sto
 
 ### `public.task_comments` / `public.task_activity_events`
 Task modal timeline sources. Comments store user notes/cancel/postpone notes; activity events store created/status-change audit rows.
+Cancellation and postponement require a non-empty note. Completion notes remain optional.
+
+### Today task workflow
+- `/today` is the canonical shared daily workspace; `/daily` redirects to it.
+- Team-created/completed counters use all tasks visible through the current role's `useTasks()` scope.
+- Other users' due-today tasks are inspect-only. Unassigned due-today tasks can be claimed atomically.
 
 ### `public.dismissed_actions`
 `id` · `product_code` · `action_type` (at_risk/backorder) · `dismissed_by` (→ users) · `dismissed_until` (date, null = permanent) · `reason` · `created_at`

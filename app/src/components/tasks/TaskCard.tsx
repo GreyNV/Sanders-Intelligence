@@ -1,38 +1,35 @@
 import Badge, { priorityVariant, taskStatusVariant } from '@/components/ui/Badge'
 import { fmtDate, isOverdue } from '@/lib/utils'
-import { CheckCircle, Circle, Clock3, MessageSquare, Pencil, Trash2, XCircle } from 'lucide-react'
+import { CheckCircle, Circle, Clock3, MessageSquare, Pencil, XCircle } from 'lucide-react'
 import type { MouseEvent } from 'react'
 import type { Task } from '@/types'
 import { extractVendor, formatRuleLabel, getTaskSkuCount } from '@/pages/tasks/TasksPage.helpers'
 
 interface TaskCardProps {
   task: Task
-  profile: { id: string; role: string; department: string | null } | null
   showDept: boolean
   commentCount?: number
+  readOnly?: boolean
   onAdvance: (task: Task) => void
   onCancel: (task: Task) => void
   onPostpone: (task: Task) => void
   onEdit: (task: Task) => void
-  onDelete: (id: string) => void
 }
 
 export default function TaskCard({
   task,
-  profile,
   showDept,
   commentCount = 0,
+  readOnly = false,
   onAdvance,
   onCancel,
   onPostpone,
   onEdit,
-  onDelete,
 }: TaskCardProps) {
   const overdue = isOverdue(task.due_date)
   const isClosed = task.status === 'done' || task.status === 'cancelled'
-  const canAdvance = task.status === 'todo' || task.status === 'in_progress'
-  const canPostpone = task.status === 'todo' || task.status === 'in_progress'
-  const canDelete = profile?.role === 'admin' || task.created_by === profile?.id
+  const canAdvance = !readOnly && (task.status === 'todo' || task.status === 'in_progress')
+  const canPostpone = !readOnly && (task.status === 'todo' || task.status === 'in_progress')
   const stopCardClick = (event: MouseEvent) => event.stopPropagation()
   const vendor = extractVendor(task)
   const rule = formatRuleLabel(task.rule_id)
@@ -55,7 +52,7 @@ export default function TaskCard({
       title="Open task"
     >
       <div className="flex items-start gap-2">
-        <button
+        {!readOnly && <button
           onClick={(event) => {
             stopCardClick(event)
             if (canAdvance) onAdvance(task)
@@ -67,7 +64,7 @@ export default function TaskCard({
           {task.status === 'done'
             ? <CheckCircle size={16} className="text-success" />
             : <Circle size={16} />}
-        </button>
+        </button>}
         <div className="flex-1 min-w-0">
           <div className={`text-[13px] font-medium ${isClosed ? 'line-through text-text2' : 'text-text1'}`}>
             {task.title}
@@ -120,7 +117,7 @@ export default function TaskCard({
             <XCircle size={13} />
           </button>
         )}
-        <button
+        {!readOnly && <button
           onClick={(event) => {
             stopCardClick(event)
             onEdit(task)
@@ -129,19 +126,7 @@ export default function TaskCard({
           title="Edit task"
         >
           <Pencil size={13} />
-        </button>
-        {canDelete && (
-          <button
-            onClick={(event) => {
-              stopCardClick(event)
-              onDelete(task.id)
-            }}
-            className="p-1 text-text2 hover:text-danger transition-colors flex-shrink-0"
-            title="Delete task"
-          >
-            <Trash2 size={13} />
-          </button>
-        )}
+        </button>}
       </div>
 
       <div className="flex items-center gap-2 flex-wrap pl-6">

@@ -28,7 +28,7 @@ const NAV: NavItem[] = [
   { to: '/executive/departments',  label: 'Departments',       icon: <Building2 size={16} />, roles: ['admin', 'csuite'], group: 'C-Suite' },
 
   // Shared
-  { to: '/daily', label: 'My Day', icon: <CalendarDays size={16} />, roles: ['admin', 'purchasing', 'csuite'], group: 'Work' },
+  { to: '/today', label: 'Today', icon: <CalendarDays size={16} />, roles: ['admin', 'purchasing', 'csuite'], group: 'Work' },
   { to: '/tasks', label: 'Tasks', icon: <CheckSquare size={16} />, roles: ['admin', 'purchasing', 'csuite'], group: 'Work' },
 
   // Admin

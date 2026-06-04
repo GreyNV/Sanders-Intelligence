@@ -15,4 +15,13 @@ describe('TaskModal Select SKUs metric columns', () => {
     expect(source).toContain("r.marginPct == null ? 'N/A'")
     expect(source).toContain('colSpan={11}')
   })
+
+  it('supports read-only task inspection', () => {
+    const source = readFileSync(resolve(__dirname, '../components/tasks/TaskModal.tsx'), 'utf8')
+
+    expect(source).toContain('readOnly = false')
+    expect(source).toContain("readOnly ? 'Task Details'")
+    expect(source).toContain('disabled={readOnly}')
+    expect(source).toContain('{!readOnly && (')
+  })
 })

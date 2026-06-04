@@ -75,6 +75,26 @@ export function useUpdateTaskStatus() {
   })
 }
 
+export function useClaimTask() {
+  const qc = useQueryClient()
+  const { profile } = useAuth()
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data, error } = await supabase
+        .from('tasks')
+        .update({ assigned_to: profile!.id, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .is('assigned_to', null)
+        .select('id')
+        .maybeSingle()
+      if (error) throw error
+      if (!data) throw new Error('This task has already been claimed.')
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+  })
+}
+
 export function useUpdateTask() {
   const qc = useQueryClient()
   return useMutation({
