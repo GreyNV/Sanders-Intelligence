@@ -16,6 +16,10 @@ interface TaskActionNoteModalProps {
 
 const POSTPONE_DAYS = [3, 7, 14, 30]
 
+export function isValidTaskActionNote(note: string): boolean {
+  return note.trim().length > 0
+}
+
 export default function TaskActionNoteModal({
   open,
   title,
@@ -28,9 +32,11 @@ export default function TaskActionNoteModal({
   onSubmit,
 }: TaskActionNoteModalProps) {
   const [note, setNote] = useState('')
+  const isValid = isValidTaskActionNote(note)
 
   function handleSubmit() {
-    onSubmit(note)
+    if (!isValid) return
+    onSubmit(note.trim())
   }
 
   return (
@@ -64,12 +70,13 @@ export default function TaskActionNoteModal({
             rows={4}
             value={note}
             onChange={event => setNote(event.target.value)}
-            placeholder="Optional note..."
+            placeholder="Note required..."
           />
+          {!isValid && <div className="mt-1 text-[11px] text-text2">Note required</div>}
         </div>
         <div className="flex justify-end gap-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button type="button" className="btn-primary" onClick={handleSubmit} disabled={isPending}>
+          <button type="button" className="btn-primary" onClick={handleSubmit} disabled={isPending || !isValid}>
             {isPending ? <LoadingSpinner size="sm" /> : submitLabel}
           </button>
         </div>

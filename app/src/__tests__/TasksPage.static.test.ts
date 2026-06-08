@@ -12,4 +12,12 @@ describe('TasksPage workflow contract', () => {
     expect(source).toContain('Postpone Task')
     expect(source).toContain('Cancel Task')
   })
+
+  it('requires a trimmed note before cancel or postpone status changes', () => {
+    const source = readFileSync(resolve(__dirname, '../pages/tasks/TasksPage.tsx'), 'utf8')
+
+    expect(source).toContain('const trimmedNote = note.trim()')
+    expect(source).toContain('if (!trimmedNote) return')
+    expect(source).toContain('body: trimmedNote')
+  })
 })

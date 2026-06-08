@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useTasks, useUpdateTaskStatus, useDeleteTask } from '@/hooks/useTasks'
+import { useTasks, useUpdateTaskStatus } from '@/hooks/useTasks'
 import { useAddTaskComment, useTaskCommentCounts } from '@/hooks/useTaskComments'
 import { useAuth } from '@/contexts/AuthContext'
 import TaskModal from '@/components/tasks/TaskModal'
@@ -41,7 +41,6 @@ export default function TasksPage() {
   const { profile } = useAuth()
   const { data: tasks = [], isLoading, error } = useTasks()
   const updateStatus = useUpdateTaskStatus()
-  const deleteTask = useDeleteTask()
   const addComment = useAddTaskComment()
 
   const [modal, setModal] = useState(false)
@@ -89,19 +88,18 @@ export default function TasksPage() {
 
   async function handleActionSubmit(note: string) {
     if (!actionModal) return
+    const trimmedNote = note.trim()
+    if (!trimmedNote) return
     const { task, type } = actionModal
     const status = type === 'cancel' ? 'cancelled' : 'postponed'
     const postponed_until = type === 'postpone' ? calculatePostponedUntil(postponeDays) : null
 
     await updateStatus.mutateAsync({ id: task.id, status, postponed_until })
-    if (note.trim()) {
-      await addComment.mutateAsync({ task_id: task.id, body: note, kind: type })
-    }
+    await addComment.mutateAsync({ task_id: task.id, body: trimmedNote, kind: type })
     setActionModal(null)
   }
 
   const cardProps = {
-    profile,
     showDept: isAllAccess && groupMode === 'status',
     onAdvance: handleAdvance,
     onCancel: (task: Task) => setActionModal({ type: 'cancel', task }),
@@ -110,7 +108,6 @@ export default function TasksPage() {
       setActionModal({ type: 'postpone', task })
     },
     onEdit: setEditingTask,
-    onDelete: (id: string) => deleteTask.mutate(id),
   }
 
   function renderTask(task: Task) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeDailyCounters, partitionDailyTasks } from '../pages/work/DailyView.helpers'
+import { computeTodayCounters, partitionTodayTasks } from '../pages/work/TodayView.helpers'
 import type { Task } from '../types'
 
 function makeTask(overrides: Partial<Task>): Task {
@@ -30,11 +30,11 @@ function makeTask(overrides: Partial<Task>): Task {
   }
 }
 
-describe('DailyView helpers', () => {
+describe('TodayView helpers', () => {
   const today = new Date('2026-05-28T12:00:00.000Z')
 
   it('puts assigned due, overdue, and in-progress tasks into Today', () => {
-    const result = partitionDailyTasks([
+    const result = partitionTodayTasks([
       makeTask({ id: 'due', due_date: '2026-05-28', priority: 'high' }),
       makeTask({ id: 'overdue', due_date: '2026-05-27', priority: 'urgent' }),
       makeTask({ id: 'progress', status: 'in_progress', due_date: null }),
@@ -43,11 +43,11 @@ describe('DailyView helpers', () => {
       makeTask({ id: 'postponed', status: 'postponed', due_date: '2026-05-28' }),
     ], 'me', today)
 
-    expect(result.todayTasks.map(task => task.id)).toEqual(['overdue', 'due', 'progress'])
+    expect(result.yourTasks.map(task => task.id)).toEqual(['overdue', 'due', 'progress'])
   })
 
   it('finds completed-yesterday tasks for the current user', () => {
-    const result = partitionDailyTasks([
+    const result = partitionTodayTasks([
       makeTask({ id: 'yesterday', status: 'done', updated_at: '2026-05-27T18:00:00.000Z' }),
       makeTask({ id: 'today', status: 'done', updated_at: '2026-05-28T18:00:00.000Z' }),
     ], 'me', today)
@@ -56,14 +56,14 @@ describe('DailyView helpers', () => {
   })
 
   it('computes created, completed, and due counters', () => {
-    const counters = computeDailyCounters([
+    const counters = computeTodayCounters([
       makeTask({ id: 'created', created_at: '2026-05-28T08:00:00.000Z' }),
       makeTask({ id: 'completed', status: 'done', updated_at: '2026-05-28T09:00:00.000Z' }),
       makeTask({ id: 'due', due_date: '2026-05-28' }),
       makeTask({ id: 'other-user', assigned_to: 'someone-else', due_date: '2026-05-28' }),
     ], 'me', today)
 
-    expect(counters).toEqual({ createdToday: 3, completedToday: 1, dueToday: 1 })
+    expect(counters).toEqual({ createdToday: 4, completedToday: 1, dueToday: 1 })
   })
 
   it('separates came-back tasks and excludes them from created-today count', () => {
@@ -72,11 +72,25 @@ describe('DailyView helpers', () => {
       makeTask({ id: 'created', created_at: '2026-05-28T09:00:00.000Z', due_date: '2026-05-28' }),
     ]
 
-    const partition = partitionDailyTasks(tasks, 'me', today)
-    const counters = computeDailyCounters(tasks, 'me', today)
+    const partition = partitionTodayTasks(tasks, 'me', today)
+    const counters = computeTodayCounters(tasks, 'me', today)
 
     expect(partition.cameBackTasks.map(task => task.id)).toEqual(['reopened'])
-    expect(partition.todayTasks.map(task => task.id)).toEqual(['created'])
+    expect(partition.yourTasks.map(task => task.id)).toEqual(['created'])
     expect(counters.createdToday).toBe(1)
+  })
+
+  it('separates unassigned and other-user due-today tasks', () => {
+    const result = partitionTodayTasks([
+      makeTask({ id: 'mine', due_date: '2026-05-28' }),
+      makeTask({ id: 'unassigned', assigned_to: null, due_date: '2026-05-28' }),
+      makeTask({ id: 'other', assigned_to: 'other-user', due_date: '2026-05-28' }),
+      makeTask({ id: 'other-overdue', assigned_to: 'other-user', due_date: '2026-05-27' }),
+      makeTask({ id: 'unassigned-future', assigned_to: null, due_date: '2026-05-29' }),
+    ], 'me', today)
+
+    expect(result.yourTasks.map(task => task.id)).toEqual(['mine'])
+    expect(result.unassignedTasks.map(task => task.id)).toEqual(['unassigned'])
+    expect(result.otherTasks.map(task => task.id)).toEqual(['other'])
   })
 })

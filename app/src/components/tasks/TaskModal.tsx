@@ -32,6 +32,7 @@ interface TaskModalProps {
   prefillVendorSkus?: InventoryRecord[] // pre-loaded SKUs for that vendor
   atRiskByVendor?: Record<string, InventoryRecord[]> // all at-risk grouped by vendor
   availableSkus?: InventoryRecord[]     // searchable pool for adding SKUs to vendor orders
+  readOnly?: boolean
 }
 
 type Mode = 'single' | 'vendor'
@@ -121,6 +122,7 @@ export default function TaskModal({
   prefillSku = '', prefillTitle = '',
   prefillVendor, prefillVendorSkus = [],
   atRiskByVendor = {}, availableSkus = [],
+  readOnly = false,
 }: TaskModalProps) {
   const { profile }           = useAuth()
   const { data: users = [] }  = useUsers()
@@ -301,6 +303,7 @@ export default function TaskModal({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
+    if (readOnly) return
     if (!title.trim()) { setError('Title is required'); return }
     if (mode === 'vendor' && !selectedVendor) { setError('Please select a vendor'); return }
     if (mode === 'vendor' && vendorSkus.length === 0) { setError('Select at least one SKU for this vendor order'); return }
@@ -372,7 +375,7 @@ export default function TaskModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={isEdit ? 'Edit Task' : 'New Task'}>
+    <Modal open={open} onClose={onClose} title={readOnly ? 'Task Details' : isEdit ? 'Edit Task' : 'New Task'}>
       <form onSubmit={handleSubmit} className="space-y-4">
 
         {/* Mode switcher — create mode, vendor context available */}
@@ -451,6 +454,7 @@ export default function TaskModal({
               className="input w-full"
               value={editVendor}
               onChange={e => setEditVendor(e.target.value)}
+              disabled={readOnly}
               placeholder="Vendor name…"
             />
             <p className="text-[10px] text-text2 mt-1">Updates the vendor reference in the description.</p>
@@ -464,6 +468,7 @@ export default function TaskModal({
             className="input w-full"
             value={title}
             onChange={e => setTitle(e.target.value)}
+            disabled={readOnly}
             placeholder={mode === 'vendor' && !isEdit ? 'Auto-filled from vendor name…' : 'Task title…'}
             required
           />
@@ -519,6 +524,7 @@ export default function TaskModal({
             rows={editHasVendor ? 5 : 3}
             value={description}
             onChange={e => setDesc(e.target.value)}
+            disabled={readOnly}
             placeholder={mode === 'vendor' && !isEdit ? 'Add any additional notes or context…' : 'Optional details…'}
           />
         </div>
@@ -527,7 +533,7 @@ export default function TaskModal({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-xs font-medium text-text2 mb-1.5">Priority</label>
-            <select className="select w-full" value={priority}
+            <select className="select w-full" value={priority} disabled={readOnly}
               onChange={e => setPriority(e.target.value as TaskPriority)}>
               <option value="low">Low</option>
               <option value="medium">Medium</option>
@@ -537,7 +543,7 @@ export default function TaskModal({
           </div>
           <div>
             <label className="block text-xs font-medium text-text2 mb-1.5">Due Date</label>
-            <input type="date" className="input w-full" value={dueDate}
+            <input type="date" className="input w-full" value={dueDate} disabled={readOnly}
               onChange={e => setDueDate(e.target.value)} />
           </div>
         </div>
@@ -546,7 +552,7 @@ export default function TaskModal({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-xs font-medium text-text2 mb-1.5">Assign to</label>
-            <select className="select w-full" value={assignedTo}
+            <select className="select w-full" value={assignedTo} disabled={readOnly}
               onChange={e => setAssigned(e.target.value)}>
               <option value="">Unassigned</option>
               {deptUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -555,14 +561,14 @@ export default function TaskModal({
           {mode === 'single' && !isEdit && (
             <div>
               <label className="block text-xs font-medium text-text2 mb-1.5">SKU (optional)</label>
-              <input className="input w-full" value={skuCode}
+              <input className="input w-full" value={skuCode} disabled={readOnly}
                 onChange={e => setSkuCode(e.target.value)} placeholder="product-code" />
             </div>
           )}
           {isEdit && (
             <div>
               <label className="block text-xs font-medium text-text2 mb-1.5">SKU (optional)</label>
-              <input className="input w-full" value={skuCode}
+              <input className="input w-full" value={skuCode} disabled={readOnly}
                 onChange={e => setSkuCode(e.target.value)} placeholder="product-code" />
             </div>
           )}
@@ -571,7 +577,7 @@ export default function TaskModal({
         {/* Department / Category — always shown */}
         <div>
           <label className="block text-xs font-medium text-text2 mb-1.5">Department / Category</label>
-          <select className="select w-full" value={department}
+          <select className="select w-full" value={department} disabled={readOnly}
             onChange={e => setDepartment(e.target.value)}>
             {departments.map(d => <option key={d} value={d}>{d}</option>)}
             {/* Ensure current value is always present even if not in user list */}
@@ -615,7 +621,7 @@ export default function TaskModal({
               </div>
             )}
 
-            <div className="space-y-2">
+            {!readOnly && <div className="space-y-2">
               <textarea
                 className="input w-full resize-none"
                 rows={3}
@@ -633,7 +639,7 @@ export default function TaskModal({
                   Add note
                 </button>
               </div>
-            </div>
+            </div>}
           </div>
         )}
 
@@ -642,10 +648,12 @@ export default function TaskModal({
         )}
 
         <div className="flex gap-2 justify-end pt-1">
-          <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
-          <button type="submit" disabled={isPending} className="btn-primary">
-            {isPending ? <LoadingSpinner size="sm" /> : isEdit ? 'Save Changes' : 'Create Task'}
-          </button>
+          <button type="button" onClick={onClose} className="btn-secondary">{readOnly ? 'Close' : 'Cancel'}</button>
+          {!readOnly && (
+            <button type="submit" disabled={isPending} className="btn-primary">
+              {isPending ? <LoadingSpinner size="sm" /> : isEdit ? 'Save Changes' : 'Create Task'}
+            </button>
+          )}
         </div>
       </form>
 

@@ -11,4 +11,12 @@ describe('TaskCard structured metadata contract', () => {
     expect(source).toContain('getTaskSkuCount')
     expect(source).toContain("task.source === 'auto'")
   })
+
+  it('does not expose hard-delete controls', () => {
+    const source = readFileSync(resolve(__dirname, '../components/tasks/TaskCard.tsx'), 'utf8')
+
+    expect(source).not.toContain('Trash2')
+    expect(source).not.toContain('onDelete')
+    expect(source).not.toContain('Delete task')
+  })
 })
