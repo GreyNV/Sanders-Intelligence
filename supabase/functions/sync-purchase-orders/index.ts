@@ -12,6 +12,7 @@ Deno.serve(async (req) => {
 
   const started = Date.now()
   try {
+    const options = await readSyncOptions(req)
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -20,7 +21,7 @@ Deno.serve(async (req) => {
 
     const base = (Deno.env.get('SELLERCLOUD_DELTA_BASE') ?? 'https://snc.api.sellercloud.com/rest').replace(/\/$/, '')
     const token = await getSellerCloudToken(base)
-    const purchaseOrders = await fetchPurchaseOrders(base, token)
+    const purchaseOrders = await fetchPurchaseOrders(base, token, options)
 
     const orderRows = purchaseOrders.map(toPurchaseOrderRow)
     if (orderRows.length > 0) {
@@ -30,11 +31,18 @@ Deno.serve(async (req) => {
 
     const bridge = await loadSkuBridge(supabase)
     const itemRows: JsonRecord[] = []
-    for (const po of purchaseOrders) {
-      const poId = Number(first(po, ['ID', 'Id', 'id', 'POID', 'PurchaseOrderID']))
-      if (!Number.isFinite(poId)) continue
-      const items = await fetchPurchaseOrderItems(base, token, poId)
-      itemRows.push(...items.map(item => toPOItemRow(item, poId, bridge)))
+    const itemFailures: Array<{ poId: number; error: string }> = []
+    if (options.includeItems) {
+      for (const po of purchaseOrders) {
+        const poId = Number(first(po, ['ID', 'Id', 'id', 'POID', 'PurchaseOrderID']))
+        if (!Number.isFinite(poId)) continue
+        try {
+          const items = await fetchPurchaseOrderItems(base, token, poId)
+          itemRows.push(...items.map((item, index) => toPOItemRow(item, poId, bridge, index)))
+        } catch (error) {
+          itemFailures.push({ poId, error: error instanceof Error ? error.message : 'PO item fetch failed' })
+        }
+      }
     }
 
     if (itemRows.length > 0) {
@@ -42,11 +50,29 @@ Deno.serve(async (req) => {
       if (error) throw error
     }
 
-    return json({ synced: orderRows.length, items: itemRows.length, durationMs: Date.now() - started })
+    return json({ synced: orderRows.length, items: itemRows.length, itemFailures, durationMs: Date.now() - started })
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : 'PO sync failed' }, 500)
   }
 })
+
+interface SyncOptions {
+  includeItems: boolean
+  maxPages: number
+  pageSize: number
+}
+
+async function readSyncOptions(req: Request): Promise<SyncOptions> {
+  const body = req.method === 'POST' ? await req.json().catch(() => ({})) : {}
+  const pageSize = clampNumber(body.pageSize, 1, 100, 50)
+  const maxPages = clampNumber(body.maxPages, 1, 20, 2)
+
+  return {
+    includeItems: body.includeItems !== false,
+    maxPages,
+    pageSize,
+  }
+}
 
 async function requireAdmin(req: Request, supabase: ReturnType<typeof createClient>) {
   const token = req.headers.get('Authorization')?.replace('Bearer ', '')
@@ -81,11 +107,11 @@ async function getSellerCloudToken(base: string): Promise<string> {
   return String(token)
 }
 
-async function fetchPurchaseOrders(base: string, token: string): Promise<JsonRecord[]> {
+async function fetchPurchaseOrders(base: string, token: string, options: SyncOptions): Promise<JsonRecord[]> {
   const all: JsonRecord[] = []
-  const pageSize = 100
+  const { pageSize, maxPages } = options
 
-  for (let pageNumber = 1; pageNumber <= 100; pageNumber += 1) {
+  for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
     const url = new URL(`${base}/api/purchaseorders`)
     url.searchParams.set('pageNumber', String(pageNumber))
     url.searchParams.set('pageSize', String(pageSize))
@@ -166,10 +192,11 @@ function toPurchaseOrderRow(po: JsonRecord): JsonRecord {
   }
 }
 
-function toPOItemRow(item: JsonRecord, poId: number, bridge: Map<string, string>): JsonRecord {
+function toPOItemRow(item: JsonRecord, poId: number, bridge: Map<string, string>, index: number): JsonRecord {
   const sourceSku = String(first(item, ['ProductID', 'ProductId', 'productId', 'SKU', 'sku']) ?? '')
+  const rawId = Number(first(item, ['ID', 'Id', 'id']))
   return {
-    id: Number(first(item, ['ID', 'Id', 'id'])),
+    id: Number.isFinite(rawId) && rawId > 0 ? rawId : poId * 100000 + index,
     po_id: poId,
     source_sku: sourceSku,
     planning_sku: bridge.get(sourceSku.toLowerCase()) ?? null,
@@ -182,6 +209,12 @@ function toPOItemRow(item: JsonRecord, poId: number, bridge: Map<string, string>
     discount_value: nullableNumber(first(item, ['DiscountValue', 'discountValue'])),
     expected_delivery_date: nullableDate(first(item, ['ExpectedDeliveryDate', 'expectedDeliveryDate'])),
   }
+}
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return fallback
+  return Math.min(max, Math.max(min, Math.floor(number)))
 }
 
 function first(record: JsonRecord, keys: string[]): unknown {

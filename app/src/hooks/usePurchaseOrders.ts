@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import type { POItem, PurchaseOrder } from '@/types'
 
+const PO_SYNC_TIMEOUT_MS = 120000
+
 export interface PurchaseOrderQueryFilters {
   statuses?: string[]
   dateFrom?: string
@@ -53,14 +55,53 @@ export function useSyncPurchaseOrders() {
   const qc = useQueryClient()
 
   return useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke('sync-purchase-orders')
-      if (error) throw error
-      return data as { synced: number; items: number; durationMs: number }
-    },
+    mutationFn: invokePurchaseOrderSync,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['purchase_orders'] })
       qc.invalidateQueries({ queryKey: ['po_items'] })
     },
   })
+}
+
+async function invokePurchaseOrderSync(): Promise<{
+  synced: number
+  items: number
+  durationMs: number
+  itemFailures?: Array<{ poId: number; error: string }>
+}> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), PO_SYNC_TIMEOUT_MS)
+
+  try {
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sync-purchase-orders`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ maxPages: 2, pageSize: 50, includeItems: true }),
+      signal: controller.signal,
+    })
+
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      const message = typeof body.error === 'string' ? body.error : `Purchase order sync failed (${response.status})`
+      throw new Error(message)
+    }
+
+    return body as { synced: number; items: number; durationMs: number; itemFailures?: Array<{ poId: number; error: string }> }
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('Purchase order sync timed out after 120 seconds. Try again or reduce the SellerCloud PO batch size.')
+    }
+    if (error instanceof TypeError) {
+      throw new Error('Could not reach the sync-purchase-orders Edge Function. Confirm it is deployed and CORS is allowed.')
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timer)
+  }
 }

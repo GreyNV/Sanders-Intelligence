@@ -138,6 +138,9 @@ export default function PurchaseOrders() {
       {syncPOs.isSuccess && (
         <div className="mb-4 rounded-lg border border-success/25 bg-success/10 px-4 py-3 text-sm text-success">
           Synced {fmtNumber(syncPOs.data.synced)} purchase orders and {fmtNumber(syncPOs.data.items)} line items.
+          {syncPOs.data.itemFailures && syncPOs.data.itemFailures.length > 0
+            ? ` ${syncPOs.data.itemFailures.length} PO item refreshes need retry.`
+            : ''}
         </div>
       )}
 
