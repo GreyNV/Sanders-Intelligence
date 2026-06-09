@@ -118,7 +118,13 @@ export default function UsersPage() {
             </tr>
           </thead>
           <tbody>
-            {users.map(user => (
+            {users.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="py-10 text-center text-text2">
+                  No users found. Invite a user to start building the team roster.
+                </td>
+              </tr>
+            ) : users.map(user => (
               <tr key={user.id}>
                 <td className="font-medium text-text1">{user.name}</td>
                 <td className="text-text2 text-xs">{user.email}</td>

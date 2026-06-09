@@ -143,6 +143,15 @@ describe('estimatedArrivalMonth', () => {
     expect(estimatedArrivalMonth(0)).toBe(expected)
   })
 
+  it('uses an explicit upload baseline instead of the browser date', () => {
+    expect(estimatedArrivalMonth(30, '2026-05-15T12:00:00Z')).toBe('Jun 2026')
+    expect(estimatedArrivalMonth(0, '2026-05-15T12:00:00Z')).toBe('May 2026')
+  })
+
+  it('returns Unknown for invalid baseline dates', () => {
+    expect(estimatedArrivalMonth(30, 'not-a-date')).toBe('Unknown')
+  })
+
   it('result is parseable by parseMonthLabel', () => {
     const label = estimatedArrivalMonth(45)
     expect(parseMonthLabel(label)).toBeGreaterThan(0)

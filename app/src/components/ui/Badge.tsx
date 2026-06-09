@@ -2,7 +2,7 @@ import { cn } from '@/lib/utils'
 import type { InventoryRecord } from '@/types'
 
 type BadgeVariant = 'ok' | 'excess' | 'stockout' | 'surplus' | 'new_item' | 'todo' | 'in_progress' | 'done' | 'cancelled' | 'postponed' |
-                   'low' | 'medium' | 'high' | 'urgent' | 'neutral' | 'info'
+                   'low' | 'medium' | 'high' | 'urgent' | 'neutral' | 'info' | 'warning' | 'danger'
 
 const styles: Record<BadgeVariant, string> = {
   ok:          'bg-success/15 text-success',
@@ -21,6 +21,8 @@ const styles: Record<BadgeVariant, string> = {
   urgent:      'bg-danger/15 text-danger',
   neutral:     'bg-surface2 text-text2',
   info:        'bg-accent/10 text-accent',
+  warning:     'bg-warning/10 text-warning',
+  danger:      'bg-danger/15 text-danger',
 }
 
 const labels: Partial<Record<string, string>> = {

@@ -60,8 +60,9 @@ export function isOverdue(dueDate: string | null): boolean {
 // ─── Inventory helpers ───────────────────────────────────────────────────────
 
 /** Estimate arrival month for on-order items using lead time days */
-export function estimatedArrivalMonth(ltDays: number): string {
-  const d = new Date()
+export function estimatedArrivalMonth(ltDays: number, baselineDate: string | Date = new Date()): string {
+  const d = baselineDate instanceof Date ? new Date(baselineDate) : new Date(baselineDate)
+  if (!Number.isFinite(d.getTime())) return 'Unknown'
   d.setDate(d.getDate() + ltDays)
   return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
 }

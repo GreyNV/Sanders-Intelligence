@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useInboundItems } from '@/hooks/useInventory'
+import { useInboundItems, useLatestUploadMeta } from '@/hooks/useInventory'
 import { useSkuMetrics } from '@/hooks/useSkuMetrics'
 import KPICard from '@/components/ui/KPICard'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
@@ -68,7 +68,9 @@ function sortValue(record: InventoryRecord, field: SortField): string | number {
 
 export default function InboundPipeline() {
   const { data: inbound = [], isLoading, error } = useInboundItems()
+  const { data: latestUpload } = useLatestUploadMeta()
   const { data: skuMetrics } = useSkuMetrics()
+  const etaBaseline = latestUpload?.uploaded_at ?? new Date()
 
   const [search, setSearch] = useState('')
   const [brand, setBrand] = useState('All')
@@ -134,7 +136,7 @@ export default function InboundPipeline() {
   const totalOrderValue = filteredInbound.reduce((s, r) => s + r.cost_price * r.on_order, 0)
 
   const byMonth = useMemo(() => {
-    const grouped = groupBy(filteredInbound, r => estimatedArrivalMonth(r.lt_days))
+    const grouped = groupBy(filteredInbound, r => estimatedArrivalMonth(r.lt_days, etaBaseline))
     const raw = Object.entries(grouped)
       .map(([month, items]) => ({
         month,
@@ -155,7 +157,7 @@ export default function InboundPipeline() {
       cursor.setMonth(cursor.getMonth() + 1)
     }
     return filled
-  }, [filteredInbound])
+  }, [filteredInbound, etaBaseline])
 
   const nearTerm = filteredInbound.filter(r => r.lt_days <= 30).reduce((s, r) => s + r.on_order, 0)
   const midTerm = filteredInbound.filter(r => r.lt_days > 30 && r.lt_days <= 90).reduce((s, r) => s + r.on_order, 0)
@@ -316,7 +318,7 @@ export default function InboundPipeline() {
                     </td>
                     <td className="tabular-nums font-semibold text-right">{fmtNumber(r.on_order)}</td>
                     <td className="tabular-nums text-text2 text-right">{r.lt_days}d</td>
-                    <td className="text-xs">{estimatedArrivalMonth(r.lt_days)}</td>
+                    <td className="text-xs">{estimatedArrivalMonth(r.lt_days, etaBaseline)}</td>
                     <td className="tabular-nums text-right">{fmtNumber(r.on_hand)}</td>
                     <td className="tabular-nums text-right">{r.days_on_hand}d</td>
                     <td className="tabular-nums" title={price?.price_source ?? undefined}>

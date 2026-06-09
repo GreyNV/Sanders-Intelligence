@@ -11,4 +11,11 @@ describe('UsersPage automation settings contract', () => {
     expect(source).toContain('Default Auto-Task Assignee')
     expect(source).toContain('Set default')
   })
+
+  it('renders an empty state when no users are returned', () => {
+    const source = readFileSync(resolve(__dirname, '../pages/admin/UsersPage.tsx'), 'utf8')
+
+    expect(source).toContain('No users found')
+    expect(source).toContain('colSpan={8}')
+  })
 })

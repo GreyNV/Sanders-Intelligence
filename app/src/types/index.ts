@@ -152,3 +152,60 @@ export interface Freshness {
   date: string | null
   metricsRefreshedAt: string | null
 }
+
+// Purchase Orders
+
+export type POStatus = 'Saved' | 'Ordered' | 'Received' | 'Pending' | 'Cancelled' | 'Completed' | string
+
+export interface PurchaseOrder {
+  id: number
+  purchase_title: string | null
+  vendor_id: number | null
+  po_status: POStatus
+  payment_status: string | null
+  shipping_status: string | null
+  receiving_status: string | null
+  date_ordered: string | null
+  expected_delivery_date: string | null
+  created_on: string | null
+  grand_total: number | null
+  order_total: number | null
+  tax_total: number | null
+  shipping_total: number | null
+  unit_counts: number | null
+  warehouse_id: number | null
+  company_id: number | null
+  memo: string | null
+  tracking_numbers: Array<Record<string, unknown>> | null
+  approved: boolean | null
+  synced_at: string
+}
+
+export interface POItem {
+  id: number
+  po_id: number
+  source_sku: string
+  planning_sku: string | null
+  product_name: string | null
+  qty_units_ordered: number | null
+  qty_units_per_case: number | null
+  unit_price: number | null
+  case_price: number | null
+  discount_type: string | null
+  discount_value: number | null
+  expected_delivery_date: string | null
+}
+
+// News feed
+
+export interface NewsItem {
+  id: string
+  provider: string
+  title: string
+  source: string | null
+  url: string
+  published_at: string | null
+  snippet: string | null
+  query: string
+  created_at: string
+}

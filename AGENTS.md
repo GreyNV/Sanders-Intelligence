@@ -45,6 +45,9 @@ Role guard: `<RoleGuard allow={['admin', 'purchasing']}>` in `App.tsx`.
 /purchasing/action-center       ActionCenter.tsx      [admin, purchasing]
 /purchasing/inventory           InventoryBrowser.tsx  [admin, purchasing]
 /purchasing/inbound             InboundPipeline.tsx   [admin, purchasing]
+/purchasing/vendors             VendorView.tsx        [admin, purchasing]
+/purchasing/purchase-orders     PurchaseOrders.tsx    [admin, purchasing]
+/purchasing/news-feed           NewsFeed.tsx          [admin, purchasing]
 
 /executive                      ExecutiveSummary.tsx  [admin, csuite]
 /executive/departments          DepartmentOverview.tsx [admin, csuite]
@@ -109,6 +112,10 @@ Implementation: `useLocation()` + `URLSearchParams` in InventoryBrowser's initia
 Fetches all records for the latest complete upload. Paginates past Supabase's 1000-row cap.  
 Cache key: `['inventory', 'latest']`, stale after 5 min.
 
+### `useLatestUploadMeta()` — `hooks/useInventory.ts`
+Fetches id, `uploaded_at`, and `row_count` for the latest complete upload. Used by InboundPipeline so ETA math uses upload date rather than browser date.  
+Cache key: `['uploads', 'latest-meta']`, stale after 5 min.
+
 ### `fetchInventoryForUpload(uploadId)` — `hooks/useInventory.ts`
 Non-hook async function. Paginates all records for a specific upload. Used by UploadsPage for CSV download.
 
@@ -134,6 +141,21 @@ Mutation: inserts a dismissal record. Params: `{ product_code, action_type, dism
 
 ### `useRestoreAction()` — `hooks/useDismissedActions.ts`
 Mutation: deletes dismissal. Non-admins can only delete their own (RLS enforced).
+
+### `usePurchaseOrders(filters)` — `hooks/usePurchaseOrders.ts`
+Fetches cached SellerCloud POs from `purchase_orders`. Supports status and date filters server-side, with local query filtering in `PurchaseOrders.tsx`.  
+Cache key: `['purchase_orders', filters]`, stale after 5 min.
+
+### `usePurchaseOrderItems(poId)` — `hooks/usePurchaseOrders.ts`
+Fetches line items for one PO from `po_items`. Enabled only when a PO is selected.  
+Cache key: `['po_items', poId]`, stale after 5 min.
+
+### `useSyncPurchaseOrders()` — `hooks/usePurchaseOrders.ts`
+Admin-only manual sync mutation invoking Edge Function `sync-purchase-orders`. Invalidates `purchase_orders` and `po_items`.
+
+### `useNewsItems(search)` / `useRefreshNews()` — `hooks/useNewsItems.ts`
+Reads cached logistics/import/export articles from `news_items`; admin refresh invokes Edge Function `refresh-news`.  
+Cache key: `['news_items', { search }]`, stale after 10 min.
 
 ---
 
@@ -172,6 +194,22 @@ Cancellation and postponement require a non-empty note. Completion notes remain 
 
 RLS: all authenticated users can read; users manage their own; admins can delete any.  
 **Migration file:** `supabase/migrations/002_dismissed_actions.sql` — must be run manually in Supabase SQL Editor.
+
+### `public.purchase_orders` / `public.po_items`
+SellerCloud PO cache for `/purchasing/purchase-orders`. `purchase_orders.id` is the SellerCloud PO ID. `po_items.source_sku` is raw SellerCloud ProductID; `po_items.planning_sku` is resolved through `sku_bridge` when possible. Unmatched SKUs render as warnings, not links.
+
+RLS: active `admin` and `purchasing` users can read; Edge Functions write with service role.  
+**Migration file:** `supabase/migrations/013_purchase_orders_and_news.sql`.
+
+### `public.news_items`
+Cached logistics/import/export news feed rows from GDELT for `/purchasing/news-feed`: `id`, `provider`, `title`, `source`, `url`, `published_at`, `snippet`, `query`, `created_at`.
+
+RLS: active `admin` and `purchasing` users can read; Edge Function writes with service role.  
+**Migration file:** `supabase/migrations/013_purchase_orders_and_news.sql`.
+
+### Edge Functions
+- `sync-purchase-orders`: admin-only manual SellerCloud sync. Requires Supabase secrets `SELLERCLOUD_DELTA_BASE`, `SELLERCLOUD_USERNAME`, and `SELLERCLOUD_PASSWORD`.
+- `refresh-news`: admin-only GDELT refresh. No browser-side news API key.
 
 ---
 
@@ -303,5 +341,7 @@ const [status, setStatus] = useState(params.get('status') ?? '')
 ## Pending / Known Items
 
 - **Run migration:** `supabase/migrations/002_dismissed_actions.sql` must be executed in Supabase SQL Editor before the snooze feature works in production.
+- **Run migration:** `supabase/migrations/013_purchase_orders_and_news.sql` must be executed before Purchase Orders V1 and Logistics News work in production.
+- **Configure secrets:** SellerCloud Edge Function secrets must be set in Supabase before manual PO sync works: `SELLERCLOUD_DELTA_BASE`, `SELLERCLOUD_USERNAME`, `SELLERCLOUD_PASSWORD`.
 - **Historical trends:** ExecutiveSummary has a placeholder card that activates after 7+ days of uploads (week-over-week KPI movement).
 - **Bash tool:** `mcp__workspace__bash` is sometimes unavailable. Fallback: write git commands to clipboard via computer-use tools.

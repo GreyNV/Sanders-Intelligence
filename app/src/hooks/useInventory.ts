@@ -47,6 +47,12 @@ interface InventoryAnalysis {
   kpis: InventoryKPIs
 }
 
+export interface LatestUploadMeta {
+  id: string
+  uploaded_at: string
+  row_count: number | null
+}
+
 export function analyzeInventory(records: InventoryRecord[], isLoading: boolean): InventoryAnalysis {
   const atRiskItems: InventoryRecord[] = []
   const backorderItems: InventoryRecord[] = []
@@ -195,7 +201,7 @@ export function useInventoryTrends() {
 }
 
 /** Fetch the id + timestamp of the latest successful upload */
-async function fetchLatestUploadMeta() {
+async function fetchLatestUploadMeta(): Promise<LatestUploadMeta | null> {
   const { data } = await supabase
     .from('uploads')
     .select('id, uploaded_at, row_count')
@@ -203,7 +209,7 @@ async function fetchLatestUploadMeta() {
     .order('uploaded_at', { ascending: false })
     .limit(1)
     .maybeSingle()
-  return data
+  return data as LatestUploadMeta | null
 }
 
 /** Fetch ALL inventory records for the latest upload, paginating past Supabase's 1000-row cap */
@@ -256,6 +262,14 @@ export function useInventory() {
   return useQuery({
     queryKey: ['inventory', 'latest'],
     queryFn: fetchInventoryRecords,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+export function useLatestUploadMeta() {
+  return useQuery({
+    queryKey: ['uploads', 'latest-meta'],
+    queryFn: fetchLatestUploadMeta,
     staleTime: 5 * 60 * 1000,
   })
 }

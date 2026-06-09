@@ -1,0 +1,155 @@
+{
+  "$schema_note": "Sprint brief for the Sanders Intelligence app. Generated from the approved Hybrid V1 plan.",
+  "sprint_id": "2026-06-10",
+  "phase_start": "2026-06-10",
+  "phase_end": "2026-06-24",
+  "planned_on": "2026-06-09",
+  "cadence": "2-week release sprint",
+  "theme": "Hybrid V1: Purchase Orders backed by SellerCloud REST, scoped logistics news feed, and MVP trust fixes",
+  "project": {
+    "name": "Sanders intelligence app",
+    "asana_project_id": "1214535706843813",
+    "repo_root": "D:\\Sanders Intelligence",
+    "app_source": "D:\\Sanders Intelligence\\app\\src",
+    "stack": "React 18 + TypeScript + Vite, Tailwind, React Router v6, TanStack Query v5, Supabase, Recharts",
+    "dev_command": "cd app && npm run dev",
+    "test_command": "cd app && npm test"
+  },
+  "scope_defaults": {
+    "po_source": "SellerCloud REST",
+    "po_sync": "manual admin-only sync",
+    "unmatched_skus": "warnings only; no mapping workflow",
+    "news_provider": "GDELT DOC 2.0 behind provider helper",
+    "deferred": [
+      "cost alerts",
+      "SKU-mapping admin workflow",
+      "Executive PO KPI",
+      "nightly PO/news sync"
+    ]
+  },
+  "tasks": [
+    {
+      "order": 1,
+      "title": "Sprint setup and Asana date sync",
+      "type": "planning",
+      "scope": "small",
+      "estimated_hours": 1,
+      "due_date": "2026-06-10",
+      "requirements": [
+        "Create this sprint brief at D:\\Sanders Intelligence\\sprints\\Sprint_2026-06-10.json.",
+        "Update open Asana task due dates to reflect the 2-week Hybrid V1 release window."
+      ],
+      "completion_criteria": [
+        "Sprint brief exists and selected Asana tasks have June 2026 due dates aligned to the release."
+      ]
+    },
+    {
+      "order": 2,
+      "title": "Fix Inbound ETA baseline",
+      "type": "bug",
+      "scope": "small",
+      "estimated_hours": 2,
+      "due_date": "2026-06-11",
+      "requirements": [
+        "Estimated arrival month must use latest completed upload uploaded_at plus lt_days.",
+        "Keep chart grouping and table Est. Arrival consistent."
+      ],
+      "completion_criteria": [
+        "ETA unit tests cover explicit upload baselines and invalid baselines.",
+        "Inbound chart and table call the same baseline-aware helper."
+      ]
+    },
+    {
+      "order": 3,
+      "title": "Fix Users empty state",
+      "type": "bug",
+      "scope": "tiny",
+      "estimated_hours": 1,
+      "due_date": "2026-06-11",
+      "requirements": [
+        "Admin Users page must show an explanatory table-row empty state when no users are returned."
+      ],
+      "completion_criteria": [
+        "Static test asserts the empty-state text and colSpan."
+      ]
+    },
+    {
+      "order": 4,
+      "asana_task_id": "1215103753564372",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1215103753564372",
+      "title": "Purchase Orders V1",
+      "type": "feature",
+      "scope": "large",
+      "estimated_hours": 28,
+      "due_date": "2026-06-17",
+      "requirements": [
+        "Add purchase_orders and po_items Supabase tables with purchasing/admin read RLS.",
+        "Add sync-purchase-orders Edge Function with SellerCloud REST auth, paginated PO fetch, item fetch, SKU bridge resolution, and admin-only invocation.",
+        "Add /purchasing/purchase-orders route for admin and purchasing users.",
+        "Add PO hooks, filters, KPI strip, table, admin-only Sync button, and detail modal.",
+        "Matched planning SKUs link to Inventory Browser; unmatched SKUs show warnings only."
+      ],
+      "completion_criteria": [
+        "Admin can manually sync and browse cached POs.",
+        "Purchasing can browse but cannot see the sync button.",
+        "C-suite cannot access the route.",
+        "Line items show source/planning SKU behavior correctly."
+      ]
+    },
+    {
+      "order": 5,
+      "asana_task_id": "1215328973153040",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1215328973153040",
+      "title": "Logistics News Feed V1",
+      "type": "feature",
+      "scope": "medium",
+      "estimated_hours": 10,
+      "due_date": "2026-06-19",
+      "requirements": [
+        "Add news_items Supabase cache with purchasing/admin read RLS.",
+        "Add GDELT provider helper and refresh-news Edge Function.",
+        "Add /purchasing/news-feed route with search, empty state, and admin-only refresh."
+      ],
+      "completion_criteria": [
+        "News feed displays cached logistics/import/export articles.",
+        "No browser-side news API key is used.",
+        "Provider is isolated so NewsAPI or Mediastack can replace GDELT later."
+      ]
+    },
+    {
+      "order": 6,
+      "asana_task_id": "1214539638231257",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1214539638231257",
+      "title": "Mobile responsiveness review",
+      "type": "qa",
+      "scope": "medium",
+      "estimated_hours": 8,
+      "due_date": "2026-06-23",
+      "requirements": [
+        "Review changed surfaces plus Today, Tasks, Inventory, Inbound, Executive, and Admin Users on mobile widths.",
+        "Fix functional layout defects in-scope; file follow-ups for broader redesign needs."
+      ],
+      "completion_criteria": [
+        "Smoke checks pass at mobile and desktop widths.",
+        "Any remaining non-blocking issues are documented."
+      ]
+    },
+    {
+      "order": 7,
+      "title": "Regression and release readiness",
+      "type": "qa",
+      "scope": "medium",
+      "estimated_hours": 8,
+      "due_date": "2026-06-24",
+      "requirements": [
+        "Run automated tests and production build.",
+        "Run QA_Runbook smoke checks for affected roles.",
+        "File follow-up bugs rather than expanding sprint scope."
+      ],
+      "completion_criteria": [
+        "npm test and npm run build pass.",
+        "Manual QA results are summarized with blockers called out."
+      ]
+    }
+  ]
+}

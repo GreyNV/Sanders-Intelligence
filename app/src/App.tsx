@@ -11,6 +11,8 @@ const ActionCenter = lazy(() => import('@/pages/purchasing/ActionCenter'))
 const InventoryBrowser = lazy(() => import('@/pages/purchasing/InventoryBrowser'))
 const InboundPipeline = lazy(() => import('@/pages/purchasing/InboundPipeline'))
 const VendorView = lazy(() => import('@/pages/purchasing/VendorView'))
+const PurchaseOrders = lazy(() => import('@/pages/purchasing/PurchaseOrders'))
+const NewsFeed = lazy(() => import('@/pages/purchasing/NewsFeed'))
 const ExecutiveSummary = lazy(() => import('@/pages/csuite/ExecutiveSummary'))
 const DepartmentOverview = lazy(() => import('@/pages/csuite/DepartmentOverview'))
 const TasksPage = lazy(() => import('@/pages/tasks/TasksPage'))
@@ -129,6 +131,12 @@ export default function App() {
           } />
           <Route path="/purchasing/vendors" element={
             <RoleGuard allow={['admin', 'purchasing']}><VendorView /></RoleGuard>
+          } />
+          <Route path="/purchasing/purchase-orders" element={
+            <RoleGuard allow={['admin', 'purchasing']}><PurchaseOrders /></RoleGuard>
+          } />
+          <Route path="/purchasing/news-feed" element={
+            <RoleGuard allow={['admin', 'purchasing']}><NewsFeed /></RoleGuard>
           } />
 
           <Route path="/executive" element={
