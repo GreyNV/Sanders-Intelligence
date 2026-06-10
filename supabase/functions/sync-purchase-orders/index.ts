@@ -6,6 +6,8 @@ const corsHeaders = {
 }
 
 type JsonRecord = Record<string, unknown>
+const PO_SYNC_KEY = 'sellercloud_purchase_orders'
+const DEFAULT_INITIAL_LOOKBACK_DAYS = 30
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -18,10 +20,11 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
     await requireAdmin(req, supabase)
+    const cursor = await getSyncCursor(supabase, options)
 
     const base = (Deno.env.get('SELLERCLOUD_DELTA_BASE') ?? 'https://snc.api.sellercloud.com/rest').replace(/\/$/, '')
     const token = await getSellerCloudToken(base)
-    const purchaseOrders = await fetchPurchaseOrders(base, token, options)
+    const purchaseOrders = await fetchPurchaseOrders(base, token, options, cursor)
 
     const orderRows = purchaseOrders.map(toPurchaseOrderRow)
     if (orderRows.length > 0) {
@@ -50,7 +53,17 @@ Deno.serve(async (req) => {
       if (error) throw error
     }
 
-    return json({ synced: orderRows.length, items: itemRows.length, itemFailures, durationMs: Date.now() - started })
+    const nextCursor = deriveNextCursor(orderRows, cursor)
+    await saveSyncCursor(supabase, nextCursor)
+
+    return json({
+      synced: orderRows.length,
+      items: itemRows.length,
+      itemFailures,
+      incrementalFrom: cursor,
+      nextCursor,
+      durationMs: Date.now() - started,
+    })
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : 'PO sync failed' }, 500)
   }
@@ -60,6 +73,8 @@ interface SyncOptions {
   includeItems: boolean
   maxPages: number
   pageSize: number
+  fullRefresh: boolean
+  initialLookbackDays: number
 }
 
 async function readSyncOptions(req: Request): Promise<SyncOptions> {
@@ -71,7 +86,41 @@ async function readSyncOptions(req: Request): Promise<SyncOptions> {
     includeItems: body.includeItems !== false,
     maxPages,
     pageSize,
+    fullRefresh: body.fullRefresh === true,
+    initialLookbackDays: clampNumber(body.initialLookbackDays, 1, 365, DEFAULT_INITIAL_LOOKBACK_DAYS),
   }
+}
+
+async function getSyncCursor(
+  supabase: ReturnType<typeof createClient>,
+  options: SyncOptions
+): Promise<string | null> {
+  if (options.fullRefresh) return null
+
+  const { data, error } = await supabase
+    .from('sync_state')
+    .select('cursor_value')
+    .eq('key', PO_SYNC_KEY)
+    .maybeSingle()
+
+  if (error) throw error
+  if (data?.cursor_value) return new Date(String(data.cursor_value)).toISOString()
+
+  const initial = new Date()
+  initial.setDate(initial.getDate() - options.initialLookbackDays)
+  return initial.toISOString()
+}
+
+async function saveSyncCursor(supabase: ReturnType<typeof createClient>, cursor: string) {
+  const { error } = await supabase
+    .from('sync_state')
+    .upsert({
+      key: PO_SYNC_KEY,
+      cursor_value: cursor,
+      last_successful_sync_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'key' })
+  if (error) throw error
 }
 
 async function requireAdmin(req: Request, supabase: ReturnType<typeof createClient>) {
@@ -107,7 +156,12 @@ async function getSellerCloudToken(base: string): Promise<string> {
   return String(token)
 }
 
-async function fetchPurchaseOrders(base: string, token: string, options: SyncOptions): Promise<JsonRecord[]> {
+async function fetchPurchaseOrders(
+  base: string,
+  token: string,
+  options: SyncOptions,
+  updatedOnFrom: string | null
+): Promise<JsonRecord[]> {
   const all: JsonRecord[] = []
   const { pageSize, maxPages } = options
 
@@ -115,6 +169,7 @@ async function fetchPurchaseOrders(base: string, token: string, options: SyncOpt
     const url = new URL(`${base}/api/purchaseorders`)
     url.searchParams.set('pageNumber', String(pageNumber))
     url.searchParams.set('pageSize', String(pageSize))
+    if (updatedOnFrom) url.searchParams.set('updatedOnFrom', updatedOnFrom)
 
     const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
     if (!response.ok) throw new Error(`SellerCloud PO fetch failed (${response.status})`)
@@ -189,6 +244,7 @@ function toPurchaseOrderRow(po: JsonRecord): JsonRecord {
     tracking_numbers: first(po, ['TrackingNumbers', 'trackingNumbers']) ?? null,
     approved: nullableBoolean(first(po, ['PurchaseOrdersApproved', 'Approved', 'approved'])),
     synced_at: new Date().toISOString(),
+    updated_on: nullableDate(first(po, ['UpdatedOn', 'updatedOn', 'UpdatedDate', 'updatedDate', 'LastUpdatedOn', 'lastUpdatedOn'])),
   }
 }
 
@@ -215,6 +271,17 @@ function clampNumber(value: unknown, min: number, max: number, fallback: number)
   const number = Number(value)
   if (!Number.isFinite(number)) return fallback
   return Math.min(max, Math.max(min, Math.floor(number)))
+}
+
+function deriveNextCursor(orderRows: JsonRecord[], fallbackCursor: string | null): string {
+  const newest = orderRows
+    .map(row => nullableDate(row.updated_on))
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1)
+
+  if (newest) return newest
+  return fallbackCursor ?? new Date().toISOString()
 }
 
 function first(record: JsonRecord, keys: string[]): unknown {

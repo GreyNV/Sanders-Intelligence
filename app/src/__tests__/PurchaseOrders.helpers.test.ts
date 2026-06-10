@@ -31,6 +31,7 @@ const baseOrder: PurchaseOrder = {
   memo: 'import container',
   tracking_numbers: null,
   approved: true,
+  updated_on: '2026-06-10T12:30:00Z',
   synced_at: '2026-06-10T13:00:00Z',
 }
 

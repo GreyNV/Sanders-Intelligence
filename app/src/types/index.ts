@@ -178,6 +178,7 @@ export interface PurchaseOrder {
   memo: string | null
   tracking_numbers: Array<Record<string, unknown>> | null
   approved: boolean | null
+  updated_on: string | null
   synced_at: string
 }
 
