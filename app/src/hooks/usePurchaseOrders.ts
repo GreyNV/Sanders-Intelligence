@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { supabase } from '@/lib/supabase'
+import { supabase, supabaseAnonKey, supabaseUrl } from '@/lib/supabase'
 import type { POItem, PurchaseOrder } from '@/types'
 
 const PO_SYNC_TIMEOUT_MS = 120000
@@ -76,9 +76,10 @@ async function invokePurchaseOrderSync(): Promise<{
   const timer = window.setTimeout(() => controller.abort(), PO_SYNC_TIMEOUT_MS)
 
   try {
-    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sync-purchase-orders`, {
+    const response = await fetch(`${supabaseUrl}/functions/v1/sync-purchase-orders`, {
       method: 'POST',
       headers: {
+        apikey: supabaseAnonKey,
         'Content-Type': 'application/json',
         Authorization: `Bearer ${session.access_token}`,
       },
@@ -98,7 +99,7 @@ async function invokePurchaseOrderSync(): Promise<{
       throw new Error('Purchase order sync timed out after 120 seconds. Try again or reduce the SellerCloud PO batch size.')
     }
     if (error instanceof TypeError) {
-      throw new Error('Could not reach the sync-purchase-orders Edge Function. Confirm it is deployed and CORS is allowed.')
+      throw new Error('Could not reach the sync-purchase-orders Edge Function. Confirm it is deployed and reachable from this Supabase project.')
     }
     throw error
   } finally {

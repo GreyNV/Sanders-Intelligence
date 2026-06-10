@@ -4,6 +4,9 @@ const url = import.meta.env.VITE_SUPABASE_URL as string
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string
 const REQUEST_TIMEOUT_MS = 15000
 
+export const supabaseUrl = url
+export const supabaseAnonKey = key
+
 if (!url || !key) {
   throw new Error('Missing Supabase env vars. Copy .env.example to .env and fill in your project credentials.')
 }
