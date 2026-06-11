@@ -25,7 +25,7 @@ export default async function handler(request, response) {
         Authorization: `Bearer ${serviceKey}`,
       },
       body: JSON.stringify({
-        maxPages: 1,
+        maxPages: 4,
         pageSize: 10,
         includeItems: true,
         activeOnly: true,

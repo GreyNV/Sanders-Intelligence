@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/sync-purchase-orders",
-      "schedule": "20 20 * * *"
+      "schedule": "45 20 * * *"
     }
   ],
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
