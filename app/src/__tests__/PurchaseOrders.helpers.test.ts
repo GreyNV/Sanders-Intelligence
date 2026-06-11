@@ -14,13 +14,20 @@ const baseOrder: PurchaseOrder = {
   id: 100,
   purchase_title: 'June Freight PO',
   vendor_id: 44,
+  vendor_name: 'Acme Vendor',
   po_status: 'Ordered',
+  po_status_code: 1,
   payment_status: null,
+  payment_status_code: null,
   shipping_status: null,
+  shipping_status_code: 0,
   receiving_status: 'PartiallyReceived',
+  receiving_status_code: 1,
+  is_active: true,
   date_ordered: '2026-06-10T12:00:00Z',
   expected_delivery_date: '2026-07-01T12:00:00Z',
   created_on: '2026-06-09T12:00:00Z',
+  shipped_on: null,
   grand_total: 2500,
   order_total: 2400,
   tax_total: 0,
@@ -31,6 +38,7 @@ const baseOrder: PurchaseOrder = {
   memo: 'import container',
   tracking_numbers: null,
   approved: true,
+  cancelled_po_id: null,
   updated_on: '2026-06-10T12:30:00Z',
   synced_at: '2026-06-10T13:00:00Z',
 }
@@ -45,8 +53,8 @@ describe('PurchaseOrders.helpers', () => {
 
   it('computes PO line totals and unmatched item counts', () => {
     const items: POItem[] = [
-      { id: 1, po_id: 100, source_sku: 'SC-1', planning_sku: 'SKU-1', product_name: null, qty_units_ordered: 10, qty_units_per_case: null, unit_price: 2.5, case_price: null, discount_type: null, discount_value: null, expected_delivery_date: null },
-      { id: 2, po_id: 100, source_sku: 'SC-2', planning_sku: null, product_name: null, qty_units_ordered: 5, qty_units_per_case: null, unit_price: 3, case_price: null, discount_type: null, discount_value: null, expected_delivery_date: null },
+      { id: 1, po_id: 100, source_sku: 'SC-1', planning_sku: 'SKU-1', product_name: null, qty_units_ordered: 10, qty_units_received: 0, qty_units_open: 10, qty_units_per_case: null, unit_price: 2.5, case_price: null, discount_type: null, discount_value: null, expected_delivery_date: null, receiving_status: null, receiving_status_code: null },
+      { id: 2, po_id: 100, source_sku: 'SC-2', planning_sku: null, product_name: null, qty_units_ordered: 5, qty_units_received: 0, qty_units_open: 5, qty_units_per_case: null, unit_price: 3, case_price: null, discount_type: null, discount_value: null, expected_delivery_date: null, receiving_status: null, receiving_status_code: null },
     ]
 
     expect(poLineTotal(items[0])).toBe(25)

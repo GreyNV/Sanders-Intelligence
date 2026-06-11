@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "audit:sku-bridge": "node scripts/audit-sku-bridge.mjs",
+    "sync:active-pos": "node scripts/sync-active-purchase-orders.mjs",
     "refresh:si-metrics": "node scripts/refresh-si-metrics.mjs",
     "refresh:si-metrics:dry-run": "node scripts/refresh-si-metrics.mjs --dry-run",
     "test:coverage": "vitest run --coverage"

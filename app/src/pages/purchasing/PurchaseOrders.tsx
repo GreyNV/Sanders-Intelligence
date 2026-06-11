@@ -137,7 +137,7 @@ export default function PurchaseOrders() {
       )}
       {syncPOs.isSuccess && (
         <div className="mb-4 rounded-lg border border-success/25 bg-success/10 px-4 py-3 text-sm text-success">
-          Synced {fmtNumber(syncPOs.data.synced)} purchase orders and {fmtNumber(syncPOs.data.items)} line items.
+          Synced {fmtNumber(syncPOs.data.active ?? syncPOs.data.synced)} active purchase orders and {fmtNumber(syncPOs.data.items)} line items.
           {syncPOs.data.itemFailures && syncPOs.data.itemFailures.length > 0
             ? ` ${syncPOs.data.itemFailures.length} PO item refreshes need retry.`
             : ''}
@@ -196,7 +196,7 @@ export default function PurchaseOrders() {
                 <td className="max-w-[260px]">
                   <span className="block truncate" title={order.purchase_title ?? undefined}>{order.purchase_title ?? 'Untitled PO'}</span>
                 </td>
-                <td className="text-xs text-text2">{order.vendor_id ?? '-'}</td>
+                <td className="text-xs text-text2">{order.vendor_name ?? order.vendor_id ?? '-'}</td>
                 <td><Badge variant={poStatusVariant(order.po_status)}>{formatPOStatus(order.po_status)}</Badge></td>
                 <td className="text-xs text-text2">{dateText(order.date_ordered)}</td>
                 <td className="text-xs text-text2">{dateText(order.expected_delivery_date)}</td>
@@ -234,7 +234,7 @@ function PODetailPanel({ order, onClose }: { order: PurchaseOrder | null; onClos
         <div className="space-y-5">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
             <DetailStat label="Status" value={<Badge variant={poStatusVariant(order.po_status)}>{formatPOStatus(order.po_status)}</Badge>} />
-            <DetailStat label="Vendor" value={order.vendor_id ?? '-'} />
+            <DetailStat label="Vendor" value={order.vendor_name ?? order.vendor_id ?? '-'} />
             <DetailStat label="Ordered" value={dateText(order.date_ordered)} />
             <DetailStat label="Expected" value={dateText(order.expected_delivery_date)} />
             <DetailStat label="Grand Total" value={moneyText(order.grand_total)} />
@@ -280,7 +280,9 @@ function POItemsTable({ items }: { items: POItem[] }) {
           <tr>
             <th>SKU</th>
             <th>Product</th>
-            <th>Qty</th>
+            <th>Open Qty</th>
+            <th>Ordered</th>
+            <th>Received</th>
             <th>Unit Price</th>
             <th>Line Total</th>
             <th>Expected</th>
@@ -310,7 +312,9 @@ function POItemsTable({ items }: { items: POItem[] }) {
                 <td className="max-w-[360px]">
                   <span className="block truncate" title={item.product_name ?? undefined}>{item.product_name ?? '-'}</span>
                 </td>
+                <td className="tabular-nums text-right font-semibold">{fmtNumber(item.qty_units_open ?? item.qty_units_ordered ?? 0)}</td>
                 <td className="tabular-nums text-right">{fmtNumber(item.qty_units_ordered ?? 0)}</td>
+                <td className="tabular-nums text-right">{fmtNumber(item.qty_units_received ?? 0)}</td>
                 <td className="tabular-nums text-right">{item.unit_price == null ? '-' : fmtCurrencyFull(item.unit_price)}</td>
                 <td className="tabular-nums text-right">{lineTotal == null ? '-' : fmtCurrencyFull(lineTotal)}</td>
                 <td className="text-xs text-text2">{dateText(item.expected_delivery_date)}</td>

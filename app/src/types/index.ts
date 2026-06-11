@@ -161,13 +161,20 @@ export interface PurchaseOrder {
   id: number
   purchase_title: string | null
   vendor_id: number | null
+  vendor_name: string | null
   po_status: POStatus
+  po_status_code: number | null
   payment_status: string | null
+  payment_status_code: number | null
   shipping_status: string | null
+  shipping_status_code: number | null
   receiving_status: string | null
+  receiving_status_code: number | null
+  is_active: boolean
   date_ordered: string | null
   expected_delivery_date: string | null
   created_on: string | null
+  shipped_on: string | null
   grand_total: number | null
   order_total: number | null
   tax_total: number | null
@@ -178,6 +185,7 @@ export interface PurchaseOrder {
   memo: string | null
   tracking_numbers: Array<Record<string, unknown>> | null
   approved: boolean | null
+  cancelled_po_id: number | null
   updated_on: string | null
   synced_at: string
 }
@@ -189,12 +197,44 @@ export interface POItem {
   planning_sku: string | null
   product_name: string | null
   qty_units_ordered: number | null
+  qty_units_received: number | null
+  qty_units_open: number | null
   qty_units_per_case: number | null
   unit_price: number | null
   case_price: number | null
   discount_type: string | null
   discount_value: number | null
   expected_delivery_date: string | null
+  receiving_status: string | null
+  receiving_status_code: number | null
+}
+
+export interface POInboundItem {
+  id: number
+  po_id: number
+  source_sku: string
+  planning_sku: string | null
+  product_name: string | null
+  qty_units_ordered: number | null
+  qty_units_received: number | null
+  qty_units_open: number | null
+  unit_price: number | null
+  expected_delivery_date: string | null
+  receiving_status: string | null
+  receiving_status_code: number | null
+  purchase_order: Pick<
+    PurchaseOrder,
+    | 'id'
+    | 'vendor_id'
+    | 'vendor_name'
+    | 'po_status'
+    | 'shipping_status'
+    | 'receiving_status'
+    | 'date_ordered'
+    | 'expected_delivery_date'
+    | 'updated_on'
+    | 'is_active'
+  > | null
 }
 
 // News feed

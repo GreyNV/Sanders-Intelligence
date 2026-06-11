@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase, supabaseAnonKey, supabaseUrl } from '@/lib/supabase'
-import type { POItem, PurchaseOrder } from '@/types'
+import type { POInboundItem, POItem, PurchaseOrder } from '@/types'
 
 const PO_SYNC_TIMEOUT_MS = 120000
 
@@ -18,6 +18,7 @@ export function usePurchaseOrders(filters: PurchaseOrderQueryFilters = {}) {
       let query = supabase
         .from('purchase_orders')
         .select('*')
+        .eq('is_active', true)
         .order('date_ordered', { ascending: false, nullsFirst: false })
         .limit(500)
 
@@ -51,6 +52,38 @@ export function usePurchaseOrderItems(poId: number | null) {
   })
 }
 
+export function usePOInboundItems() {
+  return useQuery({
+    queryKey: ['po_inbound_items'],
+    queryFn: async (): Promise<POInboundItem[]> => {
+      const { data, error } = await supabase
+        .from('po_items')
+        .select(`
+          *,
+          purchase_order:purchase_orders!inner(
+            id,
+            vendor_id,
+            vendor_name,
+            po_status,
+            shipping_status,
+            receiving_status,
+            date_ordered,
+            expected_delivery_date,
+            updated_on,
+            is_active
+          )
+        `)
+        .eq('purchase_order.is_active', true)
+        .gt('qty_units_open', 0)
+        .order('expected_delivery_date', { ascending: true, nullsFirst: false })
+
+      if (error) throw error
+      return (data ?? []) as POInboundItem[]
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
 export function useSyncPurchaseOrders() {
   const qc = useQueryClient()
 
@@ -65,6 +98,7 @@ export function useSyncPurchaseOrders() {
 
 async function invokePurchaseOrderSync(): Promise<{
   synced: number
+  active: number
   items: number
   durationMs: number
   itemFailures?: Array<{ poId: number; error: string }>
@@ -83,7 +117,7 @@ async function invokePurchaseOrderSync(): Promise<{
         'Content-Type': 'application/json',
         Authorization: `Bearer ${session.access_token}`,
       },
-      body: JSON.stringify({ maxPages: 2, pageSize: 50, includeItems: true }),
+      body: JSON.stringify({ maxPages: 2, pageSize: 50, includeItems: true, activeOnly: true, useScanCursor: true }),
       signal: controller.signal,
     })
 
@@ -93,7 +127,7 @@ async function invokePurchaseOrderSync(): Promise<{
       throw new Error(message)
     }
 
-    return body as { synced: number; items: number; durationMs: number; itemFailures?: Array<{ poId: number; error: string }> }
+    return body as { synced: number; active: number; items: number; durationMs: number; itemFailures?: Array<{ poId: number; error: string }> }
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw new Error('Purchase order sync timed out after 120 seconds. Try again or reduce the SellerCloud PO batch size.')

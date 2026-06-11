@@ -1,30 +1,30 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useInboundItems, useLatestUploadMeta } from '@/hooks/useInventory'
+import { Link } from 'react-router-dom'
+import { usePOInboundItems } from '@/hooks/usePurchaseOrders'
 import { useSkuMetrics } from '@/hooks/useSkuMetrics'
 import KPICard from '@/components/ui/KPICard'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import StatusMultiSelect from '@/components/ui/StatusMultiSelect'
-import { fmtNumber, fmtCurrency, estimatedArrivalMonth, parseMonthLabel, groupBy } from '@/lib/utils'
-import { downloadCsv, inventoryToExportRows } from '@/lib/exportCsv'
+import { fmtCurrency, fmtNumber, groupBy, parseMonthLabel } from '@/lib/utils'
+import { downloadCsv } from '@/lib/exportCsv'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import {
-  AlertTriangle, ArrowDown, ArrowUp, ChevronsUpDown, Download, Search, Truck,
+  AlertTriangle, ArrowDown, ArrowUp, ChevronsUpDown, Download, ExternalLink, Search, Truck,
 } from 'lucide-react'
-import { InventoryRecord } from '@/types'
+import type { POInboundItem } from '@/types'
 
 type SortDir = 'asc' | 'desc'
 type SortField =
-  | 'product_code'
-  | 'description'
-  | 'brand_name'
-  | 'supplier_description'
-  | 'on_order'
-  | 'lt_days'
-  | 'on_hand'
-  | 'days_on_hand'
-  | 'status'
+  | 'sku'
+  | 'product_name'
+  | 'vendor'
+  | 'qty_units_open'
+  | 'expected_delivery_date'
+  | 'po_id'
+  | 'unit_price'
+  | 'receiving_status'
 
 interface SortState {
   field: SortField
@@ -33,6 +33,7 @@ interface SortState {
 
 const ARRIVAL_FILTERS = [
   { value: 'all', label: 'All arrivals' },
+  { value: 'overdue', label: 'Overdue' },
   { value: 'near', label: '0-30 days' },
   { value: 'mid', label: '31-90 days' },
   { value: 'long', label: '90+ days' },
@@ -62,56 +63,90 @@ function SortableTh({
   )
 }
 
-function sortValue(record: InventoryRecord, field: SortField): string | number {
-  return record[field] ?? ''
+function sku(item: POInboundItem): string {
+  return item.planning_sku || item.source_sku
+}
+
+function vendor(item: POInboundItem): string {
+  return item.purchase_order?.vendor_name || String(item.purchase_order?.vendor_id ?? '-')
+}
+
+function expectedDate(item: POInboundItem): string | null {
+  return item.expected_delivery_date || item.purchase_order?.expected_delivery_date || null
+}
+
+function daysUntil(value: string | null): number | null {
+  if (!value) return null
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const target = new Date(value)
+  target.setHours(0, 0, 0, 0)
+  if (!Number.isFinite(target.getTime())) return null
+  return Math.ceil((target.getTime() - today.getTime()) / 86400000)
+}
+
+function monthLabel(value: string | null): string {
+  if (!value) return 'No ETA'
+  return new Date(value).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+}
+
+function dateText(value: string | null): string {
+  return value ? new Date(value).toLocaleDateString() : '-'
+}
+
+function sortValue(item: POInboundItem, field: SortField): string | number {
+  if (field === 'sku') return sku(item)
+  if (field === 'vendor') return vendor(item)
+  if (field === 'expected_delivery_date') return expectedDate(item) ?? ''
+  if (field === 'receiving_status') return item.receiving_status || item.purchase_order?.receiving_status || ''
+  return item[field] ?? ''
 }
 
 export default function InboundPipeline() {
-  const { data: inbound = [], isLoading, error } = useInboundItems()
-  const { data: latestUpload } = useLatestUploadMeta()
+  const { data: inbound = [], isLoading, error } = usePOInboundItems()
   const { data: skuMetrics } = useSkuMetrics()
-  const etaBaseline = latestUpload?.uploaded_at ?? new Date()
 
   const [search, setSearch] = useState('')
-  const [brand, setBrand] = useState('All')
-  const [vendor, setVendor] = useState('All')
+  const [vendorFilter, setVendorFilter] = useState('All')
   const [statuses, setStatuses] = useState<string[]>([])
   const [arrival, setArrival] = useState<(typeof ARRIVAL_FILTERS)[number]['value']>('all')
-  const [sort, setSort] = useState<SortState>({ field: 'lt_days', dir: 'asc' })
+  const [sort, setSort] = useState<SortState>({ field: 'expected_delivery_date', dir: 'asc' })
   const [page, setPage] = useState(0)
 
-  const brands = useMemo(() =>
-    ['All', ...Array.from(new Set(inbound.map(r => r.brand_name))).filter(Boolean).sort()]
-  , [inbound])
-
   const vendors = useMemo(() =>
-    ['All', ...Array.from(new Set(inbound.map(r => r.supplier_description))).filter(Boolean).sort()]
+    ['All', ...Array.from(new Set(inbound.map(vendor))).filter(Boolean).sort()]
   , [inbound])
 
   const statusOptions = useMemo(() =>
-    Array.from(new Set(inbound.map(r => r.status))).filter(Boolean).sort()
+    Array.from(new Set(inbound.map(item => item.purchase_order?.receiving_status || item.receiving_status || 'Unknown'))).sort()
   , [inbound])
 
   const filteredInbound = useMemo(() => {
     const q = search.trim().toLowerCase()
 
-    return inbound.filter(r => {
-      if (brand !== 'All' && r.brand_name !== brand) return false
-      if (vendor !== 'All' && r.supplier_description !== vendor) return false
-      if (statuses.length > 0 && !statuses.includes(r.status)) return false
-      if (arrival === 'near' && r.lt_days > 30) return false
-      if (arrival === 'mid' && (r.lt_days <= 30 || r.lt_days > 90)) return false
-      if (arrival === 'long' && r.lt_days <= 90) return false
+    return inbound.filter(item => {
+      const itemSku = sku(item)
+      const itemVendor = vendor(item)
+      const status = item.purchase_order?.receiving_status || item.receiving_status || 'Unknown'
+      const dueDays = daysUntil(expectedDate(item))
+
+      if (vendorFilter !== 'All' && itemVendor !== vendorFilter) return false
+      if (statuses.length > 0 && !statuses.includes(status)) return false
+      if (arrival === 'overdue' && (dueDays == null || dueDays >= 0)) return false
+      if (arrival === 'near' && (dueDays == null || dueDays < 0 || dueDays > 30)) return false
+      if (arrival === 'mid' && (dueDays == null || dueDays <= 30 || dueDays > 90)) return false
+      if (arrival === 'long' && (dueDays == null || dueDays <= 90)) return false
 
       if (!q) return true
       return (
-        r.product_code.toLowerCase().includes(q) ||
-        r.description.toLowerCase().includes(q) ||
-        r.brand_name.toLowerCase().includes(q) ||
-        r.supplier_description.toLowerCase().includes(q)
+        itemSku.toLowerCase().includes(q) ||
+        item.source_sku.toLowerCase().includes(q) ||
+        String(item.po_id).includes(q) ||
+        (item.product_name ?? '').toLowerCase().includes(q) ||
+        itemVendor.toLowerCase().includes(q)
       )
     })
-  }, [inbound, search, brand, vendor, statuses, arrival])
+  }, [inbound, search, vendorFilter, statuses, arrival])
 
   const sortedInbound = useMemo(() => {
     return [...filteredInbound].sort((a, b) => {
@@ -130,64 +165,68 @@ export default function InboundPipeline() {
 
   useEffect(() => {
     setPage(0)
-  }, [search, brand, vendor, statuses, arrival])
+  }, [search, vendorFilter, statuses, arrival])
 
-  const totalUnitsOnOrder = filteredInbound.reduce((s, r) => s + r.on_order, 0)
-  const totalOrderValue = filteredInbound.reduce((s, r) => s + r.cost_price * r.on_order, 0)
+  const totalUnitsOpen = filteredInbound.reduce((sum, item) => sum + Number(item.qty_units_open ?? 0), 0)
+  const totalOrderValue = filteredInbound.reduce((sum, item) => sum + Number(item.qty_units_open ?? 0) * Number(item.unit_price ?? 0), 0)
+  const overdueUnits = filteredInbound
+    .filter(item => {
+      const dueDays = daysUntil(expectedDate(item))
+      return dueDays != null && dueDays < 0
+    })
+    .reduce((sum, item) => sum + Number(item.qty_units_open ?? 0), 0)
 
   const byMonth = useMemo(() => {
-    const grouped = groupBy(filteredInbound, r => estimatedArrivalMonth(r.lt_days, etaBaseline))
-    const raw = Object.entries(grouped)
+    const grouped = groupBy(filteredInbound, item => monthLabel(expectedDate(item)))
+    return Object.entries(grouped)
       .map(([month, items]) => ({
         month,
-        units: items.reduce((s, r) => s + r.on_order, 0),
-        skus: items.length,
+        units: items.reduce((sum, item) => sum + Number(item.qty_units_open ?? 0), 0),
+        skus: new Set(items.map(sku)).size,
       }))
-      .sort((a, b) => parseMonthLabel(a.month) - parseMonthLabel(b.month))
+      .sort((a, b) => {
+        if (a.month === 'No ETA') return 1
+        if (b.month === 'No ETA') return -1
+        return parseMonthLabel(a.month) - parseMonthLabel(b.month)
+      })
+  }, [filteredInbound])
 
-    // Fill in every calendar month between first and last so the x-axis has no gaps
-    if (raw.length < 2) return raw
-    const dataMap = new Map(raw.map(r => [r.month, r]))
-    const filled: typeof raw = []
-    const cursor = new Date(parseMonthLabel(raw[0].month))
-    const endTs  = parseMonthLabel(raw[raw.length - 1].month)
-    while (cursor.getTime() <= endTs) {
-      const label = cursor.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-      filled.push(dataMap.get(label) ?? { month: label, units: 0, skus: 0 })
-      cursor.setMonth(cursor.getMonth() + 1)
-    }
-    return filled
-  }, [filteredInbound, etaBaseline])
-
-  const nearTerm = filteredInbound.filter(r => r.lt_days <= 30).reduce((s, r) => s + r.on_order, 0)
-  const midTerm = filteredInbound.filter(r => r.lt_days > 30 && r.lt_days <= 90).reduce((s, r) => s + r.on_order, 0)
   const totalPages = Math.ceil(sortedInbound.length / PAGE_SIZE)
   const pagedInbound = sortedInbound.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
   function toggleSort(field: SortField) {
-    setSort(s => s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' })
+    setSort(current => current.field === field ? { field, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' })
   }
 
   function clearFilters() {
     setSearch('')
-    setBrand('All')
-    setVendor('All')
+    setVendorFilter('All')
     setStatuses([])
     setArrival('all')
   }
 
-  function MetricCurrency({ value }: { value: number | null | undefined }) {
-    if (value == null || !Number.isFinite(value)) return <span className="text-text2">-</span>
-    return <span className={value < 0 ? 'text-danger' : ''}>{fmtCurrency(value)}</span>
-  }
-
   function handleExport() {
-    const rows = inventoryToExportRows(sortedInbound)
+    const rows = sortedInbound.map(item => ({
+      'PO': item.po_id,
+      'SKU': sku(item),
+      'Source SKU': item.source_sku,
+      'Product': item.product_name,
+      'Vendor': vendor(item),
+      'Open Qty': item.qty_units_open,
+      'Ordered Qty': item.qty_units_ordered,
+      'Received Qty': item.qty_units_received,
+      'Unit Price': item.unit_price,
+      'Open Value': Number(item.qty_units_open ?? 0) * Number(item.unit_price ?? 0),
+      'Expected Delivery': expectedDate(item),
+      'PO Status': item.purchase_order?.po_status,
+      'Shipping': item.purchase_order?.shipping_status,
+      'Receiving': item.purchase_order?.receiving_status || item.receiving_status,
+    }))
     const date = new Date().toISOString().slice(0, 10)
-    downloadCsv(rows, `inbound_pipeline_${date}.csv`)
+    downloadCsv(rows, `sellercloud_inbound_${date}`)
   }
 
-  const hasFilters = !!search || brand !== 'All' || vendor !== 'All' || statuses.length > 0 || arrival !== 'all'
+  const hasFilters = !!search || vendorFilter !== 'All' || statuses.length > 0 || arrival !== 'all'
 
   if (isLoading) return <PageLoader />
   if (error) return (
@@ -206,28 +245,28 @@ export default function InboundPipeline() {
             <Truck size={20} className="text-accent" /> Inbound Pipeline
           </h1>
           <p className="text-text2 text-sm mt-0.5">
-            Open purchase orders - arrival estimated from lead time days
+            Active SellerCloud purchase order lines with open units.
           </p>
         </div>
         <button
           onClick={handleExport}
           disabled={sortedInbound.length === 0}
           className="btn-secondary text-xs flex items-center gap-1.5"
-          title="Export filtered inbound rows for Excel"
+          title="Export filtered SellerCloud inbound rows for Excel"
         >
           <Download size={13} /> Export Excel
         </button>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <KPICard label="SKUs On Order" value={fmtNumber(filteredInbound.length)} sub={`${fmtNumber(inbound.length)} total`} />
-        <KPICard label="Units On Order" value={fmtNumber(totalUnitsOnOrder)} sub="filtered units" variant="info" />
-        <KPICard label="Arriving <= 30d" value={fmtNumber(nearTerm)} sub="units near-term" variant="success" />
-        <KPICard label="Arriving 31-90d" value={fmtNumber(midTerm)} sub="units mid-term" />
+        <KPICard label="Open PO Lines" value={fmtNumber(filteredInbound.length)} sub={`${fmtNumber(inbound.length)} total`} />
+        <KPICard label="Open Units" value={fmtNumber(totalUnitsOpen)} sub="filtered units" variant="info" />
+        <KPICard label="Overdue Units" value={fmtNumber(overdueUnits)} sub="past expected date" variant={overdueUnits > 0 ? 'warning' : 'success'} />
+        <KPICard label="Open Value" value={fmtCurrency(totalOrderValue)} sub="qty open x unit cost" />
       </div>
 
       <div className="card mb-6">
-        <h3 className="text-[13px] font-semibold mb-4">Units by Estimated Arrival Month</h3>
+        <h3 className="text-[13px] font-semibold mb-4">Open Units by Expected Delivery Month</h3>
         {byMonth.length === 0 ? (
           <div className="text-center py-10 text-text2">No inbound items match the current filters</div>
         ) : (
@@ -235,12 +274,12 @@ export default function InboundPipeline() {
             <BarChart data={byMonth} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#2e3250" />
               <XAxis dataKey="month" tick={{ fill: '#8890b5', fontSize: 11 }} />
-              <YAxis tick={{ fill: '#8890b5', fontSize: 11 }} tickFormatter={v => fmtNumber(v)} />
+              <YAxis tick={{ fill: '#8890b5', fontSize: 11 }} tickFormatter={value => fmtNumber(value)} />
               <Tooltip
                 contentStyle={{ background: '#1a1d27', border: '1px solid #2e3250', borderRadius: 8 }}
                 labelStyle={{ color: '#e8eaf6', fontWeight: 600 }}
                 itemStyle={{ color: '#8890b5' }}
-                formatter={(v: number) => [fmtNumber(v), 'Units']}
+                formatter={(value: number) => [fmtNumber(value), 'Open Units']}
               />
               <Bar dataKey="units" fill="#6c8aff" radius={[4, 4, 0, 0]} />
             </BarChart>
@@ -253,28 +292,21 @@ export default function InboundPipeline() {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text2" />
           <input
             className="input w-full pl-8 text-sm"
-            placeholder="Search SKU, vendor, brand..."
+            placeholder="Search SKU, PO, vendor..."
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={event => setSearch(event.target.value)}
           />
         </div>
-        <select className="select text-sm" value={brand} onChange={e => setBrand(e.target.value)}>
-          {brands.map(b => <option key={b} value={b}>{b === 'All' ? 'All brands' : b}</option>)}
-        </select>
-        <select className="select text-sm" value={vendor} onChange={e => setVendor(e.target.value)}>
-          {vendors.map(v => <option key={v} value={v}>{v === 'All' ? 'All vendors' : v}</option>)}
+        <select className="select text-sm" value={vendorFilter} onChange={event => setVendorFilter(event.target.value)}>
+          {vendors.map(value => <option key={value} value={value}>{value === 'All' ? 'All vendors' : value}</option>)}
         </select>
         <StatusMultiSelect options={statusOptions} selected={statuses} onChange={setStatuses} />
-        <select className="select text-sm" value={arrival} onChange={e => setArrival(e.target.value as typeof arrival)}>
-          {ARRIVAL_FILTERS.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
+        <select className="select text-sm" value={arrival} onChange={event => setArrival(event.target.value as typeof arrival)}>
+          {ARRIVAL_FILTERS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
-        {hasFilters && (
-          <button onClick={clearFilters} className="btn-ghost text-xs text-danger">
-            Clear filters
-          </button>
-        )}
+        {hasFilters && <button onClick={clearFilters} className="btn-ghost text-xs text-danger">Clear filters</button>}
         <span className="ml-auto text-xs text-text2">
-          {fmtNumber(sortedInbound.length)} SKU{sortedInbound.length !== 1 ? 's' : ''} - {fmtCurrency(totalOrderValue)} est. value
+          {fmtNumber(sortedInbound.length)} line{sortedInbound.length === 1 ? '' : 's'} - {fmtCurrency(totalOrderValue)} open value
         </span>
       </div>
 
@@ -282,60 +314,58 @@ export default function InboundPipeline() {
         <table className="tbl">
           <thead>
             <tr>
-              <SortableTh field="product_code" label="SKU" sort={sort} onSort={toggleSort} />
-              <SortableTh field="description" label="Description" sort={sort} onSort={toggleSort} />
-              <SortableTh field="brand_name" label="Brand" sort={sort} onSort={toggleSort} />
-              <SortableTh field="supplier_description" label="Vendor" sort={sort} onSort={toggleSort} />
-              <SortableTh field="on_order" label="On Order" sort={sort} onSort={toggleSort} className="text-right" />
-              <SortableTh field="lt_days" label="Lead Time" sort={sort} onSort={toggleSort} className="text-right" />
-              <th>Est. Arrival</th>
-              <SortableTh field="on_hand" label="On Hand" sort={sort} onSort={toggleSort} className="text-right" />
-              <SortableTh field="days_on_hand" label="Days OH" sort={sort} onSort={toggleSort} className="text-right" />
-              <th>Sell Price</th>
-              <th>Profit Today</th>
-              <th>Profit 7d</th>
-              <th>Profit 30d</th>
-              <SortableTh field="status" label="Status" sort={sort} onSort={toggleSort} />
+              <SortableTh field="po_id" label="PO" sort={sort} onSort={toggleSort} />
+              <SortableTh field="sku" label="SKU" sort={sort} onSort={toggleSort} />
+              <SortableTh field="product_name" label="Product" sort={sort} onSort={toggleSort} />
+              <SortableTh field="vendor" label="Vendor" sort={sort} onSort={toggleSort} />
+              <SortableTh field="qty_units_open" label="Open Qty" sort={sort} onSort={toggleSort} className="text-right" />
+              <th className="text-right">Ordered</th>
+              <th className="text-right">Received</th>
+              <SortableTh field="expected_delivery_date" label="Expected" sort={sort} onSort={toggleSort} />
+              <SortableTh field="unit_price" label="Unit Cost" sort={sort} onSort={toggleSort} className="text-right" />
+              <th className="text-right">Open Value</th>
+              <SortableTh field="receiving_status" label="Receiving" sort={sort} onSort={toggleSort} />
+              <th>SKU Link</th>
             </tr>
           </thead>
           <tbody>
             {sortedInbound.length === 0 ? (
-              <tr><td colSpan={14} className="py-10 text-center text-text2">No inbound items match the current filters</td></tr>
+              <tr><td colSpan={12} className="py-10 text-center text-text2">No SellerCloud inbound items match the current filters</td></tr>
             ) : (
-              pagedInbound.map(r => {
-                const profit = skuMetrics?.profitBySku.get(r.product_code)
-                const price = skuMetrics?.priceBySku.get(r.product_code)
+              pagedInbound.map(item => {
+                const itemSku = sku(item)
+                const metricsKey = item.planning_sku || item.source_sku
+                const price = skuMetrics?.priceBySku.get(metricsKey)
+                const openValue = Number(item.qty_units_open ?? 0) * Number(item.unit_price ?? 0)
 
                 return (
-                  <tr key={r.id}>
-                    <td className="font-mono text-[11px] text-accent">{r.product_code}</td>
-                    <td className="max-w-[260px]">
-                      <span className="block truncate" title={r.description}>{r.description}</span>
+                  <tr key={item.id}>
+                    <td className="font-mono text-[11px] text-accent">#{item.po_id}</td>
+                    <td className="font-mono text-[11px]">{itemSku}</td>
+                    <td className="max-w-[300px]">
+                      <span className="block truncate" title={item.product_name ?? undefined}>{item.product_name ?? '-'}</span>
                     </td>
-                    <td className="text-xs text-text2">{r.brand_name}</td>
                     <td className="max-w-[220px]">
-                      <span className="block truncate text-xs text-text2" title={r.supplier_description}>{r.supplier_description}</span>
+                      <span className="block truncate text-xs text-text2" title={vendor(item)}>{vendor(item)}</span>
                     </td>
-                    <td className="tabular-nums font-semibold text-right">{fmtNumber(r.on_order)}</td>
-                    <td className="tabular-nums text-text2 text-right">{r.lt_days}d</td>
-                    <td className="text-xs">{estimatedArrivalMonth(r.lt_days, etaBaseline)}</td>
-                    <td className="tabular-nums text-right">{fmtNumber(r.on_hand)}</td>
-                    <td className="tabular-nums text-right">{r.days_on_hand}d</td>
-                    <td className="tabular-nums" title={price?.price_source ?? undefined}>
-                      <MetricCurrency value={price?.selling_price} />
-                    </td>
-                    <td className="tabular-nums"><MetricCurrency value={profit?.accrual_profit_today} /></td>
-                    <td className="tabular-nums"><MetricCurrency value={profit?.accrual_profit_7d} /></td>
-                    <td className="tabular-nums"><MetricCurrency value={profit?.accrual_profit_30d} /></td>
-                    <td className="text-xs">
-                      <span className={
-                        r.status === 'Potential s/o' || r.status === 'Stocked out' ? 'text-danger font-semibold' :
-                        r.status === 'Ok' ? 'text-success' :
-                        r.status === 'Excess stock' || r.status === 'Surplus orders' ? 'text-accent' :
-                        'text-text2'
-                      }>
-                        {r.status}
-                      </span>
+                    <td className="tabular-nums font-semibold text-right">{fmtNumber(item.qty_units_open ?? 0)}</td>
+                    <td className="tabular-nums text-right">{fmtNumber(item.qty_units_ordered ?? 0)}</td>
+                    <td className="tabular-nums text-right">{fmtNumber(item.qty_units_received ?? 0)}</td>
+                    <td className="text-xs">{dateText(expectedDate(item))}</td>
+                    <td className="tabular-nums text-right" title={price?.price_source ?? undefined}>{fmtCurrency(item.unit_price ?? 0)}</td>
+                    <td className="tabular-nums text-right">{fmtCurrency(openValue)}</td>
+                    <td className="text-xs text-text2">{item.purchase_order?.receiving_status || item.receiving_status || '-'}</td>
+                    <td>
+                      {item.planning_sku ? (
+                        <Link
+                          to={`/purchasing/inventory?search=${encodeURIComponent(item.planning_sku)}`}
+                          className="font-mono text-[11px] text-accent hover:underline inline-flex items-center gap-1"
+                        >
+                          Inventory <ExternalLink size={10} />
+                        </Link>
+                      ) : (
+                        <span className="text-[11px] text-warning">Unmatched</span>
+                      )}
                     </td>
                   </tr>
                 )
@@ -349,8 +379,8 @@ export default function InboundPipeline() {
         <div className="flex items-center justify-between mt-3 text-xs text-text2">
           <span>Page {page + 1} of {totalPages} - {fmtNumber(sortedInbound.length)} results</span>
           <div className="flex gap-2">
-            <button className="btn-secondary py-1 px-3 text-xs" disabled={page === 0} onClick={() => setPage(p => p - 1)}>Prev</button>
-            <button className="btn-secondary py-1 px-3 text-xs" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Next</button>
+            <button className="btn-secondary py-1 px-3 text-xs" disabled={page === 0} onClick={() => setPage(current => current - 1)}>Prev</button>
+            <button className="btn-secondary py-1 px-3 text-xs" disabled={page >= totalPages - 1} onClick={() => setPage(current => current + 1)}>Next</button>
           </div>
         </div>
       )}
