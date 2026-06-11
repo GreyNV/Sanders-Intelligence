@@ -6,6 +6,7 @@ const SC_ENV_PATH = process.env.SC_ENV_PATH || 'D:/Sanders/purchasing-automation
 const APP_ENV_PATH = process.env.APP_ENV_PATH || resolve(process.cwd(), '.env.vercel.local')
 const PAGE_SIZE = Number(process.env.SC_PO_PAGE_SIZE || 50)
 const ITEM_CONCURRENCY = Number(process.env.SC_PO_ITEM_CONCURRENCY || 4)
+const ACTIVE_PO_STATUS = 1
 
 function loadEnv(path) {
   const env = {}
@@ -64,8 +65,14 @@ function nullableBoolean(value) {
 
 function nullableDate(value) {
   if (value == null || value === '') return null
-  const date = new Date(String(value))
+  const text = String(value)
+  const normalized = hasTimeZone(text) ? text : `${text}Z`
+  const date = new Date(normalized)
   return Number.isFinite(date.getTime()) && date.getUTCFullYear() > 1901 ? date.toISOString() : null
+}
+
+function hasTimeZone(value) {
+  return /(?:z|[+-]\d{2}:?\d{2})$/i.test(value)
 }
 
 function statusText(code, labels, fallback) {
@@ -209,8 +216,25 @@ async function upsertInBatches(table, data, onConflict, batchSize = 500) {
   }
 }
 
+async function deleteInBatches(table, column, values, batchSize = 200) {
+  for (let index = 0; index < values.length; index += batchSize) {
+    const chunk = values.slice(index, index + batchSize)
+    const { error } = await supabase.from(table).delete().in(column, chunk)
+    if (error) throw error
+  }
+}
+
 function uniqueById(rows) {
   return Array.from(new Map(rows.map(row => [row.id, row])).values())
+}
+
+function maxIsoDate(values) {
+  return values
+    .filter(Boolean)
+    .map(nullableDate)
+    .filter(Boolean)
+    .sort()
+    .at(-1) || null
 }
 
 async function mapLimit(values, limit, mapper) {
@@ -235,7 +259,12 @@ async function main() {
   let totalResults = 0
 
   for (let page = 1; page < 10000; page += 1) {
-    const body = await scGet(`/api/PurchaseOrders?pageNumber=${page}&pageSize=${PAGE_SIZE}`, token)
+    const params = new URLSearchParams({
+      'model.pOStatuses': String(ACTIVE_PO_STATUS),
+      'model.pageNumber': String(page),
+      'model.pageSize': String(PAGE_SIZE),
+    })
+    const body = await scGet(`/api/PurchaseOrders?${params}`, token)
     const pageRows = rows(body)
     totalResults = Number(body.TotalResults || body.TotalCount || totalResults)
     headers.push(...pageRows)
@@ -247,7 +276,16 @@ async function main() {
 
   const orderRows = uniqueById(headers.map(toPurchaseOrderRow).filter(row => Number.isFinite(row.id)))
   const activeRows = orderRows.filter(row => row.is_active)
-  await upsertInBatches('purchase_orders', orderRows, 'id')
+  const activeIds = activeRows.map(row => row.id)
+
+  const { error: deactivateError } = await supabase
+    .from('purchase_orders')
+    .update({ is_active: false, synced_at: new Date().toISOString() })
+    .neq('is_active', false)
+  if (deactivateError) throw deactivateError
+
+  await upsertInBatches('purchase_orders', activeRows, 'id')
+  if (activeIds.length > 0) await deleteInBatches('po_items', 'po_id', activeIds)
   console.log(JSON.stringify({ phase: 'orders_upserted', headers: orderRows.length, active: activeRows.length }))
 
   const itemResults = await mapLimit(activeRows, ITEM_CONCURRENCY, async (order, index) => {
@@ -269,11 +307,17 @@ async function main() {
   await upsertInBatches('po_items', itemRows, 'id')
   const failures = itemResults.filter(result => result.error)
 
-  const newestCursor = orderRows
-    .map(row => row.updated_on)
-    .filter(Boolean)
-    .sort()
-    .at(-1) || new Date().toISOString()
+  const existingState = await supabase
+    .from('sync_state')
+    .select('cursor_value')
+    .eq('key', PO_SYNC_KEY)
+    .maybeSingle()
+  if (existingState.error) throw existingState.error
+
+  const newestCursor = maxIsoDate([
+    existingState.data?.cursor_value,
+    ...orderRows.map(row => row.updated_on),
+  ]) || new Date().toISOString()
   await supabase.from('sync_state').upsert({
     key: PO_SYNC_KEY,
     cursor_value: newestCursor,

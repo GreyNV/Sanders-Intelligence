@@ -466,8 +466,14 @@ function nullableBoolean(value: unknown): boolean | null {
 
 function nullableDate(value: unknown): string | null {
   if (value == null || value === '') return null
-  const date = new Date(String(value))
+  const text = String(value)
+  const normalized = hasTimeZone(text) ? text : `${text}Z`
+  const date = new Date(normalized)
   return Number.isFinite(date.getTime()) ? date.toISOString() : null
+}
+
+function hasTimeZone(value: string): boolean {
+  return /(?:z|[+-]\d{2}:?\d{2})$/i.test(value)
 }
 
 function json(body: unknown, status = 200) {
