@@ -1,4 +1,17 @@
-export const DEFAULT_NEWS_QUERY = '(logistics OR freight OR shipping OR port OR imports OR exports OR supply chain)'
+export const DEFAULT_NEWS_QUERY = '("supply chain" OR "container shipping" OR "freight rates" OR "port congestion" OR "customs clearance" OR "ocean freight")'
+const LOGISTICS_PATTERNS = [
+  /ocean freight/i,
+  /container shipping/i,
+  /freight rate/i,
+  /port congestion/i,
+  /customs clearance/i,
+  /\bimport logistics\b/i,
+  /\bexport logistics\b/i,
+  /\blogistics\b/i,
+  /\bshipping\b/i,
+  /\bfreight\b/i,
+  /\bports?\b/i,
+]
 
 export interface GdeltArticle {
   url?: string
@@ -40,6 +53,8 @@ export function normalizeGdeltArticles(
   return articles.flatMap(article => {
     if (!article.url || !article.title) return []
     if (seen.has(article.url)) return []
+    const searchable = `${article.title} ${article.domain ?? ''}`
+    if (!LOGISTICS_PATTERNS.some(pattern => pattern.test(searchable))) return []
     seen.add(article.url)
 
     return [{

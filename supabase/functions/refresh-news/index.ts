@@ -4,7 +4,21 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
-const DEFAULT_QUERY = '(logistics OR freight OR shipping OR port OR imports OR exports OR supply chain)'
+const DEFAULT_QUERY = '("supply chain" OR "container shipping" OR "freight rates" OR "port congestion" OR "customs clearance" OR "ocean freight")'
+const GDELT_RATE_LIMIT_WAIT_MS = 6500
+const LOGISTICS_PATTERNS = [
+  /ocean freight/i,
+  /container shipping/i,
+  /freight rate/i,
+  /port congestion/i,
+  /customs clearance/i,
+  /\bimport logistics\b/i,
+  /\bexport logistics\b/i,
+  /\blogistics\b/i,
+  /\bshipping\b/i,
+  /\bfreight\b/i,
+  /\bports?\b/i,
+]
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -15,20 +29,19 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
-    await requireAdmin(req, supabase)
+    await requireAdminOrService(req, supabase)
 
-    const url = new URL('https://api.gdeltproject.org/api/v2/doc/doc')
-    url.searchParams.set('query', DEFAULT_QUERY)
-    url.searchParams.set('mode', 'artlist')
-    url.searchParams.set('format', 'json')
-    url.searchParams.set('sort', 'datedesc')
-    url.searchParams.set('maxrecords', '25')
-
-    const response = await fetch(url)
+    const response = await fetchGdeltWithRetry(buildGdeltUrl())
+    if (response.status === 429) {
+      return json({ synced: 0, rateLimited: true, durationMs: Date.now() - started })
+    }
     if (!response.ok) throw new Error(`GDELT refresh failed (${response.status})`)
     const body = await response.json()
     const articles = Array.isArray(body.articles) ? body.articles : []
     const rows = normalizeArticles(articles)
+
+    const deleteOld = await supabase.from('news_items').delete().eq('provider', 'gdelt')
+    if (deleteOld.error) throw deleteOld.error
 
     if (rows.length > 0) {
       const { error } = await supabase.from('news_items').upsert(rows, { onConflict: 'id' })
@@ -41,9 +54,30 @@ Deno.serve(async (req) => {
   }
 })
 
-async function requireAdmin(req: Request, supabase: ReturnType<typeof createClient>) {
+function buildGdeltUrl(): URL {
+  const url = new URL('https://api.gdeltproject.org/api/v2/doc/doc')
+  url.searchParams.set('query', DEFAULT_QUERY)
+  url.searchParams.set('mode', 'artlist')
+  url.searchParams.set('format', 'json')
+  url.searchParams.set('sort', 'datedesc')
+  url.searchParams.set('maxrecords', '25')
+  url.searchParams.set('timespan', '7d')
+  return url
+}
+
+async function fetchGdeltWithRetry(url: URL): Promise<Response> {
+  const first = await fetch(url)
+  if (first.status !== 429) return first
+  await new Promise(resolve => setTimeout(resolve, GDELT_RATE_LIMIT_WAIT_MS))
+  return fetch(url)
+}
+
+async function requireAdminOrService(req: Request, supabase: ReturnType<typeof createClient>) {
   const token = req.headers.get('Authorization')?.replace('Bearer ', '')
   if (!token) throw new Error('Missing bearer token')
+
+  if (token === Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')) return
+  if (jwtRole(token) === 'service_role') return
 
   const { data: authData, error: authError } = await supabase.auth.getUser(token)
   if (authError || !authData.user) throw new Error('Invalid bearer token')
@@ -57,12 +91,26 @@ async function requireAdmin(req: Request, supabase: ReturnType<typeof createClie
   if (!profile?.is_active || profile.role !== 'admin') throw new Error('Admin role required')
 }
 
+function jwtRole(token: string): string | null {
+  try {
+    const payload = token.split('.')[1]
+    if (!payload) return null
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const parsed = JSON.parse(atob(normalized))
+    return typeof parsed.role === 'string' ? parsed.role : null
+  } catch {
+    return null
+  }
+}
+
 function normalizeArticles(articles: Array<Record<string, unknown>>) {
   const seen = new Set<string>()
   return articles.flatMap(article => {
     const url = String(article.url ?? '')
     const title = String(article.title ?? '')
     if (!url || !title || seen.has(url)) return []
+    const searchable = `${title} ${article.domain ?? ''}`
+    if (!LOGISTICS_PATTERNS.some(pattern => pattern.test(searchable))) return []
     seen.add(url)
 
     return [{
