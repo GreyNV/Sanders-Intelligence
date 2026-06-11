@@ -41,7 +41,7 @@ begin
       'Authorization', 'Bearer ' || service_role_key
     ),
     body := jsonb_build_object(
-      'maxPages', 4,
+      'maxPages', 1,
       'pageSize', 10,
       'includeItems', true,
       'activeOnly', true
