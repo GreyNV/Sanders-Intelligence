@@ -9,6 +9,7 @@ type JsonRecord = Record<string, unknown>
 const PO_SYNC_KEY = 'sellercloud_purchase_orders'
 const DEFAULT_INITIAL_LOOKBACK_DAYS = 30
 const DEFAULT_SCAN_PAGES = 2
+const CURSOR_OVERLAP_MINUTES = 5
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -25,7 +26,7 @@ Deno.serve(async (req) => {
 
     const base = (Deno.env.get('SELLERCLOUD_DELTA_BASE') ?? 'https://snc.api.sellercloud.com/rest').replace(/\/$/, '')
     const token = await getSellerCloudToken(base)
-    const { rows: purchaseOrders, totalResults, pagesFetched } = await fetchPurchaseOrders(base, token, options, syncState.startPage, syncState.cursor)
+    const { rows: purchaseOrders, totalResults, pagesFetched } = await fetchPurchaseOrders(base, token, options, syncState.startPage, syncState.queryCursor)
 
     const orderRows = uniqueRowsById(purchaseOrders.map(toPurchaseOrderRow))
     if (orderRows.length > 0) {
@@ -58,11 +59,23 @@ Deno.serve(async (req) => {
       if (error) throw error
     }
 
-    const nextCursor = deriveNextCursor(orderRows, syncState.cursor)
+    const nextPage = deriveNextPage(syncState.startPage, pagesFetched, totalResults, options.pageSize)
+    const observedCursor = maxIsoDate([
+      syncState.observedCursor,
+      newestCursor(orderRows),
+      syncState.storedCursor,
+    ])
+    const isCompleteBatch = nextPage === 1
+    const nextCursor = isCompleteBatch
+      ? observedCursor ?? syncState.storedCursor ?? new Date().toISOString()
+      : syncState.storedCursor ?? observedCursor ?? new Date().toISOString()
     await saveSyncState(supabase, nextCursor, {
-      nextPage: deriveNextPage(syncState.startPage, pagesFetched, totalResults, options.pageSize),
       totalResults,
+      nextPage,
       lastPagesFetched: pagesFetched,
+      pendingIncremental: !isCompleteBatch,
+      queryCursor: syncState.queryCursor,
+      observedCursor,
     })
 
     return json({
@@ -70,11 +83,13 @@ Deno.serve(async (req) => {
       active: activePurchaseOrders.length,
       items: itemRows.length,
       itemFailures,
-      incrementalFrom: syncState.cursor,
+      incrementalFrom: syncState.queryCursor,
       nextCursor,
+      syncMode: syncState.queryCursor ? 'incremental_updated_on' : 'baseline_scan',
       startPage: syncState.startPage,
-      nextPage: deriveNextPage(syncState.startPage, pagesFetched, totalResults, options.pageSize),
+      nextPage,
       totalResults,
+      complete: isCompleteBatch,
       durationMs: Date.now() - started,
     })
   } catch (error) {
@@ -113,8 +128,8 @@ async function readSyncOptions(req: Request): Promise<SyncOptions> {
 async function getSyncState(
   supabase: ReturnType<typeof createClient>,
   options: SyncOptions
-): Promise<{ cursor: string | null; startPage: number }> {
-  if (options.fullRefresh) return { cursor: null, startPage: options.startPage ?? 1 }
+): Promise<{ queryCursor: string | null; storedCursor: string | null; observedCursor: string | null; startPage: number }> {
+  if (options.fullRefresh) return { queryCursor: null, storedCursor: null, observedCursor: null, startPage: options.startPage ?? 1 }
 
   const { data, error } = await supabase
     .from('sync_state')
@@ -124,13 +139,21 @@ async function getSyncState(
 
   if (error) throw error
   const state = isRecord(data?.state) ? data.state : {}
-  const startPage = options.startPage
-    ?? (options.useScanCursor ? clampNumber(state.nextPage, 1, 10000, 1) : 1)
-  if (data?.cursor_value) return { cursor: new Date(String(data.cursor_value)).toISOString(), startPage }
+  if (data?.cursor_value) {
+    const storedCursor = new Date(String(data.cursor_value)).toISOString()
+    const pendingIncremental = state.pendingIncremental === true || Number(state.nextPage) > 1
+    return {
+      queryCursor: withCursorOverlap(storedCursor),
+      storedCursor,
+      observedCursor: nullableDate(state.observedCursor),
+      startPage: options.startPage ?? (pendingIncremental ? clampNumber(state.nextPage, 1, 10000, 1) : 1),
+    }
+  }
 
   const initial = new Date()
   initial.setDate(initial.getDate() - options.initialLookbackDays)
-  return { cursor: initial.toISOString(), startPage }
+  const initialCursor = initial.toISOString()
+  return { queryCursor: initialCursor, storedCursor: initialCursor, observedCursor: initialCursor, startPage: options.startPage ?? 1 }
 }
 
 async function saveSyncState(supabase: ReturnType<typeof createClient>, cursor: string, state: JsonRecord) {
@@ -198,9 +221,9 @@ async function fetchPurchaseOrders(
   for (let offset = 0; offset < maxPages; offset += 1) {
     const pageNumber = startPage + offset
     const url = new URL(`${base}/api/PurchaseOrders`)
-    url.searchParams.set('pageNumber', String(pageNumber))
-    url.searchParams.set('pageSize', String(pageSize))
-    if (updatedOnFrom) url.searchParams.set('updatedOnFrom', updatedOnFrom)
+    url.searchParams.set('model.pageNumber', String(pageNumber))
+    url.searchParams.set('model.pageSize', String(pageSize))
+    if (updatedOnFrom) url.searchParams.set('model.updatedDateFrom', updatedOnFrom)
 
     const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
     if (!response.ok) throw new Error(`SellerCloud PO fetch failed (${response.status})`)
@@ -394,15 +417,28 @@ function clampNumber(value: unknown, min: number, max: number, fallback: number)
   return Math.min(max, Math.max(min, Math.floor(number)))
 }
 
-function deriveNextCursor(orderRows: JsonRecord[], fallbackCursor: string | null): string {
-  const newest = orderRows
+function newestCursor(orderRows: JsonRecord[]): string | null {
+  return orderRows
     .map(row => nullableDate(row.updated_on))
     .filter((value): value is string => Boolean(value))
     .sort()
     .at(-1)
+}
 
-  if (newest) return newest
-  return fallbackCursor ?? new Date().toISOString()
+function withCursorOverlap(cursor: string): string {
+  const date = new Date(cursor)
+  if (!Number.isFinite(date.getTime())) return new Date().toISOString()
+  date.setMinutes(date.getMinutes() - CURSOR_OVERLAP_MINUTES)
+  return date.toISOString()
+}
+
+function maxIsoDate(values: Array<string | null>): string | null {
+  return values
+    .filter((value): value is string => Boolean(value))
+    .map(value => nullableDate(value))
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1) ?? null
 }
 
 function first(record: JsonRecord, keys: string[]): unknown {

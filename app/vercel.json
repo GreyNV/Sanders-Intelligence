@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/refresh-si-metrics",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/sync-purchase-orders",
+      "schedule": "*/5 * * * *"
     }
   ],
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]

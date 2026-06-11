@@ -117,7 +117,7 @@ async function invokePurchaseOrderSync(): Promise<{
         'Content-Type': 'application/json',
         Authorization: `Bearer ${session.access_token}`,
       },
-      body: JSON.stringify({ maxPages: 2, pageSize: 50, includeItems: true, activeOnly: true, useScanCursor: true }),
+      body: JSON.stringify({ maxPages: 1, pageSize: 10, includeItems: true, activeOnly: true }),
       signal: controller.signal,
     })
 

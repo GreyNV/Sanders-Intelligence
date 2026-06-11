@@ -42,10 +42,9 @@ begin
     ),
     body := jsonb_build_object(
       'maxPages', 4,
-      'pageSize', 50,
+      'pageSize', 10,
       'includeItems', true,
-      'activeOnly', true,
-      'useScanCursor', true
+      'activeOnly', true
     )
   );
 end;
@@ -60,6 +59,6 @@ end $$;
 
 select cron.schedule(
   'sellercloud-po-refresh',
-  '*/15 * * * *',
+  '*/5 * * * *',
   $$select internal.invoke_sellercloud_po_sync();$$
 );
