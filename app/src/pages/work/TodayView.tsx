@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import {
-  CheckCircle, ChevronDown, ChevronRight, Clock, Plus, RotateCcw, Sparkles, UserPlus, Users,
+  AlertTriangle, CheckCircle, ChevronDown, ChevronRight, Clock, Plus, RotateCcw, Sparkles, UserPlus, Users,
 } from 'lucide-react'
 import KPICard from '@/components/ui/KPICard'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
@@ -13,7 +13,7 @@ import { useAddTaskComment, useTaskCommentCounts } from '@/hooks/useTaskComments
 import { fmtDate } from '@/lib/utils'
 import type { Task } from '@/types'
 import { calculatePostponedUntil } from '@/pages/tasks/TasksPage.helpers'
-import { computeTodayCounters, partitionTodayTasks } from './TodayView.helpers'
+import { computeDayOverDaySummary, computeTodayCounters, partitionTodayTasks } from './TodayView.helpers'
 
 type ActionModal = { type: 'cancel' | 'postpone'; task: Task } | null
 
@@ -37,13 +37,14 @@ export default function TodayView() {
   const partitions = useMemo(
     () => profile
       ? partitionTodayTasks(tasks, profile.id)
-      : { yourTasks: [], unassignedTasks: [], otherTasks: [], cameBackTasks: [], completedYesterday: [] },
+      : { yourTasks: [], carryoverTasks: [], unassignedTasks: [], otherTasks: [], cameBackTasks: [], completedYesterday: [] },
     [tasks, profile]
   )
   const counters = useMemo(
     () => profile ? computeTodayCounters(tasks, profile.id) : { createdToday: 0, completedToday: 0, dueToday: 0 },
     [tasks, profile]
   )
+  const dodSummary = useMemo(() => computeDayOverDaySummary(tasks), [tasks])
 
   if (isLoading) return <PageLoader />
   if (error) return (
@@ -137,6 +138,25 @@ export default function TodayView() {
         <KPICard label="Completed today (team)" value={counters.completedToday} icon={<CheckCircle size={18} />} variant="success" />
         <KPICard label="Due today (you)" value={counters.dueToday} icon={<Clock size={18} />} variant="warning" />
       </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+        <KPICard label="Carryover open" value={dodSummary.carryoverOpen} sub="due before today" icon={<AlertTriangle size={16} />} variant={dodSummary.carryoverOpen > 0 ? 'warning' : 'success'} />
+        <KPICard label="Created yesterday" value={dodSummary.createdYesterday} sub="team" />
+        <KPICard label="Completed yesterday" value={dodSummary.completedYesterday} sub="team" variant="success" />
+        <KPICard label="Created today" value={dodSummary.createdToday} sub="team" variant="info" />
+        <KPICard label="Completed today" value={dodSummary.completedToday} sub="team" variant="success" />
+      </div>
+
+      <section className="mb-7">
+        <div className="flex items-center gap-2 mb-3">
+          <AlertTriangle size={15} className="text-warning" />
+          <h2 className="text-sm font-semibold text-text1">Carried over from yesterday</h2>
+          <span className="text-xs text-text2 bg-surface2 px-2 py-0.5 rounded-full">{partitions.carryoverTasks.length}</span>
+        </div>
+        {partitions.carryoverTasks.length === 0
+          ? <div className="card text-center py-10 text-text2 text-sm">No unfinished tasks carried over for you.</div>
+          : <div>{partitions.carryoverTasks.map(renderOwnedTask)}</div>}
+      </section>
 
       <section className="mb-7">
         <div className="flex items-center gap-2 mb-3">

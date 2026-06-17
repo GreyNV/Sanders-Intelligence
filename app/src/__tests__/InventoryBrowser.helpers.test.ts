@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildInventoryRows, sortInventoryRows } from '../pages/purchasing/InventoryBrowser.helpers'
+import { buildInventoryRows, buildSortedOptionList, sortInventoryRows } from '../pages/purchasing/InventoryBrowser.helpers'
 import type { InventoryRecord } from '../types'
 
 function makeRecord(overrides: Partial<InventoryRecord>): InventoryRecord {
@@ -113,5 +113,9 @@ describe('Inventory Browser metric rows', () => {
 
     expect(sortInventoryRows(rows, 'cogsPct', true).map(row => row.product_code))
       .toEqual(['LOW-COGS', 'HIGH-COGS', 'MISSING'])
+  })
+
+  it('builds sorted unique non-empty option lists', () => {
+    expect(buildSortedOptionList(['Nike', '', 'Adidas', 'Nike', undefined, null])).toEqual(['All', 'Adidas', 'Nike'])
   })
 })

@@ -75,6 +75,10 @@ export function sortInventoryRows(
   })
 }
 
+export function buildSortedOptionList(values: Array<string | null | undefined>, allLabel = 'All'): string[] {
+  return [allLabel, ...Array.from(new Set(values)).filter((value): value is string => !!value).sort()]
+}
+
 function finiteOrNull(value: number | null | undefined): number | null {
   return value != null && Number.isFinite(value) ? value : null
 }

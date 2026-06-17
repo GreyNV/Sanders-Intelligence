@@ -46,6 +46,16 @@ export function countUnmatchedPOItems(items: POItem[]): number {
   return items.filter(item => !item.planning_sku).length
 }
 
+export function buildPurchaseOrderHref(poId: number): string {
+  return `/purchasing/purchase-orders?po=${encodeURIComponent(String(poId))}`
+}
+
+export function parsePurchaseOrderParam(value: string | null): number | null {
+  if (!value) return null
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+}
+
 export function filterPurchaseOrders(
   orders: PurchaseOrder[],
   filters: PurchaseOrderFilters

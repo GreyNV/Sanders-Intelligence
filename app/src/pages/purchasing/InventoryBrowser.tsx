@@ -9,7 +9,7 @@ import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { fmtNumber, fmtCurrency } from '@/lib/utils'
 import { downloadCsv, inventoryToExportRows } from '@/lib/exportCsv'
 import { Search, Download } from 'lucide-react'
-import { buildInventoryRows, sortInventoryRows, type InventorySortKey } from './InventoryBrowser.helpers'
+import { buildInventoryRows, buildSortedOptionList, sortInventoryRows, type InventorySortKey } from './InventoryBrowser.helpers'
 
 const STATUS_OPTIONS    = ['Ok', 'Excess stock', 'Surplus orders', 'Potential s/o', 'Stocked out', 'New item']
 const CLASS_OPTIONS     = ['All', 'A', 'B', 'C', 'X', 'S']
@@ -79,6 +79,13 @@ export default function InventoryBrowser() {
     return sortInventoryRows(filtered, sortKey, sortAsc)
   }, [filtered, sortKey, sortAsc])
 
+  const brands = useMemo(() =>
+    buildSortedOptionList(records.map(record => record.brand_name))
+  , [records])
+  const vendors = useMemo(() =>
+    buildSortedOptionList(records.map(record => record.supplier_description))
+  , [records])
+
   if (isLoading) return <PageLoader />
   if (error) return (
     <div className="card text-center py-16">
@@ -86,10 +93,6 @@ export default function InventoryBrowser() {
       <div className="text-text2 text-sm">{(error as Error)?.message ?? 'Try refreshing the page.'}</div>
     </div>
   )
-
-  // Unique brands and vendors from data
-  const brands  = ['All', ...Array.from(new Set(records.map(r => r.brand_name))).filter(Boolean).sort()]
-  const vendors = ['All', ...Array.from(new Set(records.map(r => r.supplier_description))).filter(Boolean).sort()]
 
   function toggleSort(key: InventorySortKey) {
     if (sortKey === key) setSortAsc(v => !v)

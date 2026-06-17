@@ -50,6 +50,7 @@ Role guard: `<RoleGuard allow={['admin', 'purchasing']}>` in `App.tsx`.
 /purchasing/news-feed           NewsFeed.tsx          [admin, purchasing]
 
 /executive                      ExecutiveSummary.tsx  [admin, csuite]
+/executive/north-star           NorthStar.tsx         [admin, csuite]
 /executive/departments          DepartmentOverview.tsx [admin, csuite]
 
 /tasks                          TasksPage.tsx         [all roles]
@@ -157,6 +158,10 @@ Admin-only manual sync mutation invoking Edge Function `sync-purchase-orders`. I
 Reads cached logistics/import/export articles from `news_items`; admin refresh invokes Edge Function `refresh-news`.  
 Cache key: `['news_items', { search }]`, stale after 10 min.
 
+### `useNorthStarRows()` / `useMonthlyStar(periodMonth)` — `hooks/useNorthStar.ts`
+Reads persistent BPR rows and the monthly sales-goal tracker for `/executive/north-star`.
+North Star rows persist until an admin unlocks and edits them; saving locks the row again. Mutation hooks are admin-only in UI and RLS: `useUpdateNorthStarRow()` and `useUpdateMonthlyStar()`.
+
 ---
 
 ## Database Tables
@@ -187,6 +192,7 @@ Cancellation and postponement require a non-empty note. Completion notes remain 
 ### Today task workflow
 - `/today` is the canonical shared daily workspace; `/daily` redirects to it.
 - Team-created/completed counters use all tasks visible through the current role's `useTasks()` scope.
+- Carryover shows open tasks assigned to the current user with due dates before today.
 - Other users' due-today tasks are inspect-only. Unassigned due-today tasks can be claimed atomically.
 
 ### `public.dismissed_actions`
@@ -206,6 +212,15 @@ Cached logistics/import/export news feed rows from GDELT for `/purchasing/news-f
 
 RLS: active `admin` and `purchasing` users can read; Edge Function writes with service role.  
 **Migration file:** `supabase/migrations/013_purchase_orders_and_news.sql`.
+
+### `public.north_star_rows` / `public.north_star_history`
+Persistent Business Plan Review rows for `/executive/north-star`: one row per pillar with `north_star`, `constraint_now`, `weekly_move`, `last_week_result`, `status`, and `is_locked`.
+Rows are keyed by `slot_index`, not week, so they do not automatically reset. History stores field-level edits. Active users can read; admins can edit and write history.
+
+### `public.monthly_star` / `public.monthly_star_history`
+Admin-entered monthly sales target and progress inputs for `/executive/north-star`, including MTD sales, LY MTD sales, days elapsed/remaining, and channel deltas.
+Computed pace, projection, gap, and drag channels live in `NorthStar.helpers.ts`.
+**Migration file:** `supabase/migrations/017_north_star.sql`.
 
 ### Edge Functions
 - `sync-purchase-orders`: admin-only manual SellerCloud sync. Requires Supabase secrets `SELLERCLOUD_DELTA_BASE`, `SELLERCLOUD_USERNAME`, and `SELLERCLOUD_PASSWORD`.
@@ -242,6 +257,7 @@ src/
 │   │   └── InboundPipeline.tsx   On-order items
 │   ├── csuite/
 │   │   ├── ExecutiveSummary.tsx  $ health bar; pie + bar charts (clickable drill-through)
+│   │   ├── NorthStar.tsx         BPR table + Monthly Star sales-goal progress
 │   │   └── DepartmentOverview.tsx
 │   ├── tasks/
 │   │   └── TasksPage.tsx       Board/List/Table views; row/card click opens task modal
@@ -254,6 +270,7 @@ src/
 │   ├── useDismissedActions.ts  useDismissedActions, useDismissedSet,
 │   │                           useDismissAction, useRestoreAction
 │   ├── useTasks.ts             useTasks, useCreateTask, useUpdateTask
+│   ├── useNorthStar.ts         North Star rows, Monthly Star, admin update mutations
 │   ├── useUploads.ts           useUploads, useUploadCSV
 │   └── useUsers.ts             useUsers, useInviteUser, useUpdateUser
 ├── lib/
@@ -342,6 +359,7 @@ const [status, setStatus] = useState(params.get('status') ?? '')
 
 - **Run migration:** `supabase/migrations/002_dismissed_actions.sql` must be executed in Supabase SQL Editor before the snooze feature works in production.
 - **Run migration:** `supabase/migrations/013_purchase_orders_and_news.sql` must be executed before Purchase Orders V1 and Logistics News work in production.
+- **Run migration:** `supabase/migrations/017_north_star.sql` must be executed before North Star / Monthly Star works in production.
 - **Configure secrets:** SellerCloud Edge Function secrets must be set in Supabase before manual PO sync works: `SELLERCLOUD_DELTA_BASE`, `SELLERCLOUD_USERNAME`, `SELLERCLOUD_PASSWORD`.
 - **Historical trends:** ExecutiveSummary has a placeholder card that activates after 7+ days of uploads (week-over-week KPI movement).
 - **Bash tool:** `mcp__workspace__bash` is sometimes unavailable. Fallback: write git commands to clipboard via computer-use tools.

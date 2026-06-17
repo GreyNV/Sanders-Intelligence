@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import {
   AlertTriangle, ArrowDown, ArrowUp, ChevronsUpDown, ExternalLink, PackageCheck,
   RefreshCw, Search, ShoppingCart, TriangleAlert,
@@ -17,6 +17,7 @@ import {
   countUnmatchedPOItems,
   filterPurchaseOrders,
   formatPOStatus,
+  parsePurchaseOrderParam,
   poLineTotal,
   poStatusVariant,
   PurchaseOrderSortField,
@@ -57,6 +58,7 @@ function moneyText(value: number | null) {
 
 export default function PurchaseOrders() {
   const { profile } = useAuth()
+  const location = useLocation()
   const [search, setSearch] = useState('')
   const [statuses, setStatuses] = useState<string[]>([])
   const [dateFrom, setDateFrom] = useState('')
@@ -67,6 +69,7 @@ export default function PurchaseOrders() {
 
   const { data: orders = [], isLoading, error } = usePurchaseOrders({ statuses, dateFrom, dateTo })
   const syncPOs = useSyncPurchaseOrders()
+  const urlPOId = useMemo(() => parsePurchaseOrderParam(new URLSearchParams(location.search).get('po')), [location.search])
 
   const statusOptions = useMemo(() =>
     Array.from(new Set(orders.map(order => order.po_status))).filter(Boolean).sort()
@@ -80,6 +83,16 @@ export default function PurchaseOrders() {
   const summary = useMemo(() => summarizePurchaseOrders(filteredOrders), [filteredOrders])
   const totalPages = Math.ceil(sortedOrders.length / PAGE_SIZE)
   const pagedOrders = sortedOrders.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+
+  useEffect(() => {
+    if (!urlPOId || selected?.id === urlPOId) return
+    const order = orders.find(candidate => candidate.id === urlPOId)
+    if (order) {
+      setSelected(order)
+      setSearch(String(urlPOId))
+      setPage(0)
+    }
+  }, [orders, selected?.id, urlPOId])
 
   function toggleSort(field: PurchaseOrderSortField) {
     setSort(current => current.field === field

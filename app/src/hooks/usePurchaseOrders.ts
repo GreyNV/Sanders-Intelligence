@@ -3,6 +3,22 @@ import { supabase, supabaseAnonKey, supabaseUrl } from '@/lib/supabase'
 import type { POInboundItem, POItem, PurchaseOrder } from '@/types'
 
 const PO_SYNC_TIMEOUT_MS = 120000
+const PAGE_SIZE = 1000
+const PO_INBOUND_SELECT = `
+  *,
+  purchase_order:purchase_orders!inner(
+    id,
+    vendor_id,
+    vendor_name,
+    po_status,
+    shipping_status,
+    receiving_status,
+    date_ordered,
+    expected_delivery_date,
+    updated_on,
+    is_active
+  )
+`
 
 export interface PurchaseOrderQueryFilters {
   statuses?: string[]
@@ -55,33 +71,32 @@ export function usePurchaseOrderItems(poId: number | null) {
 export function usePOInboundItems() {
   return useQuery({
     queryKey: ['po_inbound_items'],
-    queryFn: async (): Promise<POInboundItem[]> => {
-      const { data, error } = await supabase
-        .from('po_items')
-        .select(`
-          *,
-          purchase_order:purchase_orders!inner(
-            id,
-            vendor_id,
-            vendor_name,
-            po_status,
-            shipping_status,
-            receiving_status,
-            date_ordered,
-            expected_delivery_date,
-            updated_on,
-            is_active
-          )
-        `)
-        .eq('purchase_order.is_active', true)
-        .gt('qty_units_open', 0)
-        .order('expected_delivery_date', { ascending: true, nullsFirst: false })
-
-      if (error) throw error
-      return (data ?? []) as POInboundItem[]
-    },
+    queryFn: () => fetchPOInboundItems(),
     staleTime: 5 * 60 * 1000,
   })
+}
+
+export async function fetchPOInboundItems(client: typeof supabase = supabase): Promise<POInboundItem[]> {
+  const all: POInboundItem[] = []
+  let from = 0
+
+  while (true) {
+    const { data, error } = await client
+      .from('po_items')
+      .select(PO_INBOUND_SELECT)
+      .eq('purchase_order.is_active', true)
+      .gt('qty_units_open', 0)
+      .order('expected_delivery_date', { ascending: true, nullsFirst: false })
+      .range(from, from + PAGE_SIZE - 1)
+
+    if (error) throw error
+    const page = (data ?? []) as POInboundItem[]
+    all.push(...page)
+    if (page.length < PAGE_SIZE) break
+    from += PAGE_SIZE
+  }
+
+  return all
 }
 
 export function useSyncPurchaseOrders() {

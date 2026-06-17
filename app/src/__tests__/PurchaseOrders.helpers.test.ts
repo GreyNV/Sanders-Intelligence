@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { POItem, PurchaseOrder } from '../types'
 import {
+  buildPurchaseOrderHref,
   countUnmatchedPOItems,
   filterPurchaseOrders,
   formatPOStatus,
+  parsePurchaseOrderParam,
   poLineTotal,
   poStatusVariant,
   sortPurchaseOrders,
@@ -59,6 +61,13 @@ describe('PurchaseOrders.helpers', () => {
 
     expect(poLineTotal(items[0])).toBe(25)
     expect(countUnmatchedPOItems(items)).toBe(1)
+  })
+
+  it('builds and parses purchase order deep links', () => {
+    expect(buildPurchaseOrderHref(12345)).toBe('/purchasing/purchase-orders?po=12345')
+    expect(parsePurchaseOrderParam('12345')).toBe(12345)
+    expect(parsePurchaseOrderParam('not-a-po')).toBeNull()
+    expect(parsePurchaseOrderParam('-1')).toBeNull()
   })
 
   it('filters by status, search, and date range', () => {

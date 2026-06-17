@@ -5,7 +5,7 @@ import { useSkuMetrics } from '@/hooks/useSkuMetrics'
 import KPICard from '@/components/ui/KPICard'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import StatusMultiSelect from '@/components/ui/StatusMultiSelect'
-import { fmtCurrency, fmtNumber, groupBy, parseMonthLabel } from '@/lib/utils'
+import { fmtCurrency, fmtNumber } from '@/lib/utils'
 import { downloadCsv } from '@/lib/exportCsv'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -13,23 +13,19 @@ import {
 import {
   AlertTriangle, ArrowDown, ArrowUp, ChevronsUpDown, Download, ExternalLink, Search, Truck,
 } from 'lucide-react'
-import type { POInboundItem } from '@/types'
-
-type SortDir = 'asc' | 'desc'
-type SortField =
-  | 'sku'
-  | 'product_name'
-  | 'vendor'
-  | 'qty_units_open'
-  | 'expected_delivery_date'
-  | 'po_id'
-  | 'unit_price'
-  | 'receiving_status'
-
-interface SortState {
-  field: SortField
-  dir: SortDir
-}
+import {
+  buildInboundMonthBuckets,
+  filterInboundItems,
+  inboundDateText,
+  inboundDaysUntil,
+  inboundExpectedDate,
+  inboundSku,
+  inboundVendor,
+  sortInboundItems,
+  type InboundSortField,
+  type InboundSortState,
+} from './InboundPipeline.helpers'
+import { buildPurchaseOrderHref } from './PurchaseOrders.helpers'
 
 const ARRIVAL_FILTERS = [
   { value: 'all', label: 'All arrivals' },
@@ -40,7 +36,7 @@ const ARRIVAL_FILTERS = [
 ] as const
 const PAGE_SIZE = 100
 
-function SortIcon({ field, sort }: { field: SortField; sort: SortState }) {
+function SortIcon({ field, sort }: { field: InboundSortField; sort: InboundSortState }) {
   if (sort.field !== field) return <ChevronsUpDown size={11} className="text-text2/50 ml-0.5" />
   return sort.dir === 'asc'
     ? <ArrowUp size={11} className="text-accent ml-0.5" />
@@ -49,7 +45,7 @@ function SortIcon({ field, sort }: { field: SortField; sort: SortState }) {
 
 function SortableTh({
   field, label, sort, onSort, className = '',
-}: { field: SortField; label: string; sort: SortState; onSort: (f: SortField) => void; className?: string }) {
+}: { field: InboundSortField; label: string; sort: InboundSortState; onSort: (f: InboundSortField) => void; className?: string }) {
   return (
     <th
       className={`cursor-pointer select-none hover:text-text1 transition-colors ${className}`}
@@ -63,45 +59,6 @@ function SortableTh({
   )
 }
 
-function sku(item: POInboundItem): string {
-  return item.planning_sku || item.source_sku
-}
-
-function vendor(item: POInboundItem): string {
-  return item.purchase_order?.vendor_name || String(item.purchase_order?.vendor_id ?? '-')
-}
-
-function expectedDate(item: POInboundItem): string | null {
-  return item.expected_delivery_date || item.purchase_order?.expected_delivery_date || null
-}
-
-function daysUntil(value: string | null): number | null {
-  if (!value) return null
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const target = new Date(value)
-  target.setHours(0, 0, 0, 0)
-  if (!Number.isFinite(target.getTime())) return null
-  return Math.ceil((target.getTime() - today.getTime()) / 86400000)
-}
-
-function monthLabel(value: string | null): string {
-  if (!value) return 'No ETA'
-  return new Date(value).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-}
-
-function dateText(value: string | null): string {
-  return value ? new Date(value).toLocaleDateString() : '-'
-}
-
-function sortValue(item: POInboundItem, field: SortField): string | number {
-  if (field === 'sku') return sku(item)
-  if (field === 'vendor') return vendor(item)
-  if (field === 'expected_delivery_date') return expectedDate(item) ?? ''
-  if (field === 'receiving_status') return item.receiving_status || item.purchase_order?.receiving_status || ''
-  return item[field] ?? ''
-}
-
 export default function InboundPipeline() {
   const { data: inbound = [], isLoading, error } = usePOInboundItems()
   const { data: skuMetrics } = useSkuMetrics()
@@ -110,58 +67,22 @@ export default function InboundPipeline() {
   const [vendorFilter, setVendorFilter] = useState('All')
   const [statuses, setStatuses] = useState<string[]>([])
   const [arrival, setArrival] = useState<(typeof ARRIVAL_FILTERS)[number]['value']>('all')
-  const [sort, setSort] = useState<SortState>({ field: 'expected_delivery_date', dir: 'asc' })
+  const [sort, setSort] = useState<InboundSortState>({ field: 'expected_delivery_date', dir: 'asc' })
   const [page, setPage] = useState(0)
 
   const vendors = useMemo(() =>
-    ['All', ...Array.from(new Set(inbound.map(vendor))).filter(Boolean).sort()]
+    ['All', ...Array.from(new Set(inbound.map(inboundVendor))).filter(Boolean).sort()]
   , [inbound])
 
   const statusOptions = useMemo(() =>
     Array.from(new Set(inbound.map(item => item.purchase_order?.receiving_status || item.receiving_status || 'Unknown'))).sort()
   , [inbound])
 
-  const filteredInbound = useMemo(() => {
-    const q = search.trim().toLowerCase()
+  const filteredInbound = useMemo(() =>
+    filterInboundItems(inbound, { search, vendorFilter, statuses, arrival })
+  , [inbound, search, vendorFilter, statuses, arrival])
 
-    return inbound.filter(item => {
-      const itemSku = sku(item)
-      const itemVendor = vendor(item)
-      const status = item.purchase_order?.receiving_status || item.receiving_status || 'Unknown'
-      const dueDays = daysUntil(expectedDate(item))
-
-      if (vendorFilter !== 'All' && itemVendor !== vendorFilter) return false
-      if (statuses.length > 0 && !statuses.includes(status)) return false
-      if (arrival === 'overdue' && (dueDays == null || dueDays >= 0)) return false
-      if (arrival === 'near' && (dueDays == null || dueDays < 0 || dueDays > 30)) return false
-      if (arrival === 'mid' && (dueDays == null || dueDays <= 30 || dueDays > 90)) return false
-      if (arrival === 'long' && (dueDays == null || dueDays <= 90)) return false
-
-      if (!q) return true
-      return (
-        itemSku.toLowerCase().includes(q) ||
-        item.source_sku.toLowerCase().includes(q) ||
-        String(item.po_id).includes(q) ||
-        (item.product_name ?? '').toLowerCase().includes(q) ||
-        itemVendor.toLowerCase().includes(q)
-      )
-    })
-  }, [inbound, search, vendorFilter, statuses, arrival])
-
-  const sortedInbound = useMemo(() => {
-    return [...filteredInbound].sort((a, b) => {
-      const av = sortValue(a, sort.field)
-      const bv = sortValue(b, sort.field)
-
-      if (typeof av === 'number' && typeof bv === 'number') {
-        return sort.dir === 'asc' ? av - bv : bv - av
-      }
-
-      return sort.dir === 'asc'
-        ? String(av).localeCompare(String(bv))
-        : String(bv).localeCompare(String(av))
-    })
-  }, [filteredInbound, sort])
+  const sortedInbound = useMemo(() => sortInboundItems(filteredInbound, sort), [filteredInbound, sort])
 
   useEffect(() => {
     setPage(0)
@@ -171,30 +92,17 @@ export default function InboundPipeline() {
   const totalOrderValue = filteredInbound.reduce((sum, item) => sum + Number(item.qty_units_open ?? 0) * Number(item.unit_price ?? 0), 0)
   const overdueUnits = filteredInbound
     .filter(item => {
-      const dueDays = daysUntil(expectedDate(item))
+      const dueDays = inboundDaysUntil(inboundExpectedDate(item))
       return dueDays != null && dueDays < 0
     })
     .reduce((sum, item) => sum + Number(item.qty_units_open ?? 0), 0)
 
-  const byMonth = useMemo(() => {
-    const grouped = groupBy(filteredInbound, item => monthLabel(expectedDate(item)))
-    return Object.entries(grouped)
-      .map(([month, items]) => ({
-        month,
-        units: items.reduce((sum, item) => sum + Number(item.qty_units_open ?? 0), 0),
-        skus: new Set(items.map(sku)).size,
-      }))
-      .sort((a, b) => {
-        if (a.month === 'No ETA') return 1
-        if (b.month === 'No ETA') return -1
-        return parseMonthLabel(a.month) - parseMonthLabel(b.month)
-      })
-  }, [filteredInbound])
+  const byMonth = useMemo(() => buildInboundMonthBuckets(filteredInbound), [filteredInbound])
 
   const totalPages = Math.ceil(sortedInbound.length / PAGE_SIZE)
   const pagedInbound = sortedInbound.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
-  function toggleSort(field: SortField) {
+  function toggleSort(field: InboundSortField) {
     setSort(current => current.field === field ? { field, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' })
   }
 
@@ -208,16 +116,16 @@ export default function InboundPipeline() {
   function handleExport() {
     const rows = sortedInbound.map(item => ({
       'PO': item.po_id,
-      'SKU': sku(item),
+      'SKU': inboundSku(item),
       'Source SKU': item.source_sku,
       'Product': item.product_name,
-      'Vendor': vendor(item),
+      'Vendor': inboundVendor(item),
       'Open Qty': item.qty_units_open,
       'Ordered Qty': item.qty_units_ordered,
       'Received Qty': item.qty_units_received,
       'Unit Price': item.unit_price,
       'Open Value': Number(item.qty_units_open ?? 0) * Number(item.unit_price ?? 0),
-      'Expected Delivery': expectedDate(item),
+      'Expected Delivery': inboundExpectedDate(item),
       'PO Status': item.purchase_order?.po_status,
       'Shipping': item.purchase_order?.shipping_status,
       'Receiving': item.purchase_order?.receiving_status || item.receiving_status,
@@ -333,25 +241,33 @@ export default function InboundPipeline() {
               <tr><td colSpan={12} className="py-10 text-center text-text2">No SellerCloud inbound items match the current filters</td></tr>
             ) : (
               pagedInbound.map(item => {
-                const itemSku = sku(item)
+                const itemSku = inboundSku(item)
                 const metricsKey = item.planning_sku || item.source_sku
                 const price = skuMetrics?.priceBySku.get(metricsKey)
                 const openValue = Number(item.qty_units_open ?? 0) * Number(item.unit_price ?? 0)
 
                 return (
                   <tr key={item.id}>
-                    <td className="font-mono text-[11px] text-accent">#{item.po_id}</td>
+                    <td>
+                      <Link
+                        to={buildPurchaseOrderHref(item.po_id)}
+                        className="font-mono text-[11px] text-accent hover:underline inline-flex items-center gap-1"
+                      >
+                        #{item.po_id}
+                        <ExternalLink size={10} />
+                      </Link>
+                    </td>
                     <td className="font-mono text-[11px]">{itemSku}</td>
                     <td className="max-w-[300px]">
                       <span className="block truncate" title={item.product_name ?? undefined}>{item.product_name ?? '-'}</span>
                     </td>
                     <td className="max-w-[220px]">
-                      <span className="block truncate text-xs text-text2" title={vendor(item)}>{vendor(item)}</span>
+                      <span className="block truncate text-xs text-text2" title={inboundVendor(item)}>{inboundVendor(item)}</span>
                     </td>
                     <td className="tabular-nums font-semibold text-right">{fmtNumber(item.qty_units_open ?? 0)}</td>
                     <td className="tabular-nums text-right">{fmtNumber(item.qty_units_ordered ?? 0)}</td>
                     <td className="tabular-nums text-right">{fmtNumber(item.qty_units_received ?? 0)}</td>
-                    <td className="text-xs">{dateText(expectedDate(item))}</td>
+                    <td className="text-xs">{inboundDateText(inboundExpectedDate(item))}</td>
                     <td className="tabular-nums text-right" title={price?.price_source ?? undefined}>{fmtCurrency(item.unit_price ?? 0)}</td>
                     <td className="tabular-nums text-right">{fmtCurrency(openValue)}</td>
                     <td className="text-xs text-text2">{item.purchase_order?.receiving_status || item.receiving_status || '-'}</td>

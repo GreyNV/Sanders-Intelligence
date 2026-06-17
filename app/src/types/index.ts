@@ -250,3 +250,50 @@ export interface NewsItem {
   query: string
   created_at: string
 }
+
+// North Star / Business Plan Review
+
+export type NorthStarStatus = 'on_plan' | 'at_risk' | 'off_plan'
+
+export interface NorthStarRow {
+  id: string
+  period_month: string
+  period_week: string
+  slot_index: number
+  pillar: string
+  owner: string | null
+  north_star: string
+  constraint_now: string | null
+  weekly_move: string | null
+  last_week_result: string | null
+  status: NorthStarStatus
+  is_locked: boolean
+  updated_by: string | null
+  updated_at: string
+  created_at: string
+}
+
+export interface NorthStarHistory {
+  id: string
+  row_id: string | null
+  field_name: string
+  old_value: string | null
+  new_value: string | null
+  edited_by: string | null
+  edited_at: string
+  period_week: string
+}
+
+export interface MonthlyStar {
+  id: string
+  period_month: string
+  target_sales: number
+  mtd_actual: number
+  ly_mtd_actual: number
+  days_elapsed: number
+  days_remaining: number
+  channel_deltas: Array<{ channel: string; delta: number }>
+  updated_by: string | null
+  updated_at: string
+  created_at: string
+}

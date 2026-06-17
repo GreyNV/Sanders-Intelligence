@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeTodayCounters, partitionTodayTasks } from '../pages/work/TodayView.helpers'
+import { computeDayOverDaySummary, computeTodayCounters, partitionTodayTasks } from '../pages/work/TodayView.helpers'
 import type { Task } from '../types'
 
 function makeTask(overrides: Partial<Task>): Task {
@@ -92,5 +92,36 @@ describe('TodayView helpers', () => {
     expect(result.yourTasks.map(task => task.id)).toEqual(['mine'])
     expect(result.unassignedTasks.map(task => task.id)).toEqual(['unassigned'])
     expect(result.otherTasks.map(task => task.id)).toEqual(['other'])
+  })
+
+  it('identifies current-user carryover tasks due yesterday or earlier', () => {
+    const result = partitionTodayTasks([
+      makeTask({ id: 'yesterday-open', due_date: '2026-05-27' }),
+      makeTask({ id: 'older-open', due_date: '2026-05-20' }),
+      makeTask({ id: 'today-open', due_date: '2026-05-28' }),
+      makeTask({ id: 'yesterday-done', due_date: '2026-05-27', status: 'done' }),
+      makeTask({ id: 'other-user', assigned_to: 'other', due_date: '2026-05-27' }),
+    ], 'me', today)
+
+    expect(result.carryoverTasks.map(task => task.id)).toEqual(['older-open', 'yesterday-open'])
+  })
+
+  it('computes team day-over-day summary counts', () => {
+    const summary = computeDayOverDaySummary([
+      makeTask({ id: 'created-yesterday', created_at: '2026-05-27T08:00:00.000Z', due_date: '2026-05-27' }),
+      makeTask({ id: 'completed-yesterday', status: 'done', updated_at: '2026-05-27T18:00:00.000Z' }),
+      makeTask({ id: 'created-today', created_at: '2026-05-28T08:00:00.000Z' }),
+      makeTask({ id: 'completed-today', status: 'done', updated_at: '2026-05-28T18:00:00.000Z' }),
+      makeTask({ id: 'carryover', due_date: '2026-05-27' }),
+      makeTask({ id: 'old-cancelled', due_date: '2026-05-26', status: 'cancelled' }),
+    ], today)
+
+    expect(summary).toEqual({
+      createdYesterday: 1,
+      completedYesterday: 1,
+      createdToday: 5,
+      completedToday: 1,
+      carryoverOpen: 2,
+    })
   })
 })
