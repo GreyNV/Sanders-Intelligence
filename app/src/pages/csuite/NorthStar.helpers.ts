@@ -27,6 +27,9 @@ export interface NorthStarDisplayRow {
   pillar: string
   owner: string | null
   north_star: string
+  plan_value: string | null
+  actual_mtd: string | null
+  forecast: string | null
   constraint_now: string | null
   weekly_move: string | null
   last_week_result: string | null
@@ -39,6 +42,7 @@ export interface MonthlyStarInput {
   ly_mtd_actual: number
   days_elapsed: number
   days_remaining: number
+  dragging_channel_notes: string | null
   channel_deltas: Array<{ channel: string; delta: number }>
 }
 
@@ -70,24 +74,57 @@ export function mergeNorthStarRows(
   currentMonth: string,
   currentWeek: string
 ): NorthStarDisplayRow[] {
+  if (rows.length > 0) {
+    return [...rows]
+      .sort((a, b) => a.slot_index - b.slot_index)
+      .map(row => ({
+        id: row.id,
+        is_set: true,
+        is_locked: row.is_locked,
+        period_month: row.period_month,
+        period_week: row.period_week,
+        slot_index: row.slot_index,
+        pillar: row.pillar,
+        owner: row.owner,
+        north_star: row.north_star,
+        plan_value: row.plan_value,
+        actual_mtd: row.actual_mtd,
+        forecast: row.forecast,
+        constraint_now: row.constraint_now,
+        weekly_move: row.weekly_move,
+        last_week_result: row.last_week_result,
+        status: row.status,
+      }))
+  }
+
   return DEFAULT_NORTH_STAR_ROWS.map(defaultRow => {
-    const saved = rows.find(row => row.slot_index === defaultRow.slot_index)
     return {
-      id: saved?.id ?? null,
-      is_set: Boolean(saved),
-      is_locked: saved?.is_locked ?? false,
-      period_month: saved?.period_month ?? currentMonth,
-      period_week: saved?.period_week ?? currentWeek,
+      id: null,
+      is_set: false,
+      is_locked: false,
+      period_month: currentMonth,
+      period_week: currentWeek,
       slot_index: defaultRow.slot_index,
-      pillar: saved?.pillar ?? defaultRow.pillar,
-      owner: saved?.owner ?? defaultRow.owner,
-      north_star: saved?.north_star ?? defaultRow.north_star,
-      constraint_now: saved?.constraint_now ?? null,
-      weekly_move: saved?.weekly_move ?? null,
-      last_week_result: saved?.last_week_result ?? null,
-      status: saved?.status ?? 'on_plan',
+      pillar: defaultRow.pillar,
+      owner: defaultRow.owner,
+      north_star: defaultRow.north_star,
+      plan_value: null,
+      actual_mtd: null,
+      forecast: null,
+      constraint_now: null,
+      weekly_move: null,
+      last_week_result: null,
+      status: 'on_plan',
     }
   })
+}
+
+export function nextNorthStarSlot(rows: NorthStarDisplayRow[]): number {
+  const used = new Set(rows.map(row => row.slot_index))
+  for (let slot = 1; slot <= 50; slot += 1) {
+    if (!used.has(slot)) return slot
+  }
+  return rows.length + 1
 }
 
 export function computeMonthlyStarMetrics(input: MonthlyStarInput): MonthlyStarMetrics {
@@ -126,6 +163,7 @@ export function defaultMonthlyStar(currentMonth: string): MonthlyStarInput & { p
     ly_mtd_actual: 0,
     days_elapsed: Math.max(1, now.getDate()),
     days_remaining: Math.max(0, daysInMonth - now.getDate()),
+    dragging_channel_notes: null,
     channel_deltas: [],
   }
 }
@@ -139,6 +177,7 @@ export function monthlyStarToInput(star: MonthlyStar | null, currentMonth: strin
     ly_mtd_actual: Number(star.ly_mtd_actual ?? 0),
     days_elapsed: Number(star.days_elapsed ?? 0),
     days_remaining: Number(star.days_remaining ?? 0),
+    dragging_channel_notes: star.dragging_channel_notes ?? null,
     channel_deltas: Array.isArray(star.channel_deltas) ? star.channel_deltas : [],
   }
 }

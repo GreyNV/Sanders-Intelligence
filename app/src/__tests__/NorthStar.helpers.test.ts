@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   computeMonthlyStarMetrics,
   mergeNorthStarRows,
+  nextNorthStarSlot,
   periodMonth,
   periodWeek,
 } from '../pages/csuite/NorthStar.helpers'
@@ -14,7 +15,7 @@ describe('NorthStar helpers', () => {
     expect(periodWeek(date)).toBe('2026-06-14')
   })
 
-  it('merges saved North Star rows over default BPR rows', () => {
+  it('uses DB-managed North Star rows once rows exist', () => {
     const saved: NorthStarRow = {
       id: 'row-1',
       period_month: '2026-06-01',
@@ -23,6 +24,9 @@ describe('NorthStar helpers', () => {
       pillar: 'Finance / cash',
       owner: 'Ryan',
       north_star: 'Custom target',
+      plan_value: '7%',
+      actual_mtd: '5%',
+      forecast: '6%',
       constraint_now: 'capital',
       weekly_move: 'Close terms',
       last_week_result: 'Done',
@@ -35,18 +39,36 @@ describe('NorthStar helpers', () => {
 
     const rows = mergeNorthStarRows([saved], '2026-06-01', '2026-06-14')
 
-    expect(rows).toHaveLength(8)
+    expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({
       id: 'row-1',
       north_star: 'Custom target',
+      plan_value: '7%',
+      actual_mtd: '5%',
+      forecast: '6%',
       constraint_now: 'capital',
       is_set: true,
       is_locked: true,
       status: 'at_risk',
     })
-    expect(rows[1].id).toBeNull()
-    expect(rows[1].is_set).toBe(false)
-    expect(rows[1].is_locked).toBe(false)
+  })
+
+  it('uses starter BPR defaults only before admin-managed rows exist', () => {
+    const rows = mergeNorthStarRows([], '2026-06-01', '2026-06-14')
+
+    expect(rows).toHaveLength(8)
+    expect(rows[0]).toMatchObject({
+      id: null,
+      is_set: false,
+      is_locked: false,
+      pillar: 'Finance / cash',
+    })
+  })
+
+  it('finds the next available pillar slot', () => {
+    const rows = mergeNorthStarRows([], '2026-06-01', '2026-06-14')
+    expect(nextNorthStarSlot(rows)).toBe(9)
+    expect(nextNorthStarSlot(rows.filter(row => row.slot_index !== 3))).toBe(3)
   })
 
   it('computes Monthly Star pace, gap, YoY, and channel drag', () => {
@@ -56,6 +78,7 @@ describe('NorthStar helpers', () => {
       ly_mtd_actual: 2500000,
       days_elapsed: 10,
       days_remaining: 20,
+      dragging_channel_notes: 'FBA is soft',
       channel_deltas: [
         { channel: 'FBA', delta: -250000 },
         { channel: 'Wholesale', delta: 100000 },
@@ -84,6 +107,7 @@ describe('NorthStar helpers', () => {
       ly_mtd_actual: 0,
       days_elapsed: 10,
       days_remaining: 20,
+      dragging_channel_notes: null,
       channel_deltas: [],
     })
 

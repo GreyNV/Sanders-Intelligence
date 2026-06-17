@@ -12,6 +12,9 @@ export interface UpdateNorthStarRowPayload {
   pillar: string
   owner: string | null
   north_star: string
+  plan_value: string | null
+  actual_mtd: string | null
+  forecast: string | null
   constraint_now: string | null
   weekly_move: string | null
   last_week_result: string | null
@@ -26,6 +29,7 @@ export interface UpdateMonthlyStarPayload {
   ly_mtd_actual: number
   days_elapsed: number
   days_remaining: number
+  dragging_channel_notes: string | null
   channel_deltas: Array<{ channel: string; delta: number }>
 }
 
@@ -78,6 +82,9 @@ export function useUpdateNorthStarRow() {
         pillar: payload.pillar,
         owner: payload.owner,
         north_star: payload.north_star,
+        plan_value: payload.plan_value,
+        actual_mtd: payload.actual_mtd,
+        forecast: payload.forecast,
         constraint_now: payload.constraint_now,
         weekly_move: payload.weekly_move,
         last_week_result: payload.last_week_result,
@@ -96,6 +103,44 @@ export function useUpdateNorthStarRow() {
       return data as NorthStarRow
     },
     onSuccess: data => {
+      qc.invalidateQueries({ queryKey: ['north_star_rows'] })
+    },
+  })
+}
+
+export function useDeleteNorthStarRow() {
+  const qc = useQueryClient()
+  const { profile } = useAuth()
+
+  return useMutation({
+    mutationFn: async (row: NorthStarRow) => {
+      if (!profile || profile.role !== 'admin') throw new Error('Admin role required')
+      await insertRowHistory(
+        row,
+        {
+          id: row.id,
+          is_locked: row.is_locked,
+          period_month: row.period_month,
+          period_week: row.period_week,
+          slot_index: row.slot_index,
+          pillar: '',
+          owner: null,
+          north_star: '',
+          plan_value: null,
+          actual_mtd: null,
+          forecast: null,
+          constraint_now: null,
+          weekly_move: null,
+          last_week_result: null,
+          status: row.status,
+        },
+        profile.id
+      )
+      const { error } = await supabase.from('north_star_rows').delete().eq('id', row.id)
+      if (error) throw error
+      return row
+    },
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['north_star_rows'] })
     },
   })
@@ -121,6 +166,7 @@ export function useUpdateMonthlyStar() {
         ly_mtd_actual: payload.ly_mtd_actual,
         days_elapsed: payload.days_elapsed,
         days_remaining: payload.days_remaining,
+        dragging_channel_notes: payload.dragging_channel_notes,
         channel_deltas: payload.channel_deltas,
         updated_by: profile.id,
         updated_at: new Date().toISOString(),
@@ -154,7 +200,12 @@ async function fetchCurrentMonthlyStar(id: string): Promise<MonthlyStar | null> 
 
 async function insertRowHistory(previous: NorthStarRow, next: UpdateNorthStarRowPayload, userId: string) {
   const rows = [
+    historyRecord(previous.id, 'pillar', previous.pillar, next.pillar, userId, previous.period_week),
+    historyRecord(previous.id, 'owner', previous.owner, next.owner, userId, previous.period_week),
     historyRecord(previous.id, 'north_star', previous.north_star, next.north_star, userId, previous.period_week),
+    historyRecord(previous.id, 'plan_value', previous.plan_value, next.plan_value, userId, previous.period_week),
+    historyRecord(previous.id, 'actual_mtd', previous.actual_mtd, next.actual_mtd, userId, previous.period_week),
+    historyRecord(previous.id, 'forecast', previous.forecast, next.forecast, userId, previous.period_week),
     historyRecord(previous.id, 'constraint_now', previous.constraint_now, next.constraint_now, userId, previous.period_week),
     historyRecord(previous.id, 'weekly_move', previous.weekly_move, next.weekly_move, userId, previous.period_week),
     historyRecord(previous.id, 'last_week_result', previous.last_week_result, next.last_week_result, userId, previous.period_week),
@@ -173,6 +224,7 @@ async function insertMonthlyHistory(previous: MonthlyStar, next: UpdateMonthlySt
     monthlyHistoryRecord(previous.id, 'ly_mtd_actual', previous.ly_mtd_actual, next.ly_mtd_actual, userId, previous.period_month),
     monthlyHistoryRecord(previous.id, 'days_elapsed', previous.days_elapsed, next.days_elapsed, userId, previous.period_month),
     monthlyHistoryRecord(previous.id, 'days_remaining', previous.days_remaining, next.days_remaining, userId, previous.period_month),
+    monthlyHistoryRecord(previous.id, 'dragging_channel_notes', previous.dragging_channel_notes, next.dragging_channel_notes, userId, previous.period_month),
     monthlyHistoryRecord(previous.id, 'channel_deltas', previous.channel_deltas, next.channel_deltas, userId, previous.period_month),
   ].filter(row => row.old_value !== row.new_value)
 

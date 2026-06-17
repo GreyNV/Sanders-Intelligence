@@ -160,7 +160,7 @@ Cache key: `['news_items', { search }]`, stale after 10 min.
 
 ### `useNorthStarRows()` / `useMonthlyStar(periodMonth)` — `hooks/useNorthStar.ts`
 Reads persistent BPR rows and the monthly sales-goal tracker for `/executive/north-star`.
-North Star rows persist until an admin unlocks and edits them; saving locks the row again. Mutation hooks are admin-only in UI and RLS: `useUpdateNorthStarRow()` and `useUpdateMonthlyStar()`.
+North Star rows are admin-managed: admins can add/remove pillars, unlock rows to edit pillar/owner/target fields, and saving locks the row again. Mutation hooks are admin-only in UI and RLS: `useUpdateNorthStarRow()`, `useDeleteNorthStarRow()`, and `useUpdateMonthlyStar()`.
 
 ---
 
@@ -214,13 +214,13 @@ RLS: active `admin` and `purchasing` users can read; Edge Function writes with s
 **Migration file:** `supabase/migrations/013_purchase_orders_and_news.sql`.
 
 ### `public.north_star_rows` / `public.north_star_history`
-Persistent Business Plan Review rows for `/executive/north-star`: one row per pillar with `north_star`, `constraint_now`, `weekly_move`, `last_week_result`, `status`, and `is_locked`.
+Persistent Business Plan Review rows for `/executive/north-star`: one row per admin-managed pillar with `north_star`/Metric, `plan_value`, `actual_mtd`, `forecast`, `constraint_now`, `weekly_move`, `last_week_result`, `status`, and `is_locked`.
 Rows are keyed by `slot_index`, not week, so they do not automatically reset. History stores field-level edits. Active users can read; admins can edit and write history.
 
 ### `public.monthly_star` / `public.monthly_star_history`
-Admin-entered monthly sales target and progress inputs for `/executive/north-star`, including MTD sales, LY MTD sales, days elapsed/remaining, and channel deltas.
+Admin-entered monthly sales target and progress inputs for `/executive/north-star`, including MTD sales, LY MTD sales, days elapsed/remaining, open dragging-channel notes, and optional parsed channel deltas.
 Computed pace, projection, gap, and drag channels live in `NorthStar.helpers.ts`.
-**Migration file:** `supabase/migrations/017_north_star.sql`.
+**Migration files:** `supabase/migrations/017_north_star.sql`, then `supabase/migrations/018_north_star_admin_adjustments.sql`.
 
 ### Edge Functions
 - `sync-purchase-orders`: admin-only manual SellerCloud sync. Requires Supabase secrets `SELLERCLOUD_DELTA_BASE`, `SELLERCLOUD_USERNAME`, and `SELLERCLOUD_PASSWORD`.

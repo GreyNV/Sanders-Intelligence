@@ -263,6 +263,9 @@ export interface NorthStarRow {
   pillar: string
   owner: string | null
   north_star: string
+  plan_value: string | null
+  actual_mtd: string | null
+  forecast: string | null
   constraint_now: string | null
   weekly_move: string | null
   last_week_result: string | null
@@ -292,6 +295,7 @@ export interface MonthlyStar {
   ly_mtd_actual: number
   days_elapsed: number
   days_remaining: number
+  dragging_channel_notes: string | null
   channel_deltas: Array<{ channel: string; delta: number }>
   updated_by: string | null
   updated_at: string
