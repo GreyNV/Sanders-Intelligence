@@ -1,5 +1,20 @@
 import type { MonthlyStar, NorthStarRow, NorthStarStatus } from '@/types'
 
+export const NORTH_STAR_EDITABLE_FIELDS = [
+  'pillar',
+  'owner',
+  'north_star',
+  'plan_value',
+  'actual_mtd',
+  'forecast',
+  'constraint_now',
+  'weekly_move',
+  'last_week_result',
+  'status',
+] as const
+
+export type NorthStarEditableField = typeof NORTH_STAR_EDITABLE_FIELDS[number]
+
 export const STATUS_LABELS: Record<NorthStarStatus, string> = {
   on_plan: 'On plan',
   at_risk: 'At risk',
@@ -127,6 +142,57 @@ export function nextNorthStarSlot(rows: NorthStarDisplayRow[]): number {
   return rows.length + 1
 }
 
+export function createNorthStarDraftRow(
+  rows: NorthStarDisplayRow[],
+  currentMonth: string,
+  currentWeek: string
+): NorthStarDisplayRow {
+  return {
+    id: null,
+    is_set: false,
+    is_locked: false,
+    period_month: currentMonth,
+    period_week: currentWeek,
+    slot_index: nextNorthStarSlot(rows),
+    pillar: 'New pillar',
+    owner: null,
+    north_star: '',
+    plan_value: null,
+    actual_mtd: null,
+    forecast: null,
+    constraint_now: null,
+    weekly_move: null,
+    last_week_result: null,
+    status: 'on_plan',
+  }
+}
+
+export function buildNorthStarUpdatePayload(
+  row: NorthStarDisplayRow,
+  field: NorthStarEditableField,
+  value: string | NorthStarStatus
+) {
+  const textValue = typeof value === 'string' ? value.trim() : value
+  const next = { ...row, [field]: textValue }
+  return {
+    id: row.id,
+    is_locked: true,
+    period_month: row.period_month,
+    period_week: row.period_week,
+    slot_index: row.slot_index,
+    pillar: next.pillar.trim() || 'Untitled pillar',
+    owner: normalizeNullableText(next.owner),
+    north_star: next.north_star.trim(),
+    plan_value: normalizeNullableText(next.plan_value),
+    actual_mtd: normalizeNullableText(next.actual_mtd),
+    forecast: normalizeNullableText(next.forecast),
+    constraint_now: normalizeNullableText(next.constraint_now),
+    weekly_move: normalizeNullableText(next.weekly_move),
+    last_week_result: normalizeNullableText(next.last_week_result),
+    status: next.status,
+  }
+}
+
 export function computeMonthlyStarMetrics(input: MonthlyStarInput): MonthlyStarMetrics {
   const daysElapsed = Math.max(0, Number(input.days_elapsed || 0))
   const daysRemaining = Math.max(0, Number(input.days_remaining || 0))
@@ -151,6 +217,11 @@ export function computeMonthlyStarMetrics(input: MonthlyStarInput): MonthlyStarM
       .filter(channel => Number(channel.delta) < 0)
       .sort((a, b) => a.delta - b.delta),
   }
+}
+
+function normalizeNullableText(value: string | null): string | null {
+  const trimmed = (value ?? '').trim()
+  return trimmed || null
 }
 
 export function defaultMonthlyStar(currentMonth: string): MonthlyStarInput & { period_month: string } {

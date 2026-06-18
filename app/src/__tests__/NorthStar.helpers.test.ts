@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  createNorthStarDraftRow,
   computeMonthlyStarMetrics,
+  NORTH_STAR_EDITABLE_FIELDS,
+  buildNorthStarUpdatePayload,
   mergeNorthStarRows,
   nextNorthStarSlot,
   periodMonth,
@@ -69,6 +72,41 @@ describe('NorthStar helpers', () => {
     const rows = mergeNorthStarRows([], '2026-06-01', '2026-06-14')
     expect(nextNorthStarSlot(rows)).toBe(9)
     expect(nextNorthStarSlot(rows.filter(row => row.slot_index !== 3))).toBe(3)
+  })
+
+  it('creates an inline draft row for the next pillar slot', () => {
+    const rows = mergeNorthStarRows([], '2026-06-01', '2026-06-14')
+    const draft = createNorthStarDraftRow(rows, '2026-06-01', '2026-06-14')
+
+    expect(draft).toMatchObject({
+      id: null,
+      is_set: false,
+      is_locked: false,
+      period_month: '2026-06-01',
+      period_week: '2026-06-14',
+      slot_index: 9,
+      pillar: 'New pillar',
+      owner: null,
+      north_star: '',
+      status: 'on_plan',
+    })
+  })
+
+  it('builds a full save payload from an inline cell edit without requiring row unlock', () => {
+    const row = mergeNorthStarRows([], '2026-06-01', '2026-06-14')[0]
+    const payload = buildNorthStarUpdatePayload(row, 'weekly_move', 'Call out blocked FBA replenishment')
+
+    expect(NORTH_STAR_EDITABLE_FIELDS).toContain('weekly_move')
+    expect(payload).toMatchObject({
+      id: null,
+      is_locked: true,
+      period_month: '2026-06-01',
+      period_week: '2026-06-14',
+      slot_index: 1,
+      pillar: 'Finance / cash',
+      weekly_move: 'Call out blocked FBA replenishment',
+      status: 'on_plan',
+    })
   })
 
   it('computes Monthly Star pace, gap, YoY, and channel drag', () => {

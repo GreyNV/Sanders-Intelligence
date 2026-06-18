@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Edit3, Lock, LockOpen, Target, TrendingDown, TrendingUp, AlertTriangle } from 'lucide-react'
+import type { KeyboardEvent } from 'react'
+import { AlertTriangle, Check, Edit3, GripVertical, Plus, Save, Target, Trash2, TrendingDown, TrendingUp, X } from 'lucide-react'
 import Badge from '@/components/ui/Badge'
-import KPICard from '@/components/ui/KPICard'
-import Modal from '@/components/ui/Modal'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/contexts/AuthContext'
 import { fmtCurrency, fmtNumber } from '@/lib/utils'
@@ -10,28 +9,17 @@ import { useDeleteNorthStarRow, useMonthlyStar, useNorthStarRows, useUpdateMonth
 import type { NorthStarStatus } from '@/types'
 import {
   STATUS_LABELS,
+  buildNorthStarUpdatePayload,
   computeMonthlyStarMetrics,
+  createNorthStarDraftRow,
   mergeNorthStarRows,
   monthlyStarToInput,
-  nextNorthStarSlot,
   periodMonth,
   periodWeek,
   type MonthlyStarInput,
   type NorthStarDisplayRow,
+  type NorthStarEditableField,
 } from './NorthStar.helpers'
-
-interface RowFormState {
-  pillar: string
-  owner: string
-  north_star: string
-  plan_value: string
-  actual_mtd: string
-  forecast: string
-  constraint_now: string
-  weekly_move: string
-  last_week_result: string
-  status: NorthStarStatus
-}
 
 interface MonthlyFormState {
   target_sales: string
@@ -50,6 +38,8 @@ const STATUS_VARIANT: Record<NorthStarStatus, 'ok' | 'warning' | 'danger'> = {
   off_plan: 'danger',
 }
 
+const SHORT_FIELDS = new Set<NorthStarEditableField>(['pillar', 'owner', 'plan_value', 'actual_mtd', 'forecast'])
+
 export default function NorthStar() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
@@ -60,14 +50,17 @@ export default function NorthStar() {
   const updateRow = useUpdateNorthStarRow()
   const deleteRow = useDeleteNorthStarRow()
   const updateMonthly = useUpdateMonthlyStar()
-  const [editingRow, setEditingRow] = useState<NorthStarDisplayRow | null>(null)
-  const [rowForm, setRowForm] = useState<RowFormState | null>(null)
-  const [unlockedRows, setUnlockedRows] = useState<Set<number>>(() => new Set())
+  const [managePillars, setManagePillars] = useState(false)
+  const [draftRows, setDraftRows] = useState<NorthStarDisplayRow[]>([])
   const [monthlyForm, setMonthlyForm] = useState<MonthlyFormState | null>(null)
 
-  const rows = useMemo(
+  const savedDisplayRows = useMemo(
     () => mergeNorthStarRows(savedRows, currentMonth, currentWeek),
     [savedRows, currentMonth, currentWeek]
+  )
+  const rows = useMemo(
+    () => [...savedDisplayRows, ...draftRows].sort((a, b) => a.slot_index - b.slot_index),
+    [savedDisplayRows, draftRows]
   )
   const monthlyInput = useMemo(() => monthlyStarToInput(monthlyStar, currentMonth), [monthlyStar, currentMonth])
   const monthlyDraft = monthlyForm ? monthlyFormToInput(monthlyForm, monthlyInput.period_month) : monthlyInput
@@ -97,91 +90,28 @@ export default function NorthStar() {
     )
   }
 
-  function openRowEditor(row: NorthStarDisplayRow) {
-    setEditingRow(row)
-    setRowForm({
-      pillar: row.pillar,
-      owner: row.owner ?? '',
-      north_star: row.north_star,
-      plan_value: row.plan_value ?? '',
-      actual_mtd: row.actual_mtd ?? '',
-      forecast: row.forecast ?? '',
-      constraint_now: row.constraint_now ?? '',
-      weekly_move: row.weekly_move ?? '',
-      last_week_result: row.last_week_result ?? '',
-      status: row.status,
-    })
-  }
-
-  function closeRowEditor() {
-    setEditingRow(null)
-    setRowForm(null)
-  }
-
-  async function saveRow() {
-    if (!editingRow || !rowForm) return
-    await updateRow.mutateAsync({
-      id: editingRow.id,
-      is_locked: true,
-      period_month: editingRow.period_month,
-      period_week: editingRow.period_week,
-      slot_index: editingRow.slot_index,
-      pillar: rowForm.pillar.trim(),
-      owner: rowForm.owner.trim() || null,
-      north_star: rowForm.north_star.trim(),
-      plan_value: rowForm.plan_value.trim() || null,
-      actual_mtd: rowForm.actual_mtd.trim() || null,
-      forecast: rowForm.forecast.trim() || null,
-      constraint_now: rowForm.constraint_now.trim() || null,
-      weekly_move: rowForm.weekly_move.trim() || null,
-      last_week_result: rowForm.last_week_result.trim() || null,
-      status: rowForm.status,
-    })
-    setUnlockedRows(value => {
-      const next = new Set(value)
-      next.delete(editingRow.slot_index)
-      return next
-    })
-    closeRowEditor()
-  }
-
-  function unlockRow(row: NorthStarDisplayRow) {
-    setUnlockedRows(value => new Set(value).add(row.slot_index))
+  async function handleCellSave(row: NorthStarDisplayRow, field: NorthStarEditableField, value: string | NorthStarStatus) {
+    await updateRow.mutateAsync(buildNorthStarUpdatePayload(row, field, value))
+    if (!row.id) {
+      setDraftRows(current => current.filter(draft => draft.slot_index !== row.slot_index))
+    }
   }
 
   function addPillar() {
-    const slot = nextNorthStarSlot(rows)
-    const row: NorthStarDisplayRow = {
-      id: null,
-      is_set: false,
-      is_locked: false,
-      period_month: currentMonth,
-      period_week: currentWeek,
-      slot_index: slot,
-      pillar: 'New pillar',
-      owner: null,
-      north_star: '',
-      plan_value: null,
-      actual_mtd: null,
-      forecast: null,
-      constraint_now: null,
-      weekly_move: null,
-      last_week_result: null,
-      status: 'on_plan',
-    }
-    openRowEditor(row)
+    setManagePillars(true)
+    setDraftRows(current => [...current, createNorthStarDraftRow(rows, currentMonth, currentWeek)])
   }
 
   async function removePillar(row: NorthStarDisplayRow) {
-    if (!row.id) return
+    if (!row.id) {
+      setDraftRows(current => current.filter(draft => draft.slot_index !== row.slot_index))
+      return
+    }
+    const confirmed = window.confirm(`Remove ${row.pillar}? This deletes the pillar row and stores the change in history.`)
+    if (!confirmed) return
     const saved = savedRows.find(savedRow => savedRow.id === row.id)
     if (!saved) return
     await deleteRow.mutateAsync(saved)
-    setUnlockedRows(value => {
-      const next = new Set(value)
-      next.delete(row.slot_index)
-      return next
-    })
   }
 
   async function saveMonthly() {
@@ -206,111 +136,131 @@ export default function NorthStar() {
           <h1 className="text-xl font-bold text-text1">North Star</h1>
           <p className="text-text2 text-sm mt-0.5">Business plan review for the week of {currentWeek}</p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="ok">On plan</Badge>
+          <Badge variant="warning">At risk</Badge>
+          <Badge variant="danger">Off plan</Badge>
+        </div>
       </div>
 
-      <MonthlyStarPanel input={monthlyDraft} isAdmin={isAdmin} />
+      <MonthlyStarPanel
+        input={monthlyDraft}
+        metrics={monthlyMetrics}
+        isAdmin={isAdmin}
+        monthlyForm={monthlyForm}
+        setMonthlyForm={setMonthlyForm}
+        onSave={saveMonthly}
+        isSaving={updateMonthly.isPending}
+      />
 
-      <div className="card mt-6 overflow-hidden">
-        <div className="flex flex-col gap-3 border-b border-border px-5 py-4 md:flex-row md:items-start md:justify-between">
+      <div className="card mt-6 overflow-hidden p-0">
+        <div className="flex flex-col gap-3 border-b border-border px-5 py-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <div className="text-sm font-semibold text-text1">Business plan review</div>
-            <div className="text-xs text-text2 mt-1">Rows persist until an admin unlocks and updates them. Saving locks the row again.</div>
+            <div className="text-sm font-semibold text-text1">Business plan review pillars</div>
+            <div className="text-xs text-text2 mt-1">
+              Admins can update text inline. Structure changes stay behind Manage pillars.
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            {isAdmin && (
-              <button type="button" className="btn-secondary gap-2" onClick={addPillar}>
-                <Edit3 size={15} />
-                Add pillar
+          {isAdmin && (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className={managePillars ? 'btn-primary text-xs' : 'btn-secondary text-xs'}
+                onClick={() => setManagePillars(value => !value)}
+              >
+                <GripVertical size={14} />
+                Manage pillars
               </button>
-            )}
-            <Badge variant="ok">On plan</Badge>
-            <Badge variant="warning">At risk</Badge>
-            <Badge variant="danger">Off plan</Badge>
-          </div>
+              {managePillars && (
+                <button type="button" className="btn-secondary text-xs" onClick={addPillar}>
+                  <Plus size={14} />
+                  Add pillar
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1280px] text-sm">
-            <thead className="bg-surface2/60 text-xs uppercase tracking-wider text-text2">
+          <table className="w-full min-w-[1320px] border-collapse text-sm">
+            <thead className="bg-surface2/70 text-xs uppercase tracking-wider text-text2">
               <tr>
-                <th className="px-4 py-3 text-left font-semibold">Department / unit</th>
-                <th className="px-4 py-3 text-left font-semibold">Owner</th>
-                <th className="px-4 py-3 text-left font-semibold">Metric</th>
-                <th className="px-4 py-3 text-left font-semibold">Plan</th>
-                <th className="px-4 py-3 text-left font-semibold">Actual (MTD)</th>
-                <th className="px-4 py-3 text-left font-semibold">Forecast</th>
-                <th className="px-4 py-3 text-left font-semibold">Status</th>
-                <th className="px-4 py-3 text-left font-semibold">Constraint now</th>
-                <th className="px-4 py-3 text-left font-semibold">This week's move</th>
-                <th className="px-4 py-3 text-left font-semibold">Last week</th>
-                {isAdmin && <th className="px-4 py-3 text-right font-semibold">Edit</th>}
+                {managePillars && isAdmin && <th className="w-12 px-3 py-3 text-left font-semibold">Slot</th>}
+                <th className="px-3 py-3 text-left font-semibold">Pillar</th>
+                <th className="px-3 py-3 text-left font-semibold">Owner</th>
+                <th className="px-3 py-3 text-left font-semibold">Metric</th>
+                <th className="px-3 py-3 text-left font-semibold">Plan</th>
+                <th className="px-3 py-3 text-left font-semibold">Actual</th>
+                <th className="px-3 py-3 text-left font-semibold">Forecast</th>
+                <th className="px-3 py-3 text-left font-semibold">Status</th>
+                <th className="px-3 py-3 text-left font-semibold">Constraint now</th>
+                <th className="px-3 py-3 text-left font-semibold">This week's move</th>
+                <th className="px-3 py-3 text-left font-semibold">Last week</th>
+                {managePillars && isAdmin && <th className="w-16 px-3 py-3 text-right font-semibold">Remove</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {rows.map(row => (
-                <tr key={row.slot_index} className="group hover:bg-surface2/50">
-                  <td className="px-4 py-4 align-top">
-                    <div className="font-semibold text-text1">{row.pillar}</div>
-                    <div className="text-xs text-text2 mt-1">#{row.slot_index}</div>
+                <tr key={`${row.slot_index}-${row.id ?? 'draft'}`} className="group hover:bg-surface2/40">
+                  {managePillars && isAdmin && (
+                    <td className="px-3 py-3 align-top text-xs font-semibold text-text2">#{row.slot_index}</td>
+                  )}
+                  <td className="w-[150px] px-3 py-3 align-top">
+                    <InlineEditableCell row={row} field="pillar" value={row.pillar} isAdmin={isAdmin} onSave={handleCellSave} isSaving={updateRow.isPending} />
                   </td>
-                  <td className="px-4 py-4 align-top text-text2">{row.owner || 'Unassigned'}</td>
-                  <td className="px-4 py-4 align-top text-text1 max-w-[220px]">{row.north_star}</td>
-                  <td className="px-4 py-4 align-top text-text2 max-w-[150px]">{row.plan_value || emptyText()}</td>
-                  <td className="px-4 py-4 align-top text-text2 max-w-[150px]">{row.actual_mtd || emptyText()}</td>
-                  <td className="px-4 py-4 align-top text-text2 max-w-[150px]">{row.forecast || emptyText()}</td>
-                  <td className="px-4 py-4 align-top">
-                    <div className="flex flex-col gap-2">
+                  <td className="w-[120px] px-3 py-3 align-top">
+                    <InlineEditableCell row={row} field="owner" value={row.owner ?? ''} isAdmin={isAdmin} placeholder="Unassigned" onSave={handleCellSave} isSaving={updateRow.isPending} />
+                  </td>
+                  <td className="w-[220px] px-3 py-3 align-top">
+                    <InlineEditableCell row={row} field="north_star" value={row.north_star} isAdmin={isAdmin} multiline placeholder="Not set" onSave={handleCellSave} isSaving={updateRow.isPending} />
+                  </td>
+                  <td className="w-[130px] px-3 py-3 align-top">
+                    <InlineEditableCell row={row} field="plan_value" value={row.plan_value ?? ''} isAdmin={isAdmin} placeholder="Not set" onSave={handleCellSave} isSaving={updateRow.isPending} />
+                  </td>
+                  <td className="w-[130px] px-3 py-3 align-top">
+                    <InlineEditableCell row={row} field="actual_mtd" value={row.actual_mtd ?? ''} isAdmin={isAdmin} placeholder="Not set" onSave={handleCellSave} isSaving={updateRow.isPending} />
+                  </td>
+                  <td className="w-[130px] px-3 py-3 align-top">
+                    <InlineEditableCell row={row} field="forecast" value={row.forecast ?? ''} isAdmin={isAdmin} placeholder="Not set" onSave={handleCellSave} isSaving={updateRow.isPending} />
+                  </td>
+                  <td className="w-[130px] px-3 py-3 align-top">
+                    {isAdmin ? (
+                      <select
+                        className="select w-full py-1.5 text-xs"
+                        value={row.status}
+                        onChange={e => handleCellSave(row, 'status', e.target.value as NorthStarStatus)}
+                        disabled={updateRow.isPending}
+                        aria-label={`Status for ${row.pillar}`}
+                      >
+                        <option value="on_plan">On plan</option>
+                        <option value="at_risk">At risk</option>
+                        <option value="off_plan">Off plan</option>
+                      </select>
+                    ) : (
                       <Badge variant={STATUS_VARIANT[row.status]}>{STATUS_LABELS[row.status]}</Badge>
-                      {row.is_set && (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-text2">
-                          {isRowUnlocked(row) ? <LockOpen size={12} /> : <Lock size={12} />}
-                          {isRowUnlocked(row) ? 'Unlocked' : 'Locked'}
-                        </span>
-                      )}
-                    </div>
+                    )}
                   </td>
-                  <td className="px-4 py-4 align-top text-text2 max-w-[220px]">{row.constraint_now || emptyText()}</td>
-                  <td className="px-4 py-4 align-top text-text2 max-w-[220px]">{row.weekly_move || emptyText()}</td>
-                  <td className="px-4 py-4 align-top text-text2 max-w-[220px]">{row.last_week_result || emptyText()}</td>
-                  {isAdmin && (
-                    <td className="px-4 py-4 align-top text-right">
-                      {row.is_set && !isRowUnlocked(row) ? (
-                        <button
-                          type="button"
-                          className="inline-flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold text-text2 opacity-100 transition hover:bg-surface2 hover:text-text1 md:opacity-0 md:group-hover:opacity-100"
-                          onClick={() => unlockRow(row)}
-                          title={`Unlock ${row.pillar}`}
-                          aria-label={`Unlock ${row.pillar}`}
-                        >
-                          <LockOpen size={14} />
-                          Unlock
-                        </button>
-                      ) : (
-                        <div className="flex justify-end gap-1">
-                          <button
-                            type="button"
-                            className="inline-flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold text-text2 opacity-100 transition hover:bg-surface2 hover:text-text1 md:opacity-0 md:group-hover:opacity-100"
-                            onClick={() => openRowEditor(row)}
-                            title={`${row.is_set ? 'Edit' : 'Set'} ${row.pillar}`}
-                            aria-label={`${row.is_set ? 'Edit' : 'Set'} ${row.pillar}`}
-                          >
-                            <Edit3 size={14} />
-                            {row.is_set ? 'Edit' : 'Set'}
-                          </button>
-                          {row.id && (
-                            <button
-                              type="button"
-                              className="inline-flex items-center justify-center rounded-lg px-2 py-1.5 text-xs font-semibold text-danger opacity-100 transition hover:bg-danger/10 md:opacity-0 md:group-hover:opacity-100"
-                              onClick={() => removePillar(row)}
-                              disabled={deleteRow.isPending}
-                              title={`Remove ${row.pillar}`}
-                              aria-label={`Remove ${row.pillar}`}
-                            >
-                              Remove
-                            </button>
-                          )}
-                        </div>
-                      )}
+                  <td className="w-[210px] px-3 py-3 align-top">
+                    <InlineEditableCell row={row} field="constraint_now" value={row.constraint_now ?? ''} isAdmin={isAdmin} multiline placeholder="Not set" onSave={handleCellSave} isSaving={updateRow.isPending} />
+                  </td>
+                  <td className="w-[210px] px-3 py-3 align-top">
+                    <InlineEditableCell row={row} field="weekly_move" value={row.weekly_move ?? ''} isAdmin={isAdmin} multiline placeholder="Not set" onSave={handleCellSave} isSaving={updateRow.isPending} />
+                  </td>
+                  <td className="w-[210px] px-3 py-3 align-top">
+                    <InlineEditableCell row={row} field="last_week_result" value={row.last_week_result ?? ''} isAdmin={isAdmin} multiline placeholder="Not set" onSave={handleCellSave} isSaving={updateRow.isPending} />
+                  </td>
+                  {managePillars && isAdmin && (
+                    <td className="px-3 py-3 align-top text-right">
+                      <button
+                        type="button"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-danger transition hover:bg-danger/10 disabled:opacity-50"
+                        onClick={() => removePillar(row)}
+                        disabled={deleteRow.isPending}
+                        title={`Remove ${row.pillar}`}
+                        aria-label={`Remove ${row.pillar}`}
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     </td>
                   )}
                 </tr>
@@ -319,189 +269,271 @@ export default function NorthStar() {
           </table>
         </div>
       </div>
-
-      <Modal open={Boolean(editingRow && rowForm)} onClose={closeRowEditor} title="Edit North Star Row" width="max-w-2xl">
-        {editingRow && rowForm && (
-          <div className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-wider text-text2">Pillar</span>
-                <input className="input mt-1" value={rowForm.pillar} onChange={e => setRowForm({ ...rowForm, pillar: e.target.value })} />
-              </label>
-              <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-wider text-text2">Owner</span>
-                <input className="input mt-1" value={rowForm.owner} onChange={e => setRowForm({ ...rowForm, owner: e.target.value })} />
-              </label>
-            </div>
-            <label className="block">
-              <span className="text-xs font-semibold uppercase tracking-wider text-text2">Metric</span>
-              <textarea className="input mt-1 min-h-[78px]" value={rowForm.north_star} onChange={e => setRowForm({ ...rowForm, north_star: e.target.value })} />
-            </label>
-            <div className="grid gap-4 md:grid-cols-3">
-              <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-wider text-text2">Plan</span>
-                <input className="input mt-1" value={rowForm.plan_value} onChange={e => setRowForm({ ...rowForm, plan_value: e.target.value })} />
-              </label>
-              <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-wider text-text2">Actual (MTD)</span>
-                <input className="input mt-1" value={rowForm.actual_mtd} onChange={e => setRowForm({ ...rowForm, actual_mtd: e.target.value })} />
-              </label>
-              <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-wider text-text2">Forecast</span>
-                <input className="input mt-1" value={rowForm.forecast} onChange={e => setRowForm({ ...rowForm, forecast: e.target.value })} />
-              </label>
-            </div>
-            <label className="block">
-              <span className="text-xs font-semibold uppercase tracking-wider text-text2">Constraint now</span>
-              <textarea className="input mt-1 min-h-[78px]" value={rowForm.constraint_now} onChange={e => setRowForm({ ...rowForm, constraint_now: e.target.value })} />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold uppercase tracking-wider text-text2">Weekly move</span>
-              <textarea className="input mt-1 min-h-[78px]" value={rowForm.weekly_move} onChange={e => setRowForm({ ...rowForm, weekly_move: e.target.value })} />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold uppercase tracking-wider text-text2">Last week result</span>
-              <textarea className="input mt-1 min-h-[78px]" value={rowForm.last_week_result} onChange={e => setRowForm({ ...rowForm, last_week_result: e.target.value })} />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold uppercase tracking-wider text-text2">Status</span>
-              <select className="input mt-1" value={rowForm.status} onChange={e => setRowForm({ ...rowForm, status: e.target.value as NorthStarStatus })}>
-                <option value="on_plan">On plan</option>
-                <option value="at_risk">At risk</option>
-                <option value="off_plan">Off plan</option>
-              </select>
-            </label>
-            <div className="flex justify-end gap-3 pt-2">
-              <button type="button" className="btn-secondary" onClick={closeRowEditor}>Cancel</button>
-              <button type="button" className="btn-primary" onClick={saveRow} disabled={updateRow.isPending}>
-                {updateRow.isPending ? 'Saving...' : 'Save row'}
-              </button>
-            </div>
-          </div>
-        )}
-      </Modal>
-
     </div>
   )
+}
 
-  function MonthlyStarPanel({ input, isAdmin }: { input: MonthlyStarViewInput; isAdmin: boolean }) {
-    const projectedVariant = monthlyMetrics.onTrack ? 'success' : 'warning'
-    return (
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <KPICard label="Monthly target" value={fmtCurrency(input.target_sales)} sub={`${fmtNumber(input.days_remaining)} selling days left`} icon={<Target size={17} />} />
-          <KPICard label="MTD actual" value={fmtCurrency(input.mtd_actual)} sub={`${fmtCurrency(monthlyMetrics.dailyPace)} daily pace`} variant="info" icon={<TrendingUp size={17} />} />
-          <KPICard
-            label="Projected month-end"
-            value={fmtCurrency(monthlyMetrics.projectedMonthEnd)}
-            sub={monthlyMetrics.onTrack ? 'On pace to target' : `${fmtCurrency(monthlyMetrics.remainingToTarget)} remaining`}
-            variant={projectedVariant}
-            icon={<Target size={17} />}
-          />
-          <KPICard
-            label="YoY MTD"
-            value={fmtCurrency(monthlyMetrics.yoyDelta)}
-            sub={monthlyMetrics.yoyPct === null ? 'No LY baseline' : `${monthlyMetrics.yoyPct.toFixed(1)}% vs LY`}
-            variant={monthlyMetrics.yoyDelta >= 0 ? 'success' : 'danger'}
-            icon={monthlyMetrics.yoyDelta >= 0 ? <TrendingUp size={17} /> : <TrendingDown size={17} />}
-          />
+function MonthlyStarPanel({
+  input,
+  metrics,
+  isAdmin,
+  monthlyForm,
+  setMonthlyForm,
+  onSave,
+  isSaving,
+}: {
+  input: MonthlyStarViewInput
+  metrics: ReturnType<typeof computeMonthlyStarMetrics>
+  isAdmin: boolean
+  monthlyForm: MonthlyFormState | null
+  setMonthlyForm: (value: MonthlyFormState) => void
+  onSave: () => void
+  isSaving: boolean
+}) {
+  const statusTone = metrics.onTrack ? 'success' : 'warning'
+  return (
+    <div className="card p-0">
+      <div className="flex flex-col gap-3 border-b border-border px-5 py-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="text-sm font-semibold text-text1">Sales Star</div>
+          <div className="text-xs text-text2 mt-1">Monthly goal progress for {input.period_month.slice(0, 7)}</div>
+        </div>
+        <div className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold ${metrics.onTrack ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>
+          {metrics.onTrack ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+          {metrics.onTrack ? 'On track' : 'Needs lift'}
+        </div>
+      </div>
+
+      <div className="grid gap-0 border-b border-border md:grid-cols-3 xl:grid-cols-6">
+        <MonthlyStarMetric label="Monthly target" value={fmtCurrency(input.target_sales)} sub={`${fmtNumber(input.days_remaining)} days left`} />
+        <MonthlyStarMetric label="MTD actual" value={fmtCurrency(input.mtd_actual)} sub={`${fmtCurrency(metrics.dailyPace)} / day`} tone="info" />
+        <MonthlyStarMetric label="Projected" value={fmtCurrency(metrics.projectedMonthEnd)} sub="Month-end pace" tone={statusTone} />
+        <MonthlyStarMetric label="Gap to target" value={fmtCurrency(metrics.remainingToTarget)} sub="Remaining sales" tone={metrics.remainingToTarget > 0 ? 'warning' : 'success'} />
+        <MonthlyStarMetric label="Daily needed" value={fmtCurrency(metrics.dailyNeeded)} sub={metrics.liftNeededPct === null ? 'No pace yet' : `${metrics.liftNeededPct.toFixed(1)}% lift`} />
+        <MonthlyStarMetric label="YoY MTD" value={fmtCurrency(metrics.yoyDelta)} sub={metrics.yoyPct === null ? 'No LY baseline' : `${metrics.yoyPct.toFixed(1)}% vs LY`} tone={metrics.yoyDelta >= 0 ? 'success' : 'danger'} />
+      </div>
+
+      <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.65fr)]">
+        <div>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="text-xs font-semibold uppercase tracking-wider text-text2">Inputs</div>
+            {isAdmin && (
+              <button type="button" className="btn-primary text-xs" onClick={onSave} disabled={isSaving}>
+                <Save size={14} />
+                {isSaving ? 'Saving...' : 'Save Sales Star'}
+              </button>
+            )}
+          </div>
+          {isAdmin && monthlyForm ? (
+            <div className="grid gap-3 md:grid-cols-3">
+              <MoneyInput label="Sales target" value={monthlyForm.target_sales} onChange={target_sales => setMonthlyForm({ ...monthlyForm, target_sales })} />
+              <MoneyInput label="MTD actual" value={monthlyForm.mtd_actual} onChange={mtd_actual => setMonthlyForm({ ...monthlyForm, mtd_actual })} />
+              <MoneyInput label="LY MTD actual" value={monthlyForm.ly_mtd_actual} onChange={ly_mtd_actual => setMonthlyForm({ ...monthlyForm, ly_mtd_actual })} />
+              <NumberInput label="Days elapsed" value={monthlyForm.days_elapsed} onChange={days_elapsed => setMonthlyForm({ ...monthlyForm, days_elapsed })} />
+              <NumberInput label="Days remaining" value={monthlyForm.days_remaining} onChange={days_remaining => setMonthlyForm({ ...monthlyForm, days_remaining })} />
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-3">
+              <ReadOnlyField label="Sales target" value={fmtCurrency(input.target_sales)} />
+              <ReadOnlyField label="MTD actual" value={fmtCurrency(input.mtd_actual)} />
+              <ReadOnlyField label="LY MTD actual" value={fmtCurrency(input.ly_mtd_actual)} />
+              <ReadOnlyField label="Days elapsed" value={fmtNumber(input.days_elapsed)} />
+              <ReadOnlyField label="Days remaining" value={fmtNumber(input.days_remaining)} />
+            </div>
+          )}
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="card">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-text1">Monthly Star</div>
-                <div className="text-xs text-text2 mt-1">Sales goal progress for {input.period_month.slice(0, 7)}</div>
-              </div>
-              {isAdmin && (
-                <button type="button" className="btn-primary" onClick={saveMonthly} disabled={updateMonthly.isPending}>
-                  {updateMonthly.isPending ? 'Saving...' : 'Save Monthly Star'}
-                </button>
-              )}
-            </div>
-            {isAdmin && monthlyForm && (
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
-                <MoneyInput label="Monthly sales target" value={monthlyForm.target_sales} onChange={target_sales => setMonthlyForm({ ...monthlyForm, target_sales })} />
-                <MoneyInput label="Month-to-date actual" value={monthlyForm.mtd_actual} onChange={mtd_actual => setMonthlyForm({ ...monthlyForm, mtd_actual })} />
-                <MoneyInput label="Last year MTD actual" value={monthlyForm.ly_mtd_actual} onChange={ly_mtd_actual => setMonthlyForm({ ...monthlyForm, ly_mtd_actual })} />
-                <label className="block">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-text2">Days elapsed</span>
-                  <input className="input mt-1" inputMode="numeric" value={monthlyForm.days_elapsed} onChange={e => setMonthlyForm({ ...monthlyForm, days_elapsed: e.target.value })} />
-                </label>
-                <label className="block">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-text2">Days remaining</span>
-                  <input className="input mt-1" inputMode="numeric" value={monthlyForm.days_remaining} onChange={e => setMonthlyForm({ ...monthlyForm, days_remaining: e.target.value })} />
-                </label>
-              </div>
+        <div>
+          <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-text2">Dragging channels</div>
+          {isAdmin && monthlyForm && (
+            <textarea
+              className="input min-h-[104px] w-full"
+              value={monthlyForm.dragging_channel_notes}
+              onChange={e => setMonthlyForm({ ...monthlyForm, dragging_channel_notes: e.target.value })}
+              placeholder={'FBA: -279000\nDropshipCentral: -49000\nWFS: -5000'}
+            />
+          )}
+          {!isAdmin && input.dragging_channel_notes && (
+            <div className="rounded-lg bg-surface2 p-3 text-sm text-text1 whitespace-pre-wrap">{input.dragging_channel_notes}</div>
+          )}
+          <div className="mt-3 space-y-2">
+            {metrics.draggingChannels.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border p-3 text-sm text-text2">No negative channel deltas recorded.</div>
+            ) : (
+              metrics.draggingChannels.map(channel => (
+                <div key={channel.channel} className="flex items-center justify-between gap-3 rounded-lg bg-surface2 px-3 py-2">
+                  <span className="text-sm text-text1">{channel.channel}</span>
+                  <span className="text-sm font-semibold text-danger tabular-nums">{fmtCurrency(channel.delta)}</span>
+                </div>
+              ))
             )}
-            <div className="mt-5 grid gap-4 md:grid-cols-3">
-              <MetricBlock label="Daily needed" value={fmtCurrency(monthlyMetrics.dailyNeeded)} />
-              <MetricBlock label="Pace lift needed" value={monthlyMetrics.liftNeededPct === null ? 'N/A' : `${monthlyMetrics.liftNeededPct.toFixed(1)}%`} />
-              <MetricBlock label="Status" value={monthlyMetrics.onTrack ? 'On track' : 'Needs lift'} tone={monthlyMetrics.onTrack ? 'success' : 'warning'} />
-            </div>
           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
-          <div className="card">
-            <div className="text-sm font-semibold text-text1">Dragging channel</div>
-            {isAdmin && monthlyForm && (
-              <label className="mt-4 block">
-                <span className="text-xs font-semibold uppercase tracking-wider text-text2">Open text</span>
-                <textarea
-                  className="input mt-1 min-h-[118px]"
-                  value={monthlyForm.dragging_channel_notes}
-                  onChange={e => setMonthlyForm({ ...monthlyForm, dragging_channel_notes: e.target.value })}
-                  placeholder="FBA is trailing plan because inventory is constrained.&#10;WFS: -50000"
-                />
-              </label>
-            )}
-            {!isAdmin && input.dragging_channel_notes && (
-              <div className="mt-4 rounded-lg bg-surface2 p-4 text-sm text-text1 whitespace-pre-wrap">{input.dragging_channel_notes}</div>
-            )}
-            <div className="mt-4 space-y-3">
-              {monthlyMetrics.draggingChannels.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-border p-4 text-sm text-text2">No negative channel deltas recorded.</div>
-              ) : (
-                monthlyMetrics.draggingChannels.map(channel => (
-                  <div key={channel.channel} className="flex items-center justify-between gap-3 rounded-lg bg-surface2 px-3 py-2">
-                    <span className="text-sm text-text1">{channel.channel}</span>
-                    <span className="text-sm font-semibold text-danger">{fmtCurrency(channel.delta)}</span>
-                  </div>
-                ))
-              )}
-            </div>
+function MonthlyStarMetric({ label, value, sub, tone = 'default' }: { label: string; value: string; sub: string; tone?: 'default' | 'success' | 'warning' | 'danger' | 'info' }) {
+  const toneClass = {
+    default: 'text-text1',
+    success: 'text-success',
+    warning: 'text-warning',
+    danger: 'text-danger',
+    info: 'text-accent',
+  }[tone]
+  return (
+    <div className="border-b border-border px-4 py-3 md:border-r xl:border-b-0">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-text2">{label}</div>
+      <div className={`mt-1 text-lg font-bold tabular-nums ${toneClass}`}>{value}</div>
+      <div className="mt-0.5 text-[11px] text-text2">{sub}</div>
+    </div>
+  )
+}
+
+function InlineEditableCell({
+  row,
+  field,
+  value,
+  isAdmin,
+  multiline = false,
+  placeholder = 'Not set',
+  onSave,
+  isSaving,
+}: {
+  row: NorthStarDisplayRow
+  field: NorthStarEditableField
+  value: string
+  isAdmin: boolean
+  multiline?: boolean
+  placeholder?: string
+  onSave: (row: NorthStarDisplayRow, field: NorthStarEditableField, value: string) => Promise<void>
+  isSaving: boolean
+}) {
+  const [editing, setEditing] = useState(!row.id && field === 'pillar')
+  const [draft, setDraft] = useState(value)
+  const isShort = SHORT_FIELDS.has(field)
+
+  useEffect(() => {
+    setDraft(value)
+  }, [value])
+
+  if (!isAdmin) {
+    return <ReadOnlyCell value={value} placeholder={placeholder} strong={field === 'pillar'} />
+  }
+
+  async function save() {
+    await onSave(row, field, draft)
+    setEditing(false)
+  }
+
+  function cancel() {
+    setDraft(value)
+    setEditing(false)
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      cancel()
+      return
+    }
+    if (!multiline && event.key === 'Enter') {
+      event.preventDefault()
+      save()
+      return
+    }
+    if (multiline && event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault()
+      save()
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="space-y-2">
+        {multiline ? (
+          <textarea
+            className="input min-h-[72px] w-full resize-y py-1.5 text-xs leading-relaxed"
+            value={draft}
+            onChange={event => setDraft(event.target.value)}
+            onKeyDown={handleKeyDown}
+            autoFocus
+            placeholder={placeholder}
+          />
+        ) : (
+          <input
+            className="input w-full py-1.5 text-xs"
+            value={draft}
+            onChange={event => setDraft(event.target.value)}
+            onKeyDown={handleKeyDown}
+            autoFocus
+            placeholder={placeholder}
+          />
+        )}
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] text-text2">{multiline ? 'Ctrl+Enter saves' : 'Enter saves'}</span>
+          <div className="flex gap-1">
+            <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-success hover:bg-success/10 disabled:opacity-50" onClick={save} disabled={isSaving} title="Save">
+              <Check size={14} />
+            </button>
+            <button type="button" className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-text2 hover:bg-surface2" onClick={cancel} title="Cancel">
+              <X size={14} />
+            </button>
           </div>
         </div>
       </div>
     )
   }
 
-  function isRowUnlocked(row: NorthStarDisplayRow): boolean {
-    return !row.is_set || !row.is_locked || unlockedRows.has(row.slot_index)
-  }
+  return (
+    <button
+      type="button"
+      className="group/cell flex min-h-[32px] w-full items-start justify-between gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-surface2"
+      onClick={() => setEditing(true)}
+      title="Edit inline"
+    >
+      <ReadOnlyCell value={value} placeholder={placeholder} strong={field === 'pillar'} compact={isShort} />
+      <Edit3 size={13} className="mt-0.5 shrink-0 text-text2 opacity-0 transition group-hover/cell:opacity-100" />
+    </button>
+  )
+}
+
+function ReadOnlyCell({ value, placeholder, strong = false, compact = false }: { value: string; placeholder: string; strong?: boolean; compact?: boolean }) {
+  const className = strong
+    ? 'font-semibold text-text1'
+    : compact
+      ? 'text-text2'
+      : 'text-text1'
+  if (!value.trim()) return <span className="text-text2/70">{placeholder}</span>
+  return <span className={`block whitespace-pre-wrap break-words text-xs leading-relaxed ${className}`}>{value}</span>
 }
 
 function MoneyInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
     <label className="block">
-      <span className="text-xs font-semibold uppercase tracking-wider text-text2">{label}</span>
-      <input className="input mt-1" inputMode="decimal" value={value} onChange={e => onChange(e.target.value)} />
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-text2">{label}</span>
+      <input className="input mt-1 w-full py-1.5" inputMode="decimal" value={value} onChange={event => onChange(event.target.value)} />
     </label>
   )
 }
 
-function MetricBlock({ label, value, tone = 'default' }: { label: string; value: string; tone?: 'default' | 'success' | 'warning' }) {
-  const toneClass = tone === 'success' ? 'text-success' : tone === 'warning' ? 'text-warning' : 'text-text1'
+function NumberInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
-    <div className="rounded-lg bg-surface2 p-4">
-      <div className="text-xs font-semibold uppercase tracking-wider text-text2">{label}</div>
-      <div className={`mt-2 text-2xl font-bold tabular-nums ${toneClass}`}>{value}</div>
-    </div>
+    <label className="block">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-text2">{label}</span>
+      <input className="input mt-1 w-full py-1.5" inputMode="numeric" value={value} onChange={event => onChange(event.target.value)} />
+    </label>
   )
 }
 
-function emptyText() {
-  return <span className="text-text2/70">Not set</span>
+function ReadOnlyField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-surface2 px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-text2">{label}</div>
+      <div className="mt-1 text-sm font-semibold text-text1 tabular-nums">{value}</div>
+    </div>
+  )
 }
 
 function parseMoney(value: string): number {
