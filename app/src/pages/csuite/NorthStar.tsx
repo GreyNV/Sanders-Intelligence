@@ -38,6 +38,12 @@ const STATUS_VARIANT: Record<NorthStarStatus, 'ok' | 'warning' | 'danger'> = {
   off_plan: 'danger',
 }
 
+const STATUS_ROW_CLASS: Record<NorthStarStatus, string> = {
+  on_plan: 'border-l-4 border-success bg-success/5 hover:bg-success/10',
+  at_risk: 'border-l-4 border-warning bg-warning/10 hover:bg-warning/15',
+  off_plan: 'border-l-4 border-danger bg-danger/10 hover:bg-danger/15',
+}
+
 const SHORT_FIELDS = new Set<NorthStarEditableField>(['pillar', 'owner', 'plan_value', 'actual_mtd', 'forecast'])
 
 export default function NorthStar() {
@@ -201,7 +207,7 @@ export default function NorthStar() {
             </thead>
             <tbody className="divide-y divide-border">
               {rows.map(row => (
-                <tr key={`${row.slot_index}-${row.id ?? 'draft'}`} className="group hover:bg-surface2/40">
+                <tr key={`${row.slot_index}-${row.id ?? 'draft'}`} className={`group transition-colors ${STATUS_ROW_CLASS[row.status]}`}>
                   {managePillars && isAdmin && (
                     <td className="px-3 py-3 align-top text-xs font-semibold text-text2">#{row.slot_index}</td>
                   )}

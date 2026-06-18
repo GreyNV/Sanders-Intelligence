@@ -26,4 +26,14 @@ describe('NorthStar inline editing contract', () => {
     expect(source).toContain('Daily needed')
     expect(source).toContain('Dragging channels')
   })
+
+  it('color-codes BPR rows by status', () => {
+    expect(source).toContain('STATUS_ROW_CLASS')
+    expect(source).toContain('on_plan: ')
+    expect(source).toContain('bg-success/5')
+    expect(source).toContain('at_risk: ')
+    expect(source).toContain('bg-warning/10')
+    expect(source).toContain('off_plan: ')
+    expect(source).toContain('bg-danger/10')
+  })
 })
