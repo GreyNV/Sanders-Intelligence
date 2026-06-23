@@ -73,6 +73,12 @@ export interface MonthlyStarMetrics {
   draggingChannels: Array<{ channel: string; delta: number }>
 }
 
+export interface MonthlyStarSalesRow {
+  sale_date: string
+  channel: string | null
+  revenue: number
+}
+
 export function periodMonth(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`
 }
@@ -219,9 +225,58 @@ export function computeMonthlyStarMetrics(input: MonthlyStarInput): MonthlyStarM
   }
 }
 
+export function deriveMonthlyStarFromSalesRows({
+  periodMonth,
+  targetSales,
+  rows,
+  previousYearRows,
+  daysElapsed,
+  daysRemaining,
+}: {
+  periodMonth: string
+  targetSales: number
+  rows: MonthlyStarSalesRow[]
+  previousYearRows: MonthlyStarSalesRow[]
+  daysElapsed: number
+  daysRemaining: number
+}): MonthlyStarInput & { period_month: string } {
+  const currentPeriod = periodMonth.slice(0, 7)
+  const currentRows = rows.filter(row => row.sale_date.slice(0, 7) === currentPeriod)
+  const mtdByChannel = sumRevenueByChannel(currentRows)
+  const lyByChannel = sumRevenueByChannel(previousYearRows)
+  const channels = Array.from(new Set([...mtdByChannel.keys(), ...lyByChannel.keys()])).sort()
+
+  return {
+    period_month: periodMonth,
+    target_sales: targetSales,
+    mtd_actual: sumMapValues(mtdByChannel),
+    ly_mtd_actual: sumMapValues(lyByChannel),
+    days_elapsed: daysElapsed,
+    days_remaining: daysRemaining,
+    dragging_channel_notes: null,
+    channel_deltas: channels.map(channel => ({
+      channel,
+      delta: Number(((mtdByChannel.get(channel) ?? 0) - (lyByChannel.get(channel) ?? 0)).toFixed(2)),
+    })),
+  }
+}
+
 function normalizeNullableText(value: string | null): string | null {
   const trimmed = (value ?? '').trim()
   return trimmed || null
+}
+
+function sumRevenueByChannel(rows: MonthlyStarSalesRow[]): Map<string, number> {
+  const map = new Map<string, number>()
+  for (const row of rows) {
+    const channel = (row.channel || 'Unassigned').trim() || 'Unassigned'
+    map.set(channel, (map.get(channel) ?? 0) + Number(row.revenue || 0))
+  }
+  return map
+}
+
+function sumMapValues(map: Map<string, number>): number {
+  return Number(Array.from(map.values()).reduce((sum, value) => sum + value, 0).toFixed(2))
 }
 
 export function defaultMonthlyStar(currentMonth: string): MonthlyStarInput & { period_month: string } {

@@ -162,6 +162,9 @@ Cache key: `['news_items', { search }]`, stale after 10 min.
 Reads persistent BPR rows and the monthly sales-goal tracker for `/executive/north-star`.
 North Star rows are admin-managed: admins can add/remove pillars, unlock rows to edit pillar/owner/target fields, and saving locks the row again. Mutation hooks are admin-only in UI and RLS: `useUpdateNorthStarRow()`, `useDeleteNorthStarRow()`, and `useUpdateMonthlyStar()`.
 
+### `useMonthlyStarSales(periodMonth)` — `hooks/useNorthStar.ts`
+Reads live SellerCloud sales rows from `sales_daily` for the current month and same month last year. North Star derives Monthly Star MTD/LY/channel deltas from this when current-month rows exist, and falls back to admin-entered `monthly_star` values when no live rows exist.
+
 ---
 
 ## Database Tables
@@ -222,8 +225,15 @@ Admin-entered monthly sales target and progress inputs for `/executive/north-sta
 Computed pace, projection, gap, and drag channels live in `NorthStar.helpers.ts`.
 **Migration files:** `supabase/migrations/017_north_star.sql`, then `supabase/migrations/018_north_star_admin_adjustments.sql`.
 
+### `public.sales_daily`
+SellerCloud sales cache at date + channel + source SKU grain for live Monthly Star inputs: `sale_date`, `channel`, `source_sku`, `planning_sku`, `units_sold`, `revenue`, `orders_count`, `source_payload`, `synced_at`.
+`planning_sku` resolves through `sku_bridge` when possible. Active users can read; admins and service-role functions write.
+**Migration file:** `supabase/migrations/019_sellercloud_sales_and_sku_matching.sql`.
+
 ### Edge Functions
 - `sync-purchase-orders`: admin-only manual SellerCloud sync. Requires Supabase secrets `SELLERCLOUD_DELTA_BASE`, `SELLERCLOUD_USERNAME`, and `SELLERCLOUD_PASSWORD`.
+- `match-sellercloud-skus`: admin-only bridge/backfill routine for PO `source_sku` -> inventory `planning_sku`. Uses shared matching rules in `supabase/functions/_shared/sku-match.ts`.
+- `sync-sales`: admin-only SellerCloud sales sync into `sales_daily`. Requires the same SellerCloud secrets; optional `SELLERCLOUD_SALES_ENDPOINT` overrides the default Orders-style endpoint.
 - `refresh-news`: admin-only GDELT refresh. No browser-side news API key.
 
 ---
@@ -360,6 +370,8 @@ const [status, setStatus] = useState(params.get('status') ?? '')
 - **Run migration:** `supabase/migrations/002_dismissed_actions.sql` must be executed in Supabase SQL Editor before the snooze feature works in production.
 - **Run migration:** `supabase/migrations/013_purchase_orders_and_news.sql` must be executed before Purchase Orders V1 and Logistics News work in production.
 - **Run migration:** `supabase/migrations/017_north_star.sql` must be executed before North Star / Monthly Star works in production.
+- **Run migration:** `supabase/migrations/019_sellercloud_sales_and_sku_matching.sql` must be executed before live Monthly Star sales and SKU-match scheduled support work in production.
 - **Configure secrets:** SellerCloud Edge Function secrets must be set in Supabase before manual PO sync works: `SELLERCLOUD_DELTA_BASE`, `SELLERCLOUD_USERNAME`, `SELLERCLOUD_PASSWORD`.
+- **Optional secret:** Set `SELLERCLOUD_SALES_ENDPOINT` if the production sales-report endpoint differs from the default `/api/Orders`.
 - **Historical trends:** ExecutiveSummary has a placeholder card that activates after 7+ days of uploads (week-over-week KPI movement).
 - **Bash tool:** `mcp__workspace__bash` is sometimes unavailable. Fallback: write git commands to clipboard via computer-use tools.

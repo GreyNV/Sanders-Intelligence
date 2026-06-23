@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createNorthStarDraftRow,
   computeMonthlyStarMetrics,
+  deriveMonthlyStarFromSalesRows,
   NORTH_STAR_EDITABLE_FIELDS,
   buildNorthStarUpdatePayload,
   mergeNorthStarRows,
@@ -153,5 +154,37 @@ describe('NorthStar helpers', () => {
     expect(metrics.onTrack).toBe(false)
     expect(metrics.yoyPct).toBeNull()
     expect(metrics.liftNeededPct).toBe(75)
+  })
+
+  it('derives Monthly Star inputs from live sales rows with manual target fallback', () => {
+    const star = deriveMonthlyStarFromSalesRows({
+      periodMonth: '2026-06-01',
+      targetSales: 9000000,
+      rows: [
+        { sale_date: '2026-06-01', channel: 'FBA', revenue: 1000 },
+        { sale_date: '2026-06-02', channel: 'FBA', revenue: 1500 },
+        { sale_date: '2025-06-01', channel: 'FBA', revenue: 900 },
+        { sale_date: '2025-06-02', channel: 'WFS', revenue: 600 },
+      ],
+      previousYearRows: [
+        { sale_date: '2025-06-01', channel: 'FBA', revenue: 900 },
+        { sale_date: '2025-06-02', channel: 'WFS', revenue: 600 },
+      ],
+      daysElapsed: 2,
+      daysRemaining: 28,
+    })
+
+    expect(star).toMatchObject({
+      period_month: '2026-06-01',
+      target_sales: 9000000,
+      mtd_actual: 2500,
+      ly_mtd_actual: 1500,
+      days_elapsed: 2,
+      days_remaining: 28,
+    })
+    expect(star.channel_deltas).toEqual([
+      { channel: 'FBA', delta: 1600 },
+      { channel: 'WFS', delta: -600 },
+    ])
   })
 })

@@ -7,6 +7,16 @@ export interface ActionCenterSortState {
   dir: ActionCenterSortDir
 }
 
+export function shouldShowActionCenterTableLoading({
+  isLoading,
+  inventoryRowsSettling,
+}: {
+  isLoading: boolean
+  inventoryRowsSettling: boolean
+}): boolean {
+  return isLoading || inventoryRowsSettling
+}
+
 export interface RecordCategoryGroup {
   category: string
   records: InventoryRecord[]

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { getVisibleOverstockRows, groupRecordsByVendorCategory, sortActionCenterRecords } from '../pages/purchasing/ActionCenter.helpers'
+import {
+  getVisibleOverstockRows,
+  groupRecordsByVendorCategory,
+  shouldShowActionCenterTableLoading,
+  sortActionCenterRecords,
+} from '../pages/purchasing/ActionCenter.helpers'
 import type { InventoryRecord } from '../types'
 
 function makeRecord(overrides: Partial<InventoryRecord>): InventoryRecord {
@@ -46,6 +51,12 @@ function makeRecord(overrides: Partial<InventoryRecord>): InventoryRecord {
 }
 
 describe('Action Center helpers', () => {
+  it('keeps table empty states hidden while inventory rows are still settling', () => {
+    expect(shouldShowActionCenterTableLoading({ isLoading: true, inventoryRowsSettling: false })).toBe(true)
+    expect(shouldShowActionCenterTableLoading({ isLoading: false, inventoryRowsSettling: true })).toBe(true)
+    expect(shouldShowActionCenterTableLoading({ isLoading: false, inventoryRowsSettling: false })).toBe(false)
+  })
+
   it('sorts rows without mutating the source array order', () => {
     const rows = [
       makeRecord({ product_code: 'A', days_on_hand: 20 }),

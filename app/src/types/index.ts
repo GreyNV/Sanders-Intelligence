@@ -301,3 +301,17 @@ export interface MonthlyStar {
   updated_at: string
   created_at: string
 }
+
+export interface SalesDaily {
+  id: string
+  sale_date: string
+  channel: string | null
+  source_sku: string
+  planning_sku: string | null
+  units_sold: number
+  revenue: number
+  orders_count: number
+  source_payload: Record<string, unknown> | null
+  synced_at: string
+  created_at: string
+}

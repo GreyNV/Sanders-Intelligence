@@ -20,6 +20,7 @@ import type { DismissActionType } from '@/hooks/useDismissedActions'
 import {
   groupRecordsByVendorCategory,
   getVisibleOverstockRows,
+  shouldShowActionCenterTableLoading,
   sortActionCenterRecords,
   type ActionCenterSortDir as SortDir,
   type ActionCenterSortState as SortState,
@@ -47,6 +48,16 @@ function SortableTh({
         <SortIcon field={field} sort={sort} />
       </span>
     </th>
+  )
+}
+
+function LoadingTableRow({ colSpan }: { colSpan: number }) {
+  return (
+    <tr>
+      <td colSpan={colSpan} className="py-10 text-center text-text2">
+        Loading inventory rows...
+      </td>
+    </tr>
   )
 }
 
@@ -174,6 +185,7 @@ export default function ActionCenter() {
   )
   const hasOpenOrderOverstock = baseOverstock.some(r => r.on_order > 0)
   const hasNoOrderOverstock = baseOverstock.some(r => r.on_order === 0)
+  const showTableLoading = shouldShowActionCenterTableLoading({ isLoading, inventoryRowsSettling })
 
   // Group visible at-risk by vendor (for vendor-level task creation)
   const atRiskByVendor = useMemo(() => {
@@ -361,7 +373,9 @@ export default function ActionCenter() {
               </tr>
             </thead>
             <tbody>
-              {visibleAtRisk.length === 0 ? (
+              {showTableLoading ? (
+                <LoadingTableRow colSpan={11} />
+              ) : visibleAtRisk.length === 0 ? (
                 <tr><td colSpan={11} className="py-10 text-center text-text2">
                   {arVendor || arCategory ? 'No results for selected filters' : 'No at-risk items — great job!'}
                 </td></tr>
@@ -546,7 +560,9 @@ export default function ActionCenter() {
               </tr>
             </thead>
             <tbody>
-              {visibleBackorders.length === 0 ? (
+              {showTableLoading ? (
+                <LoadingTableRow colSpan={9} />
+              ) : visibleBackorders.length === 0 ? (
                 <tr><td colSpan={9} className="py-10 text-center text-text2">
                   {boVendor || boCategory ? 'No results for selected filters' : 'No open backorders'}
                 </td></tr>
@@ -723,7 +739,9 @@ export default function ActionCenter() {
                     </tr>
                   </thead>
                   <tbody>
-                    {overstockWithOrders.length === 0 ? (
+                    {showTableLoading ? (
+                      <LoadingTableRow colSpan={8} />
+                    ) : overstockWithOrders.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="py-8 text-center text-text2">
                           {osOpenVendor || osOpenCategory ? 'No open-order overstock items match these filters' : 'No open-order overstock items'}
@@ -854,7 +872,9 @@ export default function ActionCenter() {
                     </tr>
                   </thead>
                   <tbody>
-                    {overstockNoOrders.length === 0 ? (
+                    {showTableLoading ? (
+                      <LoadingTableRow colSpan={8} />
+                    ) : overstockNoOrders.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="py-8 text-center text-text2">
                           {osNoVendor || osNoCategory ? 'No no-inbound overstock items match these filters' : 'No no-inbound overstock items'}
@@ -918,7 +938,9 @@ export default function ActionCenter() {
             </div>
           )}
 
-          {visibleOverstockRows.length === 0 && (
+          {showTableLoading ? (
+            <div className="card text-center py-8 text-text2 text-sm">Loading inventory rows...</div>
+          ) : visibleOverstockRows.length === 0 && (
             <div className="card text-center py-8 text-text2 text-sm">
               {osOpenVendor || osOpenCategory || osNoVendor || osNoCategory ? 'No results for selected filters' : 'No overstock items'}
             </div>

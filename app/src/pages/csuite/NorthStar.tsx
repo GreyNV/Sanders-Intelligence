@@ -5,13 +5,14 @@ import Badge from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/contexts/AuthContext'
 import { fmtCurrency, fmtNumber } from '@/lib/utils'
-import { useDeleteNorthStarRow, useMonthlyStar, useNorthStarRows, useUpdateMonthlyStar, useUpdateNorthStarRow } from '@/hooks/useNorthStar'
+import { useDeleteNorthStarRow, useMonthlyStar, useMonthlyStarSales, useNorthStarRows, useUpdateMonthlyStar, useUpdateNorthStarRow } from '@/hooks/useNorthStar'
 import type { NorthStarStatus } from '@/types'
 import {
   STATUS_LABELS,
   buildNorthStarUpdatePayload,
   computeMonthlyStarMetrics,
   createNorthStarDraftRow,
+  deriveMonthlyStarFromSalesRows,
   mergeNorthStarRows,
   monthlyStarToInput,
   periodMonth,
@@ -53,6 +54,7 @@ export default function NorthStar() {
   const currentWeek = useMemo(() => periodWeek(), [])
   const { data: savedRows = [], isLoading: rowsLoading, error: rowsError } = useNorthStarRows()
   const { data: monthlyStar = null, isLoading: monthlyLoading, error: monthlyError } = useMonthlyStar(currentMonth)
+  const { data: salesRows, isLoading: salesLoading, error: salesError } = useMonthlyStarSales(currentMonth)
   const updateRow = useUpdateNorthStarRow()
   const deleteRow = useDeleteNorthStarRow()
   const updateMonthly = useUpdateMonthlyStar()
@@ -68,7 +70,18 @@ export default function NorthStar() {
     () => [...savedDisplayRows, ...draftRows].sort((a, b) => a.slot_index - b.slot_index),
     [savedDisplayRows, draftRows]
   )
-  const monthlyInput = useMemo(() => monthlyStarToInput(monthlyStar, currentMonth), [monthlyStar, currentMonth])
+  const manualMonthlyInput = useMemo(() => monthlyStarToInput(monthlyStar, currentMonth), [monthlyStar, currentMonth])
+  const monthlyInput = useMemo(() => {
+    if (!salesRows?.current.length) return manualMonthlyInput
+    return deriveMonthlyStarFromSalesRows({
+      periodMonth: currentMonth,
+      targetSales: manualMonthlyInput.target_sales,
+      rows: salesRows.current,
+      previousYearRows: salesRows.previousYear,
+      daysElapsed: manualMonthlyInput.days_elapsed,
+      daysRemaining: manualMonthlyInput.days_remaining,
+    })
+  }, [salesRows, manualMonthlyInput, currentMonth])
   const monthlyDraft = monthlyForm ? monthlyFormToInput(monthlyForm, monthlyInput.period_month) : monthlyInput
   const monthlyMetrics = useMemo(() => computeMonthlyStarMetrics(monthlyDraft), [monthlyDraft])
 
@@ -83,9 +96,9 @@ export default function NorthStar() {
     })
   }, [monthlyInput])
 
-  if (rowsLoading || monthlyLoading) return <PageLoader />
+  if (rowsLoading || monthlyLoading || salesLoading) return <PageLoader />
 
-  const error = rowsError ?? monthlyError
+  const error = rowsError ?? monthlyError ?? salesError
   if (error) {
     return (
       <div className="card text-center py-16">

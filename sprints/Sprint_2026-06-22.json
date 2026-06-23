@@ -1,0 +1,161 @@
+{
+  "$schema_note": "Sprint brief for the Sanders Intelligence app. Updated on 2026-06-20 after the user selected a carryover-first 1-week sprint.",
+  "sprint_id": "2026-06-22",
+  "sprint_date": "2026-06-22",
+  "phase_start": "2026-06-22",
+  "phase_end": "2026-06-26",
+  "planned_on": "2026-06-20",
+  "cadence": "1-week sprint",
+  "theme": "Finish carryover integrations and QA polish: Action Center loading trust, SellerCloud SKU matching, and the first live-sales path for Monthly Star.",
+  "project": {
+    "name": "Sanders intelligence app",
+    "asana_project_id": "1214535706843813",
+    "repo_root": "D:\\Sanders Intelligence",
+    "app_source": "D:\\Sanders Intelligence\\app\\src",
+    "stack": "React 18 + TypeScript + Vite, Tailwind, React Router v6, TanStack Query v5, Supabase, Recharts",
+    "dev_command": "cd app && npm run dev",
+    "test_command": "cd app && npm test"
+  },
+  "selection_rationale": "Carryover work wins this sprint. The Sales Star UI task is already completed, while the Action Center loading bug, SellerCloud SKU matching, and SellerCloud sales collection are still the highest-trust open items from the 2026-06-22 plan.",
+  "instructions_for_implementer": "Work tasks in order. Keep the Sales Star UI task closed. Defer SKU admin review/override UI, cost-increase alerts, notifications, mobile responsiveness, and Phase 3 work.",
+  "tasks": [
+    {
+      "order": 1,
+      "asana_task_id": "1215814117266547",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1215814117266547",
+      "title": "BUG: Action Center shows empty success states while inventory rows are still loading",
+      "type": "bug",
+      "scope": "small",
+      "estimated_hours": "2-3",
+      "due_date": "2026-06-22",
+      "outline": "Prevent misleading empty-success copy on Action Center while deferred inventory rows are still settling.",
+      "technical_description": "Use a shared loading helper in ActionCenter.helpers.ts and gate table empty-state branches in ActionCenter.tsx before rendering the empty messages.",
+      "likely_files": [
+        "app/src/pages/purchasing/ActionCenter.tsx",
+        "app/src/pages/purchasing/ActionCenter.helpers.ts",
+        "app/src/__tests__/ActionCenter.helpers.test.ts"
+      ],
+      "requirements": [
+        "At-risk, backorder, and overstock tables show loading copy while inventory rows are loading or deferred rows are settling.",
+        "Genuine empty states still render after loading completes."
+      ],
+      "completion_criteria": [
+        "Cold-loading /purchasing/action-center does not show empty-success copy before rows settle.",
+        "Focused Action Center helper tests pass."
+      ],
+      "expected_outcomes": [
+        "Purchasing users no longer see a false all-clear while inventory data is still loading."
+      ],
+      "test_coverage": {
+        "unit": [
+          "ActionCenter.helpers.test.ts: loading helper returns true for query loading and deferred settling."
+        ],
+        "integration": [],
+        "manual_qa": [
+          "Hard-refresh /purchasing/action-center and confirm table bodies show loading copy until rows settle."
+        ]
+      },
+      "clarifying_questions": [],
+      "pre_implementation_instruction": "Implemented with a simple loading row; no UX decision required."
+    },
+    {
+      "order": 2,
+      "asana_task_id": "1215872837984772",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1215872837984772",
+      "title": "FEATURE: Auto-match SC PO SKUs to inventory",
+      "type": "feature",
+      "scope": "large",
+      "estimated_hours": "12-18",
+      "due_date": "2026-06-24",
+      "outline": "Populate sku_bridge and backfill po_items.planning_sku so Purchase Orders and Inbound show fewer Unmatched rows.",
+      "technical_description": "Add a tested shared SKU matching module plus a match-sellercloud-skus Edge Function. The routine loads unmatched PO source SKUs, compares them against product_code values from the latest complete inventory upload, inserts confident bridge rows, and backfills po_items.",
+      "likely_files": [
+        "supabase/functions/_shared/sku-match.ts",
+        "supabase/functions/match-sellercloud-skus/index.ts",
+        "app/src/__tests__/sku-match.test.ts"
+      ],
+      "requirements": [
+        "Auto-insert only direct and high-confidence canonical matches.",
+        "Skip ambiguous matches.",
+        "Respect existing active sku_bridge rows so reruns are idempotent.",
+        "Return before/after unmatched counts and match rate."
+      ],
+      "completion_criteria": [
+        "SKU matching tests cover direct, canonical, ambiguous, bridge rows, and summary math.",
+        "Edge Function reports inserted bridge rows, matched source SKUs, backfilled items, and after-unmatched count."
+      ],
+      "expected_outcomes": [
+        "SellerCloud PO lines can resolve to inventory SKUs without a manual bridge entry for every exact/canonical match."
+      ],
+      "test_coverage": {
+        "unit": [
+          "sku-match.test.ts: direct, compact canonical, ambiguous, insert-row, and backfill summary cases."
+        ],
+        "integration": [
+          "Run match-sellercloud-skus twice in Supabase; the second run should insert zero duplicate active bridge rows."
+        ],
+        "manual_qa": [
+          "Open /purchasing/inbound and /purchasing/purchase-orders; compare Unmatched counts before and after the function runs."
+        ]
+      },
+      "clarifying_questions": [],
+      "pre_implementation_instruction": "Admin review/override UI remains deferred."
+    },
+    {
+      "order": 3,
+      "asana_task_id": "1215784652029230",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1215784652029230",
+      "title": "FEATURE: Sales data collection from SellerCloud",
+      "type": "feature",
+      "scope": "large",
+      "estimated_hours": "16-24",
+      "due_date": "2026-06-26",
+      "outline": "Create the first live-sales path so Monthly Star can use SellerCloud sales rows when available and fall back to admin-entered values otherwise.",
+      "technical_description": "Add a sales_daily table keyed by sale_date + channel + source_sku, a configurable sync-sales Edge Function that mirrors the purchase-order auth/cursor pattern, and a North Star hook/helper path that derives Monthly Star MTD, LY MTD, and channel deltas from live rows.",
+      "likely_files": [
+        "supabase/migrations/019_sellercloud_sales_and_sku_matching.sql",
+        "supabase/functions/sync-sales/index.ts",
+        "app/src/hooks/useNorthStar.ts",
+        "app/src/pages/csuite/NorthStar.helpers.ts",
+        "app/src/pages/csuite/NorthStar.tsx"
+      ],
+      "requirements": [
+        "Store sales at date + channel + source SKU grain.",
+        "Use SELLERCLOUD_SALES_ENDPOINT as an override, defaulting to an Orders-style endpoint until the exact report endpoint is confirmed.",
+        "Resolve planning_sku through sku_bridge when possible.",
+        "Monthly Star prefers live current-month sales rows and falls back to admin-entered values when no live rows exist."
+      ],
+      "completion_criteria": [
+        "Migration creates sales_daily and scheduled sync wrapper.",
+        "sync-sales is idempotent through upsert on sale_date, channel, and source_sku.",
+        "NorthStar helper tests cover live-sales Monthly Star derivation."
+      ],
+      "expected_outcomes": [
+        "Leadership can see Monthly Star driven by live sales data as soon as SellerCloud sales rows are available."
+      ],
+      "test_coverage": {
+        "unit": [
+          "NorthStar.helpers.test.ts: live sales rows derive MTD, LY MTD, days, and channel deltas."
+        ],
+        "integration": [
+          "Deploy migration/function and invoke sync-sales with a small maxPages/pageSize batch."
+        ],
+        "manual_qa": [
+          "Open /executive/north-star; confirm Monthly Star renders with live sales if sales_daily has current-month rows, otherwise with manual fallback values."
+        ]
+      },
+      "clarifying_questions": [
+        "Confirm the production SellerCloud sales endpoint/report and set SELLERCLOUD_SALES_ENDPOINT if it is not /api/Orders."
+      ],
+      "pre_implementation_instruction": "Endpoint remains configurable because the repo does not contain final SellerCloud sales-report documentation."
+    }
+  ],
+  "sprint_close_checklist": [
+    "Run cd app && npm test.",
+    "Run cd app && npm run build.",
+    "Deploy Supabase migration 019 and Edge Functions match-sellercloud-skus and sync-sales.",
+    "Set SELLERCLOUD_SALES_ENDPOINT if the production sales report differs from /api/Orders.",
+    "Smoke-test /purchasing/action-center, /purchasing/inbound, /purchasing/purchase-orders, and /executive/north-star.",
+    "Update Asana tasks with file/line evidence after verification."
+  ]
+}

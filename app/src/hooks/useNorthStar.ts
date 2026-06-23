@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
-import type { MonthlyStar, NorthStarRow, NorthStarStatus } from '@/types'
+import type { MonthlyStar, NorthStarRow, NorthStarStatus, SalesDaily } from '@/types'
 
 export interface UpdateNorthStarRowPayload {
   id: string | null
@@ -62,6 +62,26 @@ export function useMonthlyStar(periodMonth: string) {
   })
 }
 
+export function useMonthlyStarSales(periodMonth: string) {
+  return useQuery({
+    queryKey: ['sales_daily', 'monthly-star', periodMonth],
+    queryFn: async (): Promise<{ current: SalesDaily[]; previousYear: SalesDaily[] }> => {
+      const currentStart = new Date(`${periodMonth}T00:00:00Z`)
+      const currentEnd = new Date(Date.UTC(currentStart.getUTCFullYear(), currentStart.getUTCMonth() + 1, 1))
+      const previousStart = new Date(Date.UTC(currentStart.getUTCFullYear() - 1, currentStart.getUTCMonth(), 1))
+      const previousEnd = new Date(Date.UTC(currentStart.getUTCFullYear() - 1, currentStart.getUTCMonth() + 1, 1))
+
+      const [current, previousYear] = await Promise.all([
+        fetchSalesDailyRange(formatDate(currentStart), formatDate(currentEnd)),
+        fetchSalesDailyRange(formatDate(previousStart), formatDate(previousEnd)),
+      ])
+
+      return { current, previousYear }
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
 export function useUpdateNorthStarRow() {
   const qc = useQueryClient()
   const { profile } = useAuth()
@@ -106,6 +126,37 @@ export function useUpdateNorthStarRow() {
       qc.invalidateQueries({ queryKey: ['north_star_rows'] })
     },
   })
+}
+
+async function fetchSalesDailyRange(startInclusive: string, endExclusive: string): Promise<SalesDaily[]> {
+  const rows: SalesDaily[] = []
+  let from = 0
+  const pageSize = 1000
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('sales_daily')
+      .select('*')
+      .gte('sale_date', startInclusive)
+      .lt('sale_date', endExclusive)
+      .order('sale_date', { ascending: true })
+      .range(from, from + pageSize - 1)
+
+    if (error) {
+      if ((error as { code?: string }).code === '42P01') return []
+      throw error
+    }
+    const page = (data ?? []) as SalesDaily[]
+    rows.push(...page)
+    if (page.length < pageSize) break
+    from += pageSize
+  }
+
+  return rows
+}
+
+function formatDate(date: Date): string {
+  return date.toISOString().slice(0, 10)
 }
 
 export function useDeleteNorthStarRow() {
