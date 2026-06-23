@@ -10,6 +10,7 @@ const SALES_SYNC_KEY = 'sellercloud_sales'
 const DEFAULT_INITIAL_LOOKBACK_DAYS = 45
 const DEFAULT_ENDPOINT = '/api/Orders'
 const CURSOR_OVERLAP_MINUTES = 5
+const DEFAULT_DATE_PARAM_PRESET = 'createdOn'
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -29,9 +30,10 @@ Deno.serve(async (req) => {
     const token = await getSellerCloudToken(base)
     const { rows, totalResults, pagesFetched } = await fetchSalesRows(base, endpoint, token, options, syncState.startPage, syncState.queryCursor)
     const bridge = await loadSkuBridge(supabase)
-    const salesRows = aggregateSalesRows(rows, bridge, endpoint)
+    const rowsInWindow = filterRowsBySaleDate(rows, options.dateFrom, options.dateTo)
+    const salesRows = aggregateSalesRows(rowsInWindow, bridge, endpoint)
 
-    if (salesRows.length > 0) {
+    if (!options.dryRun && salesRows.length > 0) {
       const { error } = await supabase
         .from('sales_daily')
         .upsert(salesRows, { onConflict: 'sale_date,channel,source_sku' })
@@ -39,21 +41,33 @@ Deno.serve(async (req) => {
     }
 
     const nextCursor = newestCursor(rows) ?? syncState.storedCursor ?? new Date().toISOString()
-    await saveSyncState(supabase, nextCursor, {
-      totalResults,
-      pagesFetched,
-      endpoint,
-      queryCursor: syncState.queryCursor,
-    })
+    if (!options.dryRun) {
+      await saveSyncState(supabase, nextCursor, {
+        totalResults,
+        pagesFetched,
+        endpoint,
+        queryCursor: syncState.queryCursor,
+        dateFrom: options.dateFrom,
+        dateTo: options.dateTo,
+        dateParamPreset: options.dateParamPreset,
+      })
+    }
 
     return json({
+      dryRun: options.dryRun,
       synced: salesRows.length,
       sourceRows: rows.length,
+      sourceRowsInWindow: rowsInWindow.length,
       endpoint,
       incrementalFrom: syncState.queryCursor,
+      dateFrom: options.dateFrom,
+      dateTo: options.dateTo,
+      dateParamPreset: options.dateParamPreset,
       nextCursor,
       totalResults,
       pagesFetched,
+      sourceDateRange: dateRange(rows),
+      filteredDateRange: dateRange(rowsInWindow),
       durationMs: Date.now() - started,
     })
   } catch (error) {
@@ -67,16 +81,27 @@ interface SyncOptions {
   fullRefresh: boolean
   initialLookbackDays: number
   startPage: number | null
+  dateFrom: string | null
+  dateTo: string | null
+  dateParamPreset: string
+  dryRun: boolean
 }
 
 async function readSyncOptions(req: Request): Promise<SyncOptions> {
   const body = req.method === 'POST' ? await req.json().catch(() => ({})) : {}
+  const defaultDate = yesterdayUtcDate()
+  const dateFrom = nullableDateText(body.dateFrom) ?? (body.fullRefresh === true ? null : defaultDate)
+  const dateTo = nullableDateText(body.dateTo) ?? dateFrom
   return {
     maxPages: clampNumber(body.maxPages, 1, 200, 2),
     pageSize: clampNumber(body.pageSize, 1, 100, 50),
     fullRefresh: body.fullRefresh === true,
     initialLookbackDays: clampNumber(body.initialLookbackDays, 1, 730, DEFAULT_INITIAL_LOOKBACK_DAYS),
     startPage: body.startPage == null ? null : clampNumber(body.startPage, 1, 10000, 1),
+    dateFrom,
+    dateTo,
+    dateParamPreset: nullableText(body.dateParamPreset) ?? Deno.env.get('SELLERCLOUD_SALES_DATE_PARAM_PRESET') ?? DEFAULT_DATE_PARAM_PRESET,
+    dryRun: body.dryRun === true,
   }
 }
 
@@ -103,6 +128,7 @@ async function getSyncState(
   supabase: ReturnType<typeof createClient>,
   options: SyncOptions
 ): Promise<{ queryCursor: string | null; storedCursor: string | null; startPage: number }> {
+  if (options.dateFrom || options.dateTo) return { queryCursor: null, storedCursor: null, startPage: options.startPage ?? 1 }
   if (options.fullRefresh) return { queryCursor: null, storedCursor: null, startPage: options.startPage ?? 1 }
 
   const { data, error } = await supabase
@@ -171,19 +197,44 @@ async function fetchSalesRows(
     url.searchParams.set('model.pageNumber', String(pageNumber))
     url.searchParams.set('model.pageSize', String(options.pageSize))
     if (updatedOnFrom) url.searchParams.set('model.updatedDateFrom', updatedOnFrom)
+    applyDateParams(url, options)
 
     const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
     if (!response.ok) throw new Error(`SellerCloud sales fetch failed (${response.status})`)
     const body = await response.json()
-    const rows = flattenSalesRows(extractRows(body))
+    const pageRows = extractRows(body)
+    const rows = flattenSalesRows(pageRows)
     all.push(...rows)
     pagesFetched += 1
 
     totalResults = Number(body.TotalResults ?? body.totalResults ?? body.TotalCount ?? body.totalCount ?? totalResults)
-    if (rows.length < options.pageSize || (totalResults > 0 && pageNumber * options.pageSize >= totalResults)) break
+    if (pageRows.length < options.pageSize || (totalResults > 0 && pageNumber * options.pageSize >= totalResults)) break
   }
 
   return { rows: all, totalResults, pagesFetched }
+}
+
+function applyDateParams(url: URL, options: SyncOptions) {
+  if (!options.dateFrom && !options.dateTo) return
+  const [fromParam, toParam] = dateParamNames(options.dateParamPreset)
+  if (options.dateFrom) url.searchParams.set(fromParam, options.dateFrom)
+  if (options.dateTo) url.searchParams.set(toParam, options.dateTo)
+}
+
+function dateParamNames(preset: string): [string, string] {
+  switch (preset) {
+    case 'date':
+      return ['model.dateFrom', 'model.dateTo']
+    case 'shipDate':
+      return ['model.shipDateFrom', 'model.shipDateTo']
+    case 'createdOn':
+      return ['model.createdOnFrom', 'model.createdOnTo']
+    case 'updatedDate':
+      return ['model.updatedDateFrom', 'model.updatedDateTo']
+    case 'orderDate':
+    default:
+      return ['model.orderDateFrom', 'model.orderDateTo']
+  }
 }
 
 async function loadSkuBridge(supabase: ReturnType<typeof createClient>): Promise<Map<string, string>> {
@@ -232,6 +283,32 @@ function aggregateSalesRows(rows: JsonRecord[], bridge: Map<string, string>, end
     map.set(key, existing)
   }
   return Array.from(map.values())
+}
+
+function filterRowsBySaleDate(rows: JsonRecord[], dateFrom: string | null, dateTo: string | null): JsonRecord[] {
+  if (!dateFrom && !dateTo) return rows
+  return rows.filter(row => {
+    const saleDate = saleDateOnly(row)
+    if (!saleDate) return false
+    if (dateFrom && saleDate < dateFrom) return false
+    if (dateTo && saleDate > dateTo) return false
+    return true
+  })
+}
+
+function dateRange(rows: JsonRecord[]): { min: string | null; max: string | null } {
+  const dates = rows
+    .map(saleDateOnly)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+  return {
+    min: dates[0] ?? null,
+    max: dates.at(-1) ?? null,
+  }
+}
+
+function saleDateOnly(row: JsonRecord): string | null {
+  return nullableDateOnly(first(row, ['ShipDate', 'shipDate', 'OrderDate', 'orderDate', 'Date', 'date', 'CreatedOn', 'createdOn']))
 }
 
 function flattenSalesRows(rows: JsonRecord[]): JsonRecord[] {
@@ -283,6 +360,11 @@ function nullableText(value: unknown): string | null {
   return value == null || value === '' ? null : String(value)
 }
 
+function nullableDateText(value: unknown): string | null {
+  const date = nullableDateOnly(value)
+  return date
+}
+
 function nullableNumber(value: unknown): number | null {
   if (value == null || value === '') return null
   const number = Number(value)
@@ -297,7 +379,9 @@ function nullableDateOnly(value: unknown): string | null {
 function nullableDate(value: unknown): string | null {
   if (value == null || value === '') return null
   const text = String(value)
-  const normalized = hasTimeZone(text) ? text : `${text}Z`
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(text)
+    ? `${text}T00:00:00Z`
+    : hasTimeZone(text) ? text : `${text}Z`
   const date = new Date(normalized)
   return Number.isFinite(date.getTime()) ? date.toISOString() : null
 }
@@ -329,6 +413,13 @@ function withCursorOverlap(cursor: string): string {
   if (!Number.isFinite(date.getTime())) return new Date().toISOString()
   date.setMinutes(date.getMinutes() - CURSOR_OVERLAP_MINUTES)
   return date.toISOString()
+}
+
+function yesterdayUtcDate(): string {
+  const date = new Date()
+  date.setUTCHours(0, 0, 0, 0)
+  date.setUTCDate(date.getUTCDate() - 1)
+  return date.toISOString().slice(0, 10)
 }
 
 function json(body: unknown, status = 200) {

@@ -14,6 +14,7 @@ import {
   createNorthStarDraftRow,
   deriveMonthlyStarFromSalesRows,
   mergeNorthStarRows,
+  monthlyStarSalesWindows,
   monthlyStarToInput,
   periodMonth,
   periodWeek,
@@ -71,6 +72,7 @@ export default function NorthStar() {
     [savedDisplayRows, draftRows]
   )
   const manualMonthlyInput = useMemo(() => monthlyStarToInput(monthlyStar, currentMonth), [monthlyStar, currentMonth])
+  const salesWindows = useMemo(() => monthlyStarSalesWindows(currentMonth), [currentMonth])
   const monthlyInput = useMemo(() => {
     if (!salesRows?.current.length) return manualMonthlyInput
     return deriveMonthlyStarFromSalesRows({
@@ -78,10 +80,10 @@ export default function NorthStar() {
       targetSales: manualMonthlyInput.target_sales,
       rows: salesRows.current,
       previousYearRows: salesRows.previousYear,
-      daysElapsed: manualMonthlyInput.days_elapsed,
-      daysRemaining: manualMonthlyInput.days_remaining,
+      daysElapsed: Math.max(1, salesWindows.daysElapsed),
+      daysRemaining: salesWindows.daysRemaining,
     })
-  }, [salesRows, manualMonthlyInput, currentMonth])
+  }, [salesRows, manualMonthlyInput, currentMonth, salesWindows])
   const monthlyDraft = monthlyForm ? monthlyFormToInput(monthlyForm, monthlyInput.period_month) : monthlyInput
   const monthlyMetrics = useMemo(() => computeMonthlyStarMetrics(monthlyDraft), [monthlyDraft])
 

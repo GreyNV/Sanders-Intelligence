@@ -95,8 +95,9 @@ begin
       'Authorization', 'Bearer ' || service_role_key
     ),
     body := jsonb_build_object(
-      'maxPages', 1,
-      'pageSize', 50
+      'maxPages', 20,
+      'pageSize', 50,
+      'dateParamPreset', 'createdOn'
     )
   );
 end;

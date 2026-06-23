@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import type { MonthlyStar, NorthStarRow, NorthStarStatus, SalesDaily } from '@/types'
+import { monthlyStarSalesWindows } from '@/pages/csuite/NorthStar.helpers'
 
 export interface UpdateNorthStarRowPayload {
   id: string | null
@@ -66,14 +67,11 @@ export function useMonthlyStarSales(periodMonth: string) {
   return useQuery({
     queryKey: ['sales_daily', 'monthly-star', periodMonth],
     queryFn: async (): Promise<{ current: SalesDaily[]; previousYear: SalesDaily[] }> => {
-      const currentStart = new Date(`${periodMonth}T00:00:00Z`)
-      const currentEnd = new Date(Date.UTC(currentStart.getUTCFullYear(), currentStart.getUTCMonth() + 1, 1))
-      const previousStart = new Date(Date.UTC(currentStart.getUTCFullYear() - 1, currentStart.getUTCMonth(), 1))
-      const previousEnd = new Date(Date.UTC(currentStart.getUTCFullYear() - 1, currentStart.getUTCMonth() + 1, 1))
+      const windows = monthlyStarSalesWindows(periodMonth)
 
       const [current, previousYear] = await Promise.all([
-        fetchSalesDailyRange(formatDate(currentStart), formatDate(currentEnd)),
-        fetchSalesDailyRange(formatDate(previousStart), formatDate(previousEnd)),
+        fetchSalesDailyRange(windows.currentStart, windows.currentEndExclusive),
+        fetchSalesDailyRange(windows.previousStart, windows.previousEndExclusive),
       ])
 
       return { current, previousYear }
@@ -153,10 +151,6 @@ async function fetchSalesDailyRange(startInclusive: string, endExclusive: string
   }
 
   return rows
-}
-
-function formatDate(date: Date): string {
-  return date.toISOString().slice(0, 10)
 }
 
 export function useDeleteNorthStarRow() {

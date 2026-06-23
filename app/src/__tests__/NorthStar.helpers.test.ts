@@ -6,6 +6,7 @@ import {
   NORTH_STAR_EDITABLE_FIELDS,
   buildNorthStarUpdatePayload,
   mergeNorthStarRows,
+  monthlyStarSalesWindows,
   nextNorthStarSlot,
   periodMonth,
   periodWeek,
@@ -17,6 +18,28 @@ describe('NorthStar helpers', () => {
     const date = new Date('2026-06-17T12:00:00Z')
     expect(periodMonth(date)).toBe('2026-06-01')
     expect(periodWeek(date)).toBe('2026-06-14')
+  })
+
+  it('builds current-month sales windows through yesterday with matching LY days', () => {
+    expect(monthlyStarSalesWindows('2026-06-01', new Date('2026-06-23T12:00:00Z'))).toMatchObject({
+      currentStart: '2026-06-01',
+      currentEndExclusive: '2026-06-23',
+      previousStart: '2025-06-01',
+      previousEndExclusive: '2025-06-23',
+      daysElapsed: 22,
+      daysRemaining: 8,
+    })
+  })
+
+  it('uses full month sales windows for closed months', () => {
+    expect(monthlyStarSalesWindows('2026-05-01', new Date('2026-06-23T12:00:00Z'))).toMatchObject({
+      currentStart: '2026-05-01',
+      currentEndExclusive: '2026-06-01',
+      previousStart: '2025-05-01',
+      previousEndExclusive: '2025-06-01',
+      daysElapsed: 31,
+      daysRemaining: 0,
+    })
   })
 
   it('uses DB-managed North Star rows once rows exist', () => {

@@ -79,6 +79,15 @@ export interface MonthlyStarSalesRow {
   revenue: number
 }
 
+export interface MonthlyStarSalesWindows {
+  currentStart: string
+  currentEndExclusive: string
+  previousStart: string
+  previousEndExclusive: string
+  daysElapsed: number
+  daysRemaining: number
+}
+
 export function periodMonth(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`
 }
@@ -88,6 +97,32 @@ export function periodWeek(date = new Date()): string {
   start.setHours(0, 0, 0, 0)
   start.setDate(start.getDate() - start.getDay())
   return `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`
+}
+
+export function monthlyStarSalesWindows(periodMonth: string, today = new Date()): MonthlyStarSalesWindows {
+  const currentStart = new Date(`${periodMonth}T00:00:00Z`)
+  const monthEnd = new Date(Date.UTC(currentStart.getUTCFullYear(), currentStart.getUTCMonth() + 1, 1))
+  const todayStart = new Date(today)
+  todayStart.setUTCHours(0, 0, 0, 0)
+
+  const isCurrentMonth =
+    currentStart.getUTCFullYear() === todayStart.getUTCFullYear() &&
+    currentStart.getUTCMonth() === todayStart.getUTCMonth()
+  const currentEndExclusive = isCurrentMonth ? maxDate(currentStart, todayStart) : monthEnd
+  const daysElapsed = daysBetween(currentStart, currentEndExclusive)
+  const daysRemaining = Math.max(0, daysBetween(currentEndExclusive, monthEnd))
+  const previousStart = new Date(Date.UTC(currentStart.getUTCFullYear() - 1, currentStart.getUTCMonth(), 1))
+  const previousEndExclusive = new Date(previousStart)
+  previousEndExclusive.setUTCDate(previousStart.getUTCDate() + daysElapsed)
+
+  return {
+    currentStart: formatDate(currentStart),
+    currentEndExclusive: formatDate(currentEndExclusive),
+    previousStart: formatDate(previousStart),
+    previousEndExclusive: formatDate(previousEndExclusive),
+    daysElapsed,
+    daysRemaining,
+  }
 }
 
 export function mergeNorthStarRows(
@@ -279,16 +314,28 @@ function sumMapValues(map: Map<string, number>): number {
   return Number(Array.from(map.values()).reduce((sum, value) => sum + value, 0).toFixed(2))
 }
 
+function maxDate(a: Date, b: Date): Date {
+  return a > b ? new Date(a) : new Date(b)
+}
+
+function daysBetween(start: Date, end: Date): number {
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / 86_400_000))
+}
+
+function formatDate(date: Date): string {
+  return date.toISOString().slice(0, 10)
+}
+
 export function defaultMonthlyStar(currentMonth: string): MonthlyStarInput & { period_month: string } {
   const now = new Date()
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+  const windows = monthlyStarSalesWindows(currentMonth, now)
   return {
     period_month: currentMonth,
     target_sales: 9000000,
     mtd_actual: 0,
     ly_mtd_actual: 0,
-    days_elapsed: Math.max(1, now.getDate()),
-    days_remaining: Math.max(0, daysInMonth - now.getDate()),
+    days_elapsed: Math.max(1, windows.daysElapsed),
+    days_remaining: windows.daysRemaining,
     dragging_channel_notes: null,
     channel_deltas: [],
   }
