@@ -5,10 +5,11 @@ export const MYSQL_REFRESH_MAX_AGE_MS = 36 * 60 * 60 * 1000
 export function deriveFreshness(
   uploadedAt: string | null,
   metricsRefreshedAt: string | null,
+  salesSyncedAt: string | null,
   now = new Date(),
 ): Freshness {
   if (!uploadedAt) {
-    return { status: 'no_data', date: null, metricsRefreshedAt }
+    return { status: 'no_data', date: null, metricsRefreshedAt, salesSyncedAt }
   }
 
   const uploadIsToday = new Date(uploadedAt).toDateString() === now.toDateString()
@@ -21,5 +22,6 @@ export function deriveFreshness(
     status: uploadIsToday && metricsAreRecent ? 'fresh' : 'stale',
     date: uploadedAt,
     metricsRefreshedAt,
+    salesSyncedAt,
   }
 }

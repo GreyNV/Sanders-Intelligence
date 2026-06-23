@@ -14,4 +14,15 @@ describe('DataFreshnessBar rendering contract', () => {
     expect(source).toContain('fmtDateTime')
     expect(source).toContain('MySQL metrics refreshed')
   })
+
+  it('queries and displays the last SellerCloud sales sync timestamp', () => {
+    const source = readFileSync(
+      resolve(__dirname, '../components/layout/DataFreshnessBar.tsx'),
+      'utf8',
+    )
+
+    expect(source).toContain("from('sync_state')")
+    expect(source).toContain("eq('key', 'sellercloud_sales')")
+    expect(source).toContain('Sales synced')
+  })
 })

@@ -6,7 +6,7 @@ import type { Freshness } from '@/types'
 import { deriveFreshness } from './DataFreshnessBar.helpers'
 
 async function fetchFreshness(): Promise<Freshness> {
-  const [{ data: upload }, { data: metricsRefresh }] = await Promise.all([
+  const [{ data: upload }, { data: metricsRefresh }, { data: salesSync }] = await Promise.all([
     supabase
       .from('uploads')
       .select('uploaded_at')
@@ -20,11 +20,17 @@ async function fetchFreshness(): Promise<Freshness> {
       .order('refreshed_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
+    supabase
+      .from('sync_state')
+      .select('last_successful_sync_at')
+      .eq('key', 'sellercloud_sales')
+      .maybeSingle(),
   ])
 
   return deriveFreshness(
     upload?.uploaded_at ?? null,
     metricsRefresh?.refreshed_at ?? null,
+    salesSync?.last_successful_sync_at ?? null,
   )
 }
 
@@ -40,12 +46,15 @@ export default function DataFreshnessBar() {
   const metricsRefreshLabel = freshness.metricsRefreshedAt
     ? fmtDateTime(freshness.metricsRefreshedAt)
     : 'unavailable'
+  const salesSyncLabel = freshness.salesSyncedAt
+    ? fmtDateTime(freshness.salesSyncedAt)
+    : 'unavailable'
 
   if (freshness.status === 'fresh') {
     return (
       <div className="flex flex-wrap items-center gap-2 px-4 py-2 bg-success/10 border-b border-success/20 text-success text-xs font-medium">
         <CheckCircle size={13} />
-        Data current as of {fmtDate(freshness.date!)}. MySQL metrics refreshed {metricsRefreshLabel}.
+        Data current as of {fmtDate(freshness.date!)}. MySQL metrics refreshed {metricsRefreshLabel}. Sales synced {salesSyncLabel}.
       </div>
     )
   }
@@ -54,7 +63,7 @@ export default function DataFreshnessBar() {
     return (
       <div className="flex flex-wrap items-center gap-2 px-4 py-2 bg-danger/10 border-b border-danger/20 text-danger text-xs font-medium">
         <AlertTriangle size={13} />
-        Outdated! Last upload: {fmtDate(freshness.date!)}. MySQL metrics refreshed: {metricsRefreshLabel}.
+        Outdated! Last upload: {fmtDate(freshness.date!)}. MySQL metrics refreshed: {metricsRefreshLabel}. Sales synced: {salesSyncLabel}.
       </div>
     )
   }
@@ -62,7 +71,7 @@ export default function DataFreshnessBar() {
   return (
     <div className="flex flex-wrap items-center gap-2 px-4 py-2 bg-warning/10 border-b border-warning/20 text-warning text-xs font-medium">
       <Upload size={13} />
-      No data loaded yet. MySQL metrics refreshed: {metricsRefreshLabel}.
+      No data loaded yet. MySQL metrics refreshed: {metricsRefreshLabel}. Sales synced: {salesSyncLabel}.
     </div>
   )
 }

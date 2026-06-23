@@ -151,6 +151,7 @@ export interface Freshness {
   status: FreshnessStatus
   date: string | null
   metricsRefreshedAt: string | null
+  salesSyncedAt: string | null
 }
 
 // Purchase Orders
