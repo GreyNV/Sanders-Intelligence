@@ -16,6 +16,9 @@ export const NORTH_STAR_EDITABLE_FIELDS = [
 export type NorthStarEditableField = typeof NORTH_STAR_EDITABLE_FIELDS[number]
 
 export const NORTH_STAR_PROGRESS_FIELDS = [
+  'plan_value',
+  'actual_mtd',
+  'forecast',
   'constraint_now',
   'weekly_move',
   'last_week_result',
@@ -332,6 +335,9 @@ export function buildNorthStarProgressPayload(
   const next = { ...row, [field]: textValue }
   return {
     id: row.id,
+    plan_value: normalizeNullableText(next.plan_value),
+    actual_mtd: normalizeNullableText(next.actual_mtd),
+    forecast: normalizeNullableText(next.forecast),
     constraint_now: normalizeNullableText(next.constraint_now),
     weekly_move: normalizeNullableText(next.weekly_move),
     last_week_result: normalizeNullableText(next.last_week_result),

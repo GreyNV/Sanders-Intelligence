@@ -24,6 +24,9 @@ export interface UpdateNorthStarRowPayload {
 
 export interface UpdateNorthStarProgressPayload {
   id: string
+  plan_value: string | null
+  actual_mtd: string | null
+  forecast: string | null
   constraint_now: string | null
   weekly_move: string | null
   last_week_result: string | null
@@ -146,6 +149,9 @@ export function useUpdateNorthStarProgress() {
 
       const { data, error } = await supabase.rpc('update_north_star_progress', {
         p_row_id: payload.id,
+        p_plan_value: payload.plan_value,
+        p_actual_mtd: payload.actual_mtd,
+        p_forecast: payload.forecast,
         p_constraint_now: payload.constraint_now,
         p_weekly_move: payload.weekly_move,
         p_last_week_result: payload.last_week_result,

@@ -135,24 +135,30 @@ describe('NorthStar helpers', () => {
     })
   })
 
-  it('builds a progress-only payload for executive status and note edits', () => {
+  it('builds a progress-only payload for executive plan, actual, forecast, status, and note edits', () => {
     const row = {
       ...mergeNorthStarRows([], '2026-06-01', '2026-06-14')[0],
       id: 'row-1',
+      plan_value: '7%',
+      actual_mtd: '5%',
+      forecast: '6%',
       constraint_now: 'Freight delay',
       weekly_move: 'Escalate receiving',
       last_week_result: 'Open',
       status: 'at_risk' as const,
     }
-    const payload = buildNorthStarProgressPayload(row, 'status', 'off_plan')
+    const payload = buildNorthStarProgressPayload(row, 'forecast', '6.5%')
 
-    expect(NORTH_STAR_PROGRESS_FIELDS).toEqual(['constraint_now', 'weekly_move', 'last_week_result', 'status'])
+    expect(NORTH_STAR_PROGRESS_FIELDS).toEqual(['plan_value', 'actual_mtd', 'forecast', 'constraint_now', 'weekly_move', 'last_week_result', 'status'])
     expect(payload).toEqual({
       id: 'row-1',
+      plan_value: '7%',
+      actual_mtd: '5%',
+      forecast: '6.5%',
       constraint_now: 'Freight delay',
       weekly_move: 'Escalate receiving',
       last_week_result: 'Open',
-      status: 'off_plan',
+      status: 'at_risk',
     })
   })
 

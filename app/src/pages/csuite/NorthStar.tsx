@@ -189,7 +189,7 @@ export default function NorthStar() {
           <div>
             <div className="text-sm font-semibold text-text1">Business plan review pillars</div>
             <div className="text-xs text-text2 mt-1">
-              Status and notes are editable inline. Structure changes stay behind Manage pillars.
+              Plan, actual, forecast, status, and notes are editable inline. Structure changes stay behind Manage pillars.
             </div>
           </div>
           {isAdmin && (
@@ -250,13 +250,13 @@ export default function NorthStar() {
                     <InlineEditableCell row={row} field="north_star" value={row.north_star} canEdit={isAdmin} multiline placeholder="Not set" onSave={handleCellSave} isSaving={isSavingRow} />
                   </td>
                   <td className="w-[130px] px-3 py-3 align-top">
-                    <InlineEditableCell row={row} field="plan_value" value={row.plan_value ?? ''} canEdit={isAdmin} placeholder="Not set" onSave={handleCellSave} isSaving={isSavingRow} />
+                    <InlineEditableCell row={row} field="plan_value" value={row.plan_value ?? ''} canEdit={canEditRowProgress} placeholder="Not set" onSave={handleCellSave} isSaving={isSavingRow} />
                   </td>
                   <td className="w-[130px] px-3 py-3 align-top">
-                    <InlineEditableCell row={row} field="actual_mtd" value={row.actual_mtd ?? ''} canEdit={isAdmin} placeholder="Not set" onSave={handleCellSave} isSaving={isSavingRow} />
+                    <InlineEditableCell row={row} field="actual_mtd" value={row.actual_mtd ?? ''} canEdit={canEditRowProgress} placeholder="Not set" onSave={handleCellSave} isSaving={isSavingRow} />
                   </td>
                   <td className="w-[130px] px-3 py-3 align-top">
-                    <InlineEditableCell row={row} field="forecast" value={row.forecast ?? ''} canEdit={isAdmin} placeholder="Not set" onSave={handleCellSave} isSaving={isSavingRow} />
+                    <InlineEditableCell row={row} field="forecast" value={row.forecast ?? ''} canEdit={canEditRowProgress} placeholder="Not set" onSave={handleCellSave} isSaving={isSavingRow} />
                   </td>
                   <td className="w-[130px] px-3 py-3 align-top">
                     {canEditRowProgress ? (

@@ -20,10 +20,16 @@ describe('NorthStar inline editing contract', () => {
     expect(source).toContain('Add pillar')
   })
 
-  it('lets executive users edit BPR status and notes without Manage pillars access', () => {
+  it('lets executive users edit BPR plan, actual, forecast, status, and notes without Manage pillars access', () => {
     expect(source).toContain('canEditProgress')
     expect(source).toContain("profile?.role === 'csuite'")
     expect(source).toContain('buildNorthStarProgressPayload')
+    expect(source).toContain('field="plan_value"')
+    expect(source).toContain('field="actual_mtd"')
+    expect(source).toContain('field="forecast"')
+    expect(source).toContain('field="plan_value" value={row.plan_value ?? \'\'} canEdit={canEditRowProgress}')
+    expect(source).toContain('field="actual_mtd" value={row.actual_mtd ?? \'\'} canEdit={canEditRowProgress}')
+    expect(source).toContain('field="forecast" value={row.forecast ?? \'\'} canEdit={canEditRowProgress}')
     expect(source).toContain('field="constraint_now"')
     expect(source).toContain('field="weekly_move"')
     expect(source).toContain('field="last_week_result"')
