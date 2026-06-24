@@ -5,10 +5,11 @@ import Badge from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/contexts/AuthContext'
 import { fmtCurrency, fmtNumber } from '@/lib/utils'
-import { useDeleteNorthStarRow, useMonthlyStar, useMonthlyStarSales, useNorthStarRows, useUpdateMonthlyStar, useUpdateNorthStarRow } from '@/hooks/useNorthStar'
+import { useDeleteNorthStarRow, useMonthlyStar, useMonthlyStarSales, useNorthStarRows, useUpdateMonthlyStar, useUpdateNorthStarProgress, useUpdateNorthStarRow } from '@/hooks/useNorthStar'
 import type { NorthStarStatus } from '@/types'
 import {
   STATUS_LABELS,
+  buildNorthStarProgressPayload,
   buildNorthStarUpdatePayload,
   computeMonthlyStarMetrics,
   createNorthStarDraftRow,
@@ -18,6 +19,7 @@ import {
   monthlyStarToInput,
   periodMonth,
   periodWeek,
+  isNorthStarProgressField,
   type MonthlyStarInput,
   type NorthStarDisplayRow,
   type NorthStarEditableField,
@@ -51,12 +53,14 @@ const SHORT_FIELDS = new Set<NorthStarEditableField>(['pillar', 'owner', 'plan_v
 export default function NorthStar() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
+  const canEditProgress = isAdmin || profile?.role === 'csuite'
   const currentMonth = useMemo(() => periodMonth(), [])
   const currentWeek = useMemo(() => periodWeek(), [])
   const { data: savedRows = [], isLoading: rowsLoading, error: rowsError } = useNorthStarRows()
   const { data: monthlyStar = null, isLoading: monthlyLoading, error: monthlyError } = useMonthlyStar(currentMonth)
   const { data: salesRows, isLoading: salesLoading, error: salesError } = useMonthlyStarSales(currentMonth)
   const updateRow = useUpdateNorthStarRow()
+  const updateProgress = useUpdateNorthStarProgress()
   const deleteRow = useDeleteNorthStarRow()
   const updateMonthly = useUpdateMonthlyStar()
   const [managePillars, setManagePillars] = useState(false)
@@ -112,6 +116,12 @@ export default function NorthStar() {
   }
 
   async function handleCellSave(row: NorthStarDisplayRow, field: NorthStarEditableField, value: string | NorthStarStatus) {
+    if (!isAdmin && isNorthStarProgressField(field)) {
+      if (!row.id) throw new Error('Admin must create the row before progress can be edited')
+      await updateProgress.mutateAsync({ ...buildNorthStarProgressPayload(row, field, value), id: row.id })
+      return
+    }
+
     await updateRow.mutateAsync(buildNorthStarUpdatePayload(row, field, value))
     if (!row.id) {
       setDraftRows(current => current.filter(draft => draft.slot_index !== row.slot_index))
@@ -179,7 +189,7 @@ export default function NorthStar() {
           <div>
             <div className="text-sm font-semibold text-text1">Business plan review pillars</div>
             <div className="text-xs text-text2 mt-1">
-              Admins can update text inline. Structure changes stay behind Manage pillars.
+              Status and notes are editable inline. Structure changes stay behind Manage pillars.
             </div>
           </div>
           {isAdmin && (
@@ -221,36 +231,40 @@ export default function NorthStar() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {rows.map(row => (
-                <tr key={`${row.slot_index}-${row.id ?? 'draft'}`} className={`group transition-colors ${STATUS_ROW_CLASS[row.status]}`}>
+              {rows.map(row => {
+                const canEditRowProgress = canEditProgress && (isAdmin || Boolean(row.id))
+                const isSavingRow = updateRow.isPending || updateProgress.isPending
+
+                return (
+                  <tr key={`${row.slot_index}-${row.id ?? 'draft'}`} className={`group transition-colors ${STATUS_ROW_CLASS[row.status]}`}>
                   {managePillars && isAdmin && (
                     <td className="px-3 py-3 align-top text-xs font-semibold text-text2">#{row.slot_index}</td>
                   )}
                   <td className="w-[150px] px-3 py-3 align-top">
-                    <InlineEditableCell row={row} field="pillar" value={row.pillar} isAdmin={isAdmin} onSave={handleCellSave} isSaving={updateRow.isPending} />
+                    <InlineEditableCell row={row} field="pillar" value={row.pillar} canEdit={isAdmin} onSave={handleCellSave} isSaving={isSavingRow} />
                   </td>
                   <td className="w-[120px] px-3 py-3 align-top">
-                    <InlineEditableCell row={row} field="owner" value={row.owner ?? ''} isAdmin={isAdmin} placeholder="Unassigned" onSave={handleCellSave} isSaving={updateRow.isPending} />
+                    <InlineEditableCell row={row} field="owner" value={row.owner ?? ''} canEdit={isAdmin} placeholder="Unassigned" onSave={handleCellSave} isSaving={isSavingRow} />
                   </td>
                   <td className="w-[220px] px-3 py-3 align-top">
-                    <InlineEditableCell row={row} field="north_star" value={row.north_star} isAdmin={isAdmin} multiline placeholder="Not set" onSave={handleCellSave} isSaving={updateRow.isPending} />
+                    <InlineEditableCell row={row} field="north_star" value={row.north_star} canEdit={isAdmin} multiline placeholder="Not set" onSave={handleCellSave} isSaving={isSavingRow} />
                   </td>
                   <td className="w-[130px] px-3 py-3 align-top">
-                    <InlineEditableCell row={row} field="plan_value" value={row.plan_value ?? ''} isAdmin={isAdmin} placeholder="Not set" onSave={handleCellSave} isSaving={updateRow.isPending} />
+                    <InlineEditableCell row={row} field="plan_value" value={row.plan_value ?? ''} canEdit={isAdmin} placeholder="Not set" onSave={handleCellSave} isSaving={isSavingRow} />
                   </td>
                   <td className="w-[130px] px-3 py-3 align-top">
-                    <InlineEditableCell row={row} field="actual_mtd" value={row.actual_mtd ?? ''} isAdmin={isAdmin} placeholder="Not set" onSave={handleCellSave} isSaving={updateRow.isPending} />
+                    <InlineEditableCell row={row} field="actual_mtd" value={row.actual_mtd ?? ''} canEdit={isAdmin} placeholder="Not set" onSave={handleCellSave} isSaving={isSavingRow} />
                   </td>
                   <td className="w-[130px] px-3 py-3 align-top">
-                    <InlineEditableCell row={row} field="forecast" value={row.forecast ?? ''} isAdmin={isAdmin} placeholder="Not set" onSave={handleCellSave} isSaving={updateRow.isPending} />
+                    <InlineEditableCell row={row} field="forecast" value={row.forecast ?? ''} canEdit={isAdmin} placeholder="Not set" onSave={handleCellSave} isSaving={isSavingRow} />
                   </td>
                   <td className="w-[130px] px-3 py-3 align-top">
-                    {isAdmin ? (
+                    {canEditRowProgress ? (
                       <select
                         className="select w-full py-1.5 text-xs"
                         value={row.status}
                         onChange={e => handleCellSave(row, 'status', e.target.value as NorthStarStatus)}
-                        disabled={updateRow.isPending}
+                        disabled={isSavingRow}
                         aria-label={`Status for ${row.pillar}`}
                       >
                         <option value="on_plan">On plan</option>
@@ -262,13 +276,13 @@ export default function NorthStar() {
                     )}
                   </td>
                   <td className="w-[210px] px-3 py-3 align-top">
-                    <InlineEditableCell row={row} field="constraint_now" value={row.constraint_now ?? ''} isAdmin={isAdmin} multiline placeholder="Not set" onSave={handleCellSave} isSaving={updateRow.isPending} />
+                    <InlineEditableCell row={row} field="constraint_now" value={row.constraint_now ?? ''} canEdit={canEditRowProgress} multiline placeholder="Not set" onSave={handleCellSave} isSaving={isSavingRow} />
                   </td>
                   <td className="w-[210px] px-3 py-3 align-top">
-                    <InlineEditableCell row={row} field="weekly_move" value={row.weekly_move ?? ''} isAdmin={isAdmin} multiline placeholder="Not set" onSave={handleCellSave} isSaving={updateRow.isPending} />
+                    <InlineEditableCell row={row} field="weekly_move" value={row.weekly_move ?? ''} canEdit={canEditRowProgress} multiline placeholder="Not set" onSave={handleCellSave} isSaving={isSavingRow} />
                   </td>
                   <td className="w-[210px] px-3 py-3 align-top">
-                    <InlineEditableCell row={row} field="last_week_result" value={row.last_week_result ?? ''} isAdmin={isAdmin} multiline placeholder="Not set" onSave={handleCellSave} isSaving={updateRow.isPending} />
+                    <InlineEditableCell row={row} field="last_week_result" value={row.last_week_result ?? ''} canEdit={canEditRowProgress} multiline placeholder="Not set" onSave={handleCellSave} isSaving={isSavingRow} />
                   </td>
                   {managePillars && isAdmin && (
                     <td className="px-3 py-3 align-top text-right">
@@ -285,7 +299,8 @@ export default function NorthStar() {
                     </td>
                   )}
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -416,7 +431,7 @@ function InlineEditableCell({
   row,
   field,
   value,
-  isAdmin,
+  canEdit,
   multiline = false,
   placeholder = 'Not set',
   onSave,
@@ -425,7 +440,7 @@ function InlineEditableCell({
   row: NorthStarDisplayRow
   field: NorthStarEditableField
   value: string
-  isAdmin: boolean
+  canEdit: boolean
   multiline?: boolean
   placeholder?: string
   onSave: (row: NorthStarDisplayRow, field: NorthStarEditableField, value: string) => Promise<void>
@@ -439,7 +454,7 @@ function InlineEditableCell({
     setDraft(value)
   }, [value])
 
-  if (!isAdmin) {
+  if (!canEdit) {
     return <ReadOnlyCell value={value} placeholder={placeholder} strong={field === 'pillar'} />
   }
 

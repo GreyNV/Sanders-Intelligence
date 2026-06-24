@@ -22,6 +22,14 @@ export interface UpdateNorthStarRowPayload {
   status: NorthStarStatus
 }
 
+export interface UpdateNorthStarProgressPayload {
+  id: string
+  constraint_now: string | null
+  weekly_move: string | null
+  last_week_result: string | null
+  status: NorthStarStatus
+}
+
 export interface UpdateMonthlyStarPayload {
   id: string | null
   period_month: string
@@ -121,6 +129,32 @@ export function useUpdateNorthStarRow() {
       return data as NorthStarRow
     },
     onSuccess: data => {
+      qc.invalidateQueries({ queryKey: ['north_star_rows'] })
+    },
+  })
+}
+
+export function useUpdateNorthStarProgress() {
+  const qc = useQueryClient()
+  const { profile } = useAuth()
+
+  return useMutation({
+    mutationFn: async (payload: UpdateNorthStarProgressPayload) => {
+      if (!profile || (profile.role !== 'admin' && profile.role !== 'csuite')) {
+        throw new Error('Executive role required')
+      }
+
+      const { data, error } = await supabase.rpc('update_north_star_progress', {
+        p_row_id: payload.id,
+        p_constraint_now: payload.constraint_now,
+        p_weekly_move: payload.weekly_move,
+        p_last_week_result: payload.last_week_result,
+        p_status: payload.status,
+      })
+      if (error) throw error
+      return (Array.isArray(data) ? data[0] : data) as NorthStarRow
+    },
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['north_star_rows'] })
     },
   })

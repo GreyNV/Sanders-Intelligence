@@ -20,6 +20,15 @@ describe('NorthStar inline editing contract', () => {
     expect(source).toContain('Add pillar')
   })
 
+  it('lets executive users edit BPR status and notes without Manage pillars access', () => {
+    expect(source).toContain('canEditProgress')
+    expect(source).toContain("profile?.role === 'csuite'")
+    expect(source).toContain('buildNorthStarProgressPayload')
+    expect(source).toContain('field="constraint_now"')
+    expect(source).toContain('field="weekly_move"')
+    expect(source).toContain('field="last_week_result"')
+  })
+
   it('straightens Monthly Star into a compact executive tool surface', () => {
     expect(source).toContain('MonthlyStarMetric')
     expect(source).toContain('Gap to target')

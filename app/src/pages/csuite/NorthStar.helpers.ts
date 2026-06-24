@@ -15,6 +15,15 @@ export const NORTH_STAR_EDITABLE_FIELDS = [
 
 export type NorthStarEditableField = typeof NORTH_STAR_EDITABLE_FIELDS[number]
 
+export const NORTH_STAR_PROGRESS_FIELDS = [
+  'constraint_now',
+  'weekly_move',
+  'last_week_result',
+  'status',
+] as const
+
+export type NorthStarProgressField = typeof NORTH_STAR_PROGRESS_FIELDS[number]
+
 export const STATUS_LABELS: Record<NorthStarStatus, string> = {
   on_plan: 'On plan',
   at_risk: 'At risk',
@@ -312,6 +321,26 @@ function sumRevenueByChannel(rows: MonthlyStarSalesRow[]): Map<string, number> {
 
 function sumMapValues(map: Map<string, number>): number {
   return Number(Array.from(map.values()).reduce((sum, value) => sum + value, 0).toFixed(2))
+}
+
+export function buildNorthStarProgressPayload(
+  row: NorthStarDisplayRow,
+  field: NorthStarProgressField,
+  value: string | NorthStarStatus
+) {
+  const textValue = typeof value === 'string' ? value.trim() : value
+  const next = { ...row, [field]: textValue }
+  return {
+    id: row.id,
+    constraint_now: normalizeNullableText(next.constraint_now),
+    weekly_move: normalizeNullableText(next.weekly_move),
+    last_week_result: normalizeNullableText(next.last_week_result),
+    status: next.status,
+  }
+}
+
+export function isNorthStarProgressField(field: NorthStarEditableField): field is NorthStarProgressField {
+  return (NORTH_STAR_PROGRESS_FIELDS as readonly string[]).includes(field)
 }
 
 function maxDate(a: Date, b: Date): Date {
