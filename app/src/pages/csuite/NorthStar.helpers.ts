@@ -100,6 +100,9 @@ export interface MonthlyStarSalesWindows {
   daysRemaining: number
 }
 
+export const MONTHLY_STAR_TIME_ZONE = 'America/New_York'
+export const MONTHLY_STAR_DRAG_CHANNEL_LIMIT = 3
+
 export function periodMonth(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`
 }
@@ -114,8 +117,7 @@ export function periodWeek(date = new Date()): string {
 export function monthlyStarSalesWindows(periodMonth: string, today = new Date()): MonthlyStarSalesWindows {
   const currentStart = new Date(`${periodMonth}T00:00:00Z`)
   const monthEnd = new Date(Date.UTC(currentStart.getUTCFullYear(), currentStart.getUTCMonth() + 1, 1))
-  const todayStart = new Date(today)
-  todayStart.setUTCHours(0, 0, 0, 0)
+  const todayStart = new Date(`${businessDate(today, MONTHLY_STAR_TIME_ZONE)}T00:00:00Z`)
 
   const isCurrentMonth =
     currentStart.getUTCFullYear() === todayStart.getUTCFullYear() &&
@@ -268,7 +270,8 @@ export function computeMonthlyStarMetrics(input: MonthlyStarInput): MonthlyStarM
     onTrack: projectedMonthEnd >= input.target_sales,
     draggingChannels: input.channel_deltas
       .filter(channel => Number(channel.delta) < 0)
-      .sort((a, b) => a.delta - b.delta),
+      .sort((a, b) => a.delta - b.delta)
+      .slice(0, MONTHLY_STAR_DRAG_CHANNEL_LIMIT),
   }
 }
 
@@ -359,6 +362,18 @@ function daysBetween(start: Date, end: Date): number {
 
 function formatDate(date: Date): string {
   return date.toISOString().slice(0, 10)
+}
+
+function businessDate(date: Date, timeZone: string): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date).map(part => [part.type, part.value])
+  )
+  return `${parts.year}-${parts.month}-${parts.day}`
 }
 
 export function defaultMonthlyStar(currentMonth: string): MonthlyStarInput & { period_month: string } {

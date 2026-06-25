@@ -33,6 +33,17 @@ describe('NorthStar helpers', () => {
     })
   })
 
+  it('uses Eastern Time as the Monthly Star business-day boundary', () => {
+    expect(monthlyStarSalesWindows('2026-06-01', new Date('2026-06-23T03:30:00Z'))).toMatchObject({
+      currentStart: '2026-06-01',
+      currentEndExclusive: '2026-06-22',
+      previousStart: '2025-06-01',
+      previousEndExclusive: '2025-06-22',
+      daysElapsed: 21,
+      daysRemaining: 9,
+    })
+  })
+
   it('uses full month sales windows for closed months', () => {
     expect(monthlyStarSalesWindows('2026-05-01', new Date('2026-06-23T12:00:00Z'))).toMatchObject({
       currentStart: '2026-05-01',
@@ -174,6 +185,9 @@ describe('NorthStar helpers', () => {
         { channel: 'FBA', delta: -250000 },
         { channel: 'Wholesale', delta: 100000 },
         { channel: 'WFS', delta: -50000 },
+        { channel: 'Amazon', delta: -125000 },
+        { channel: 'Dropship', delta: -75000 },
+        { channel: 'Retail', delta: -1000 },
       ],
     })
 
@@ -187,7 +201,8 @@ describe('NorthStar helpers', () => {
     expect(metrics.onTrack).toBe(true)
     expect(metrics.draggingChannels).toEqual([
       { channel: 'FBA', delta: -250000 },
-      { channel: 'WFS', delta: -50000 },
+      { channel: 'Amazon', delta: -125000 },
+      { channel: 'Dropship', delta: -75000 },
     ])
   })
 
