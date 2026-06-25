@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/sync-purchase-orders",
       "schedule": "45 20 * * *"
+    },
+    {
+      "path": "/api/cron/sync-sales",
+      "schedule": "30 10 * * *"
     }
   ],
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
