@@ -97,7 +97,8 @@ begin
     body := jsonb_build_object(
       'maxPages', 20,
       'pageSize', 50,
-      'dateParamPreset', 'createdOn'
+      'dateParamPreset', 'shipDate',
+      'saleDatePreset', 'shipDate'
     )
   );
 end;

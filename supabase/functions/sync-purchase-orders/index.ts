@@ -249,19 +249,29 @@ async function fetchPurchaseOrderItems(base: string, token: string, poId: number
 }
 
 async function loadSkuBridge(supabase: ReturnType<typeof createClient>): Promise<Map<string, string>> {
-  const { data, error } = await supabase
-    .from('sku_bridge')
-    .select('source_sku, planning_sku, source_system, is_active')
-    .eq('is_active', true)
-  if (error) throw error
-
   const bridge = new Map<string, string>()
-  for (const row of data ?? []) {
-    if (!row.source_sku || !row.planning_sku) continue
-    const sourceSystem = String(row.source_system ?? '')
-    if (!sourceSystem.includes('seller_cloud')) continue
-    bridge.set(String(row.source_sku).toLowerCase(), String(row.planning_sku))
+  let from = 0
+  const pageSize = 1000
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('sku_bridge')
+      .select('source_sku, planning_sku, source_system, is_active')
+      .eq('is_active', true)
+      .range(from, from + pageSize - 1)
+    if (error) throw error
+
+    const page = data ?? []
+    for (const row of page) {
+      if (!row.source_sku || !row.planning_sku) continue
+      const sourceSystem = String(row.source_system ?? '')
+      if (!sourceSystem.includes('seller_cloud')) continue
+      bridge.set(String(row.source_sku).toLowerCase(), String(row.planning_sku))
+    }
+    if (page.length < pageSize) break
+    from += pageSize
   }
+
   return bridge
 }
 

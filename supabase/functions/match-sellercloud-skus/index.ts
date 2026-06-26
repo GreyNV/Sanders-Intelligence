@@ -5,6 +5,7 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
+const BACKFILL_CONCURRENCY = 20
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -30,17 +31,7 @@ Deno.serve(async (req) => {
       if (error) throw error
     }
 
-    let backfilledItems = 0
-    for (const row of candidateRows) {
-      const { data, error } = await supabase
-        .from('po_items')
-        .update({ planning_sku: row.planning_sku })
-        .eq('source_sku', row.source_sku)
-        .is('planning_sku', null)
-        .select('id')
-      if (error) throw error
-      backfilledItems += data?.length ?? 0
-    }
+    const backfilledItems = await backfillPOItems(supabase, candidateRows)
 
     return json({
       insertedBridgeRows: rows.length,
@@ -75,13 +66,26 @@ async function requireAdminOrService(req: Request, supabase: ReturnType<typeof c
 }
 
 async function loadUnmatchedSourceSkus(supabase: ReturnType<typeof createClient>): Promise<string[]> {
-  const { data, error } = await supabase
-    .from('po_items')
-    .select('source_sku')
-    .is('planning_sku', null)
-    .not('source_sku', 'is', null)
-  if (error) throw error
-  return Array.from(new Set((data ?? []).map(row => String(row.source_sku ?? '').trim()).filter(Boolean)))
+  const rows: string[] = []
+  let from = 0
+  const pageSize = 1000
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('po_items')
+      .select('source_sku')
+      .is('planning_sku', null)
+      .not('source_sku', 'is', null)
+      .range(from, from + pageSize - 1)
+    if (error) throw error
+
+    const page = data ?? []
+    rows.push(...page.map(row => String(row.source_sku ?? '').trim()).filter(Boolean))
+    if (page.length < pageSize) break
+    from += pageSize
+  }
+
+  return Array.from(new Set(rows))
 }
 
 async function loadLatestInventorySkus(supabase: ReturnType<typeof createClient>): Promise<string[]> {
@@ -114,13 +118,55 @@ async function loadLatestInventorySkus(supabase: ReturnType<typeof createClient>
 }
 
 async function loadExistingBridgeKeys(supabase: ReturnType<typeof createClient>): Promise<Set<string>> {
-  const { data, error } = await supabase
-    .from('sku_bridge')
-    .select('source_sku, planning_sku, match_method')
-    .eq('source_system', 'seller_cloud')
-    .eq('is_active', true)
-  if (error) throw error
-  return new Set((data ?? []).map(row => bridgeKey(row.source_sku, row.planning_sku, row.match_method)))
+  const rows: unknown[] = []
+  let from = 0
+  const pageSize = 1000
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('sku_bridge')
+      .select('source_sku, planning_sku, match_method')
+      .eq('source_system', 'seller_cloud')
+      .eq('is_active', true)
+      .range(from, from + pageSize - 1)
+    if (error) throw error
+
+    const page = data ?? []
+    rows.push(...page)
+    if (page.length < pageSize) break
+    from += pageSize
+  }
+
+  return new Set(rows.map(row => {
+    const record = row as Record<string, unknown>
+    return bridgeKey(record.source_sku, record.planning_sku, record.match_method)
+  }))
+}
+
+async function backfillPOItems(
+  supabase: ReturnType<typeof createClient>,
+  rows: Array<{ source_sku: string; planning_sku: string }>
+): Promise<number> {
+  let backfilledItems = 0
+
+  for (let index = 0; index < rows.length; index += BACKFILL_CONCURRENCY) {
+    const chunk = rows.slice(index, index + BACKFILL_CONCURRENCY)
+    const results = await Promise.all(chunk.map(row =>
+      supabase
+        .from('po_items')
+        .update({ planning_sku: row.planning_sku })
+        .eq('source_sku', row.source_sku)
+        .is('planning_sku', null)
+        .select('id')
+    ))
+
+    for (const result of results) {
+      if (result.error) throw result.error
+      backfilledItems += result.data?.length ?? 0
+    }
+  }
+
+  return backfilledItems
 }
 
 function bridgeKey(sourceSku: unknown, planningSku: unknown, matchMethod: unknown): string {

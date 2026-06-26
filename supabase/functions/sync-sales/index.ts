@@ -10,7 +10,9 @@ const SALES_SYNC_KEY = 'sellercloud_sales'
 const DEFAULT_INITIAL_LOOKBACK_DAYS = 45
 const DEFAULT_ENDPOINT = '/api/Orders'
 const CURSOR_OVERLAP_MINUTES = 5
-const DEFAULT_DATE_PARAM_PRESET = 'createdOn'
+const DEFAULT_DATE_PARAM_PRESET = 'shipDate'
+const DEFAULT_SALE_DATE_PRESET = 'shipDate'
+const DEFAULT_BUSINESS_TIME_ZONE = 'America/New_York'
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -25,13 +27,21 @@ Deno.serve(async (req) => {
     await requireAdminOrService(req, supabase)
     const syncState = await getSyncState(supabase, options)
 
-    const base = (Deno.env.get('SELLERCLOUD_DELTA_BASE') ?? 'https://snc.api.sellercloud.com/rest').replace(/\/$/, '')
+    const base = stripTrailingSlash(Deno.env.get('SELLERCLOUD_DELTA_BASE') ?? 'https://snc.api.sellercloud.com/rest')
     const endpoint = normalizeEndpoint(Deno.env.get('SELLERCLOUD_SALES_ENDPOINT') ?? DEFAULT_ENDPOINT)
     const token = await getSellerCloudToken(base)
     const { rows, totalResults, pagesFetched } = await fetchSalesRows(base, endpoint, token, options, syncState.startPage, syncState.queryCursor)
     const bridge = await loadSkuBridge(supabase)
-    const rowsInWindow = filterRowsBySaleDate(rows, options.dateFrom, options.dateTo)
-    const salesRows = aggregateSalesRows(rowsInWindow, bridge, endpoint)
+    const rowsInWindow = filterRowsBySaleDate(rows, options)
+    const salesRows = aggregateSalesRows(rowsInWindow, bridge, endpoint, options)
+
+    if (!options.dryRun && options.replaceDate && options.dateFrom && options.dateFrom === options.dateTo) {
+      const { error } = await supabase
+        .from('sales_daily')
+        .delete()
+        .eq('sale_date', options.dateFrom)
+      if (error) throw error
+    }
 
     if (!options.dryRun && salesRows.length > 0) {
       const { error } = await supabase
@@ -50,24 +60,30 @@ Deno.serve(async (req) => {
         dateFrom: options.dateFrom,
         dateTo: options.dateTo,
         dateParamPreset: options.dateParamPreset,
+        saleDatePreset: options.saleDatePreset,
       })
     }
 
     return json({
       dryRun: options.dryRun,
+      replaceDate: options.replaceDate,
       synced: salesRows.length,
       sourceRows: rows.length,
       sourceRowsInWindow: rowsInWindow.length,
+      revenue: sumField(salesRows, 'revenue'),
+      units: sumField(salesRows, 'units_sold'),
+      ordersCount: sumField(salesRows, 'orders_count'),
       endpoint,
       incrementalFrom: syncState.queryCursor,
       dateFrom: options.dateFrom,
       dateTo: options.dateTo,
       dateParamPreset: options.dateParamPreset,
+      saleDatePreset: options.saleDatePreset,
       nextCursor,
       totalResults,
       pagesFetched,
-      sourceDateRange: dateRange(rows),
-      filteredDateRange: dateRange(rowsInWindow),
+      sourceDateRange: dateRange(rows, options),
+      filteredDateRange: dateRange(rowsInWindow, options),
       durationMs: Date.now() - started,
     })
   } catch (error) {
@@ -84,7 +100,9 @@ interface SyncOptions {
   dateFrom: string | null
   dateTo: string | null
   dateParamPreset: string
+  saleDatePreset: string
   dryRun: boolean
+  replaceDate: boolean
 }
 
 async function readSyncOptions(req: Request): Promise<SyncOptions> {
@@ -94,14 +112,16 @@ async function readSyncOptions(req: Request): Promise<SyncOptions> {
   const dateTo = nullableDateText(body.dateTo) ?? dateFrom
   return {
     maxPages: clampNumber(body.maxPages, 1, 200, 2),
-    pageSize: clampNumber(body.pageSize, 1, 100, 50),
+    pageSize: clampNumber(body.pageSize, 1, 50, 50),
     fullRefresh: body.fullRefresh === true,
     initialLookbackDays: clampNumber(body.initialLookbackDays, 1, 730, DEFAULT_INITIAL_LOOKBACK_DAYS),
     startPage: body.startPage == null ? null : clampNumber(body.startPage, 1, 10000, 1),
     dateFrom,
     dateTo,
     dateParamPreset: nullableText(body.dateParamPreset) ?? Deno.env.get('SELLERCLOUD_SALES_DATE_PARAM_PRESET') ?? DEFAULT_DATE_PARAM_PRESET,
+    saleDatePreset: nullableText(body.saleDatePreset) ?? Deno.env.get('SELLERCLOUD_SALES_DATE_BASIS') ?? DEFAULT_SALE_DATE_PRESET,
     dryRun: body.dryRun === true,
+    replaceDate: body.replaceDate === true,
   }
 }
 
@@ -167,16 +187,25 @@ async function getSellerCloudToken(base: string): Promise<string> {
   const password = Deno.env.get('SELLERCLOUD_PASSWORD')
   if (!username || !password) throw new Error('SellerCloud credentials are not configured')
 
-  const response = await fetch(`${base}/api/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ Username: username, Password: password }),
-  })
-  if (!response.ok) throw new Error(`SellerCloud auth failed (${response.status})`)
-  const body = await response.json()
-  const token = body.access_token ?? body.AccessToken ?? body.token
-  if (!token) throw new Error('SellerCloud token response did not include an access token')
-  return String(token)
+  let lastError: Error | null = null
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    const response = await fetch(`${base}/api/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ Username: username, Password: password }),
+    })
+    if (response.ok) {
+      const body = await response.json()
+      const token = body.access_token ?? body.AccessToken ?? body.token
+      if (!token) throw new Error('SellerCloud token response did not include an access token')
+      return String(token)
+    }
+
+    lastError = new Error(`SellerCloud auth failed (${response.status})`)
+    if (![429, 500, 502, 503, 504].includes(response.status)) break
+    await sleep(1000 * attempt * attempt)
+  }
+  throw lastError ?? new Error('SellerCloud auth failed')
 }
 
 async function fetchSalesRows(
@@ -202,7 +231,7 @@ async function fetchSalesRows(
     const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
     if (!response.ok) throw new Error(`SellerCloud sales fetch failed (${response.status})`)
     const body = await response.json()
-    const pageRows = extractRows(body)
+    const pageRows = await enrichOrdersWithCurrencyRates(base, token, extractRows(body))
     const rows = flattenSalesRows(pageRows)
     all.push(...rows)
     pagesFetched += 1
@@ -217,8 +246,9 @@ async function fetchSalesRows(
 function applyDateParams(url: URL, options: SyncOptions) {
   if (!options.dateFrom && !options.dateTo) return
   const [fromParam, toParam] = dateParamNames(options.dateParamPreset)
-  if (options.dateFrom) url.searchParams.set(fromParam, options.dateFrom)
-  if (options.dateTo) url.searchParams.set(toParam, options.dateTo)
+  const [fromValue, toValue] = dateParamValues(options)
+  if (fromValue) url.searchParams.set(fromParam, fromValue)
+  if (toValue) url.searchParams.set(toParam, toValue)
 }
 
 function dateParamNames(preset: string): [string, string] {
@@ -226,38 +256,133 @@ function dateParamNames(preset: string): [string, string] {
     case 'date':
       return ['model.dateFrom', 'model.dateTo']
     case 'shipDate':
-      return ['model.shipDateFrom', 'model.shipDateTo']
+      return ['model.shipFromDate', 'model.shipToDate']
+    case 'shippingDate':
+      return ['model.shipFromDate', 'model.shipToDate']
+    case 'purchaseOrdersShippingDate':
+      return ['model.PurchaseOrdersShippingDateFrom', 'model.PurchaseOrdersShippingDateTo']
     case 'createdOn':
       return ['model.createdOnFrom', 'model.createdOnTo']
     case 'updatedDate':
       return ['model.updatedDateFrom', 'model.updatedDateTo']
     case 'orderDate':
     default:
-      return ['model.orderDateFrom', 'model.orderDateTo']
+      return ['model.orderFromDate', 'model.orderToDate']
   }
+}
+
+function dateParamValues(options: Pick<SyncOptions, 'dateFrom' | 'dateTo' | 'dateParamPreset'>): [string | null, string | null] {
+  if (options.dateParamPreset === 'shipDate' || options.dateParamPreset === 'shippingDate') {
+    return [
+      options.dateFrom ? startOfDayDateTime(options.dateFrom) : null,
+      options.dateTo ? endOfDayDateTime(options.dateTo) : null,
+    ]
+  }
+  return [options.dateFrom, options.dateTo]
+}
+
+async function enrichOrdersWithCurrencyRates(base: string, token: string, orders: JsonRecord[]): Promise<JsonRecord[]> {
+  const enriched = [...orders]
+  const candidates = enriched
+    .filter(order => needsCurrencyRate(order))
+    .map(order => nullableText(first(order, ['ID', 'Id', 'OrderID', 'OrderId', 'orderID', 'orderId'])))
+    .filter((value): value is string => Boolean(value))
+
+  if (candidates.length === 0) return enriched
+
+  const rates = new Map<string, number>()
+  const details = new Map<string, JsonRecord>()
+  let cursor = 0
+  const concurrency = 6
+  async function worker() {
+    while (cursor < candidates.length) {
+      const orderId = candidates[cursor++]
+      const detail = await fetchOrderDetail(base, token, orderId)
+      const orderDetails = isRecord(detail.OrderDetails) ? detail.OrderDetails : {}
+      const rate = nullableNumber(first(orderDetails, ['CurrencyRateToUSD', 'currencyRateToUsd']))
+      if (rate != null && rate > 0) rates.set(orderId, rate)
+      details.set(orderId, detail)
+    }
+  }
+  await Promise.all(Array.from({ length: concurrency }, worker))
+
+  return enriched.map(order => {
+    const orderId = nullableText(first(order, ['ID', 'Id', 'OrderID', 'OrderId', 'orderID', 'orderId']))
+    const rate = orderId ? rates.get(orderId) : null
+    const detail = orderId ? details.get(orderId) : null
+    if (!rate && !detail) return order
+
+    const totalInfo = detail && isRecord(detail.TotalInfo) ? detail.TotalInfo : {}
+    const detailSubTotal = nullableNumber(first(totalInfo, ['SubTotal', 'subTotal']))
+    const detailGrandTotal = nullableNumber(first(totalInfo, ['GrandTotal', 'grandTotal']))
+    const detailTax = nullableNumber(first(totalInfo, ['Tax', 'tax']))
+    const orderItems = detail ? extractRows(detail) : []
+    return {
+      ...order,
+      ...(rate ? { CurrencyRateToUSD: rate } : {}),
+      ...(detailSubTotal != null && detailSubTotal > 0 ? { DetailSubTotal: detailSubTotal } : {}),
+      ...(detailGrandTotal != null && detailGrandTotal > 0 ? { DetailGrandTotal: detailGrandTotal } : {}),
+      ...(detailTax != null && detailTax > 0 ? { DetailTax: detailTax } : {}),
+      ...(orderItems.length > 0 ? { Items: orderItems } : {}),
+    }
+  })
+}
+
+function needsCurrencyRate(order: JsonRecord): boolean {
+  if (needsZeroRevenueDetail(order)) return true
+  if (nullableNumber(first(order, ['CurrencyRateToUSD', 'currencyRateToUsd'])) != null) return false
+  const company = nullableText(first(order, ['CompanyName', 'companyName', 'Company', 'company']))?.toLowerCase() ?? ''
+  return company.includes('fba mx') || company.includes('amazon canada')
+}
+
+function needsZeroRevenueDetail(order: JsonRecord): boolean {
+  const grandTotal = nullableNumber(first(order, ['GrandTotal', 'grandTotal']))
+  if (grandTotal != null && grandTotal > 0) return false
+  if (!isAmazonEuOrder(order)) return false
+  const items = extractRows(order)
+  return items.length > 0 && items.every(item => (nullableNumber(first(item, ['LineTotal', 'lineTotal'])) ?? 0) === 0)
+}
+
+async function fetchOrderDetail(base: string, token: string, orderId: string): Promise<JsonRecord> {
+  const response = await fetch(`${base}/api/Orders/${encodeURIComponent(orderId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!response.ok) throw new Error(`SellerCloud order detail fetch failed for ${orderId} (${response.status})`)
+  return await response.json()
 }
 
 async function loadSkuBridge(supabase: ReturnType<typeof createClient>): Promise<Map<string, string>> {
-  const { data, error } = await supabase
-    .from('sku_bridge')
-    .select('source_sku, planning_sku, source_system, is_active')
-    .eq('is_active', true)
-  if (error) throw error
-
   const bridge = new Map<string, string>()
-  for (const row of data ?? []) {
-    if (!row.source_sku || !row.planning_sku) continue
-    const sourceSystem = String(row.source_system ?? '')
-    if (!sourceSystem.includes('seller_cloud')) continue
-    bridge.set(String(row.source_sku).toLowerCase(), String(row.planning_sku))
+  let from = 0
+  const pageSize = 1000
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('sku_bridge')
+      .select('source_sku, planning_sku, source_system, is_active')
+      .eq('is_active', true)
+      .range(from, from + pageSize - 1)
+    if (error) throw error
+
+    const page = data ?? []
+    for (const row of page) {
+      if (!row.source_sku || !row.planning_sku) continue
+      const sourceSystem = String(row.source_system ?? '')
+      if (!sourceSystem.includes('seller_cloud')) continue
+      bridge.set(String(row.source_sku).toLowerCase(), String(row.planning_sku))
+    }
+    if (page.length < pageSize) break
+    from += pageSize
   }
+
   return bridge
 }
 
-function aggregateSalesRows(rows: JsonRecord[], bridge: Map<string, string>, endpoint: string): JsonRecord[] {
+function aggregateSalesRows(rows: JsonRecord[], bridge: Map<string, string>, endpoint: string, options: SyncOptions): JsonRecord[] {
   const map = new Map<string, JsonRecord>()
+  const orderRevenue = orderRevenueAllocations(rows)
   for (const row of rows) {
-    const saleDate = nullableDateOnly(first(row, ['ShipDate', 'shipDate', 'OrderDate', 'orderDate', 'Date', 'date', 'CreatedOn', 'createdOn']))
+    const saleDate = saleDateOnly(row, options)
     const sourceSku = nullableText(first(row, ['ProductID', 'ProductId', 'productId', 'SKU', 'sku', 'Sku']))
     if (!saleDate || !sourceSku) continue
     const channel = nullableText(first(row, ['Channel', 'channel', 'CompanyName', 'companyName', 'Company', 'company'])) ?? 'Unassigned'
@@ -274,7 +399,7 @@ function aggregateSalesRows(rows: JsonRecord[], bridge: Map<string, string>, end
       synced_at: new Date().toISOString(),
     }
     existing.units_sold = Number(existing.units_sold) + (nullableNumber(first(row, ['Qty', 'qty', 'Quantity', 'quantity', 'QtySold', 'qtySold'])) ?? 0)
-    existing.revenue = Number(existing.revenue) + (nullableNumber(first(row, ['LineTotal', 'lineTotal', 'SubTotal', 'subTotal', 'GrandTotal', 'grandTotal', 'Total', 'total'])) ?? 0)
+    existing.revenue = Number(existing.revenue) + revenueForRow(row, orderRevenue)
     existing.orders_count = Number(existing.orders_count) + 1
     existing.source_payload = {
       endpoint,
@@ -285,10 +410,85 @@ function aggregateSalesRows(rows: JsonRecord[], bridge: Map<string, string>, end
   return Array.from(map.values())
 }
 
-function filterRowsBySaleDate(rows: JsonRecord[], dateFrom: string | null, dateTo: string | null): JsonRecord[] {
+interface OrderRevenueGroup {
+  count: number
+  lineTotal: number
+  allocationBasis: number
+  lineTaxTotal: number
+  orderRevenue: number | null
+}
+
+function orderRevenueAllocations(rows: JsonRecord[]): Map<string, OrderRevenueGroup> {
+  const groups = new Map<string, OrderRevenueGroup>()
+  for (const row of rows) {
+    const orderId = orderKey(row)
+    if (!orderId) continue
+    const group = groups.get(orderId) ?? { count: 0, lineTotal: 0, allocationBasis: 0, lineTaxTotal: 0, orderRevenue: null }
+    group.count += 1
+    group.lineTotal += lineRevenueTotal(row)
+    group.allocationBasis += lineRevenueBasis(row)
+    group.lineTaxTotal += Math.max(0, nullableNumber(first(row, ['LineTaxTotal', 'lineTaxTotal'])) ?? 0)
+    const grandTotal = reportGrandTotal(row)
+    const currencyRate = nullableNumber(first(row, ['CurrencyRateToUSD', 'currencyRateToUsd'])) ?? 1
+    if (grandTotal != null) group.orderRevenue = Math.max(0, grandTotal * currencyRate)
+    groups.set(orderId, group)
+  }
+  return groups
+}
+
+function revenueForRow(row: JsonRecord, orderRevenue: Map<string, OrderRevenueGroup>): number {
+  const orderId = orderKey(row)
+  const group = orderId ? orderRevenue.get(orderId) : null
+  const lineTotal = lineRevenueTotal(row)
+  const allocationBasis = lineRevenueBasis(row)
+  const orderRevenue = group?.orderRevenue ?? (group ? group.lineTotal + group.lineTaxTotal : null)
+  if (orderRevenue != null) {
+    if (group?.orderRevenue != null && group.allocationBasis > 0) return (allocationBasis / group.allocationBasis) * orderRevenue
+    if (group?.lineTotal && group.lineTotal > 0) return (lineTotal / group.lineTotal) * orderRevenue
+    if (group?.count && group.count > 0) return orderRevenue / group.count
+  }
+  return nullableNumber(first(row, ['LineTotal', 'lineTotal', 'SubTotal', 'subTotal', 'GrandTotal', 'grandTotal', 'Total', 'total'])) ?? 0
+}
+
+function reportGrandTotal(row: JsonRecord): number | null {
+  const grandTotal = nullableNumber(first(row, ['GrandTotal', 'grandTotal']))
+  if (grandTotal != null && grandTotal > 0) return grandTotal
+  const detailGrandTotal = nullableNumber(first(row, ['DetailGrandTotal', 'detailGrandTotal']))
+  if (detailGrandTotal != null && detailGrandTotal > 0) return detailGrandTotal
+  const detailSubTotal = nullableNumber(first(row, ['DetailSubTotal', 'detailSubTotal']))
+  if (detailSubTotal != null && detailSubTotal > 0 && isAmazonEuOrder(row)) return detailSubTotal
+  return null
+}
+
+function isAmazonEuOrder(row: JsonRecord): boolean {
+  return nullableText(first(row, ['CompanyName', 'companyName', 'Company', 'company']))?.toLowerCase().includes('amazon eu') ?? false
+}
+
+function lineRevenueBasis(row: JsonRecord): number {
+  const lineTotal = lineRevenueTotal(row)
+  if (lineTotal > 0) return lineTotal
+  const qty = nullableNumber(first(row, ['Qty', 'qty', 'Quantity', 'quantity', 'QtySold', 'qtySold'])) ?? 0
+  const adjusted = nullableNumber(first(row, ['AdjustedSitePrice', 'adjustedSitePrice'])) ?? 0
+  if (adjusted > 0 && qty > 0) return adjusted * qty
+  const sitePrice = nullableNumber(first(row, ['SitePrice', 'sitePrice'])) ?? 0
+  if (sitePrice > 0 && qty > 0) return sitePrice * qty
+  return 0
+}
+
+function lineRevenueTotal(row: JsonRecord): number {
+  const lineTotal = nullableNumber(first(row, ['LineTotal', 'lineTotal']))
+  return lineTotal != null && lineTotal > 0 ? lineTotal : 0
+}
+
+function orderKey(row: JsonRecord): string | null {
+  return nullableText(first(row, ['OrderID', 'OrderId', 'orderID', 'orderId', 'ID', 'Id', 'id']))
+}
+
+function filterRowsBySaleDate(rows: JsonRecord[], options: SyncOptions): JsonRecord[] {
+  const { dateFrom, dateTo } = options
   if (!dateFrom && !dateTo) return rows
   return rows.filter(row => {
-    const saleDate = saleDateOnly(row)
+    const saleDate = saleDateOnly(row, options)
     if (!saleDate) return false
     if (dateFrom && saleDate < dateFrom) return false
     if (dateTo && saleDate > dateTo) return false
@@ -296,9 +496,9 @@ function filterRowsBySaleDate(rows: JsonRecord[], dateFrom: string | null, dateT
   })
 }
 
-function dateRange(rows: JsonRecord[]): { min: string | null; max: string | null } {
+function dateRange(rows: JsonRecord[], options: Pick<SyncOptions, 'saleDatePreset'>): { min: string | null; max: string | null } {
   const dates = rows
-    .map(saleDateOnly)
+    .map(row => saleDateOnly(row, options))
     .filter((value): value is string => Boolean(value))
     .sort()
   return {
@@ -307,8 +507,26 @@ function dateRange(rows: JsonRecord[]): { min: string | null; max: string | null
   }
 }
 
-function saleDateOnly(row: JsonRecord): string | null {
-  return nullableDateOnly(first(row, ['ShipDate', 'shipDate', 'OrderDate', 'orderDate', 'Date', 'date', 'CreatedOn', 'createdOn']))
+function saleDateOnly(row: JsonRecord, options: Pick<SyncOptions, 'saleDatePreset'>): string | null {
+  switch (options.saleDatePreset) {
+    case 'createdOn':
+      return nullableDateOnly(first(row, ['CreatedOn', 'createdOn']))
+    case 'orderDate':
+      return nullableDateOnly(first(row, ['OrderDate', 'orderDate', 'Date', 'date']))
+    case 'shipDate':
+      return nullableDateOnly(first(row, ['ShipDate', 'shipDate']))
+    case 'lifecycle':
+    default:
+      return nullableDateOnly(first(row, ['ShipDate', 'shipDate', 'OrderDate', 'orderDate', 'Date', 'date', 'CreatedOn', 'createdOn']))
+  }
+}
+
+function sumField(rows: JsonRecord[], field: string): number {
+  return Number(rows.reduce((sum, row) => sum + Number(row[field] ?? 0), 0).toFixed(2))
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 function flattenSalesRows(rows: JsonRecord[]): JsonRecord[] {
@@ -319,8 +537,9 @@ function flattenSalesRows(rows: JsonRecord[]): JsonRecord[] {
       flattened.push(row)
       continue
     }
+    const orderId = first(row, ['OrderID', 'OrderId', 'orderID', 'orderId', 'ID', 'Id', 'id'])
     for (const item of nested) {
-      flattened.push({ ...row, ...item })
+      flattened.push({ ...row, ...item, OrderID: first(item, ['OrderID', 'OrderId', 'orderID', 'orderId']) ?? orderId })
     }
   }
   return flattened
@@ -336,9 +555,17 @@ function extractRows(body: unknown): JsonRecord[] {
   return []
 }
 
+function isRecord(value: unknown): value is JsonRecord {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
 function normalizeEndpoint(endpoint: string): string {
   const trimmed = endpoint.trim()
   return trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+}
+
+function stripTrailingSlash(value: string): string {
+  return value.endsWith('/') ? value.slice(0, -1) : value
 }
 
 function newestCursor(rows: JsonRecord[]): string | null {
@@ -386,6 +613,14 @@ function nullableDate(value: unknown): string | null {
   return Number.isFinite(date.getTime()) ? date.toISOString() : null
 }
 
+function startOfDayDateTime(value: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value
+}
+
+function endOfDayDateTime(value: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T23:59:59` : value
+}
+
 function hasTimeZone(value: string): boolean {
   return /(?:z|[+-]\d{2}:?\d{2})$/i.test(value)
 }
@@ -416,10 +651,20 @@ function withCursorOverlap(cursor: string): string {
 }
 
 function yesterdayUtcDate(): string {
-  const date = new Date()
-  date.setUTCHours(0, 0, 0, 0)
-  date.setUTCDate(date.getUTCDate() - 1)
-  return date.toISOString().slice(0, 10)
+  return offsetBusinessDate(-1, Deno.env.get('SELLERCLOUD_SALES_TIME_ZONE') ?? DEFAULT_BUSINESS_TIME_ZONE)
+}
+
+function offsetBusinessDate(offsetDays: number, timeZone: string): string {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  const parts = Object.fromEntries(formatter.formatToParts(new Date()).map(part => [part.type, part.value]))
+  const anchor = new Date(`${parts.year}-${parts.month}-${parts.day}T00:00:00Z`)
+  anchor.setUTCDate(anchor.getUTCDate() + offsetDays)
+  return anchor.toISOString().slice(0, 10)
 }
 
 function json(body: unknown, status = 200) {
