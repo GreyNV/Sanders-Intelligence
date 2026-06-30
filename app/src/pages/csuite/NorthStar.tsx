@@ -14,6 +14,7 @@ import {
   computeMonthlyStarMetrics,
   createNorthStarDraftRow,
   deriveMonthlyStarFromSalesRows,
+  formatMonthlyStarDragChannelNotes,
   mergeNorthStarRows,
   monthlyStarSalesWindows,
   monthlyStarToInput,
@@ -98,7 +99,7 @@ export default function NorthStar() {
       ly_mtd_actual: String(monthlyInput.ly_mtd_actual),
       days_elapsed: String(monthlyInput.days_elapsed),
       days_remaining: String(monthlyInput.days_remaining),
-      dragging_channel_notes: monthlyInput.dragging_channel_notes ?? formatChannelDeltas(monthlyInput.channel_deltas),
+      dragging_channel_notes: monthlyInput.dragging_channel_notes ?? formatMonthlyStarDragChannelNotes(monthlyInput.channel_deltas),
     })
   }, [monthlyInput])
 
@@ -580,10 +581,6 @@ function parseMoney(value: string): number {
 function parseInteger(value: string): number {
   const parsed = Number.parseInt(value.replace(/[,\s]/g, ''), 10)
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0
-}
-
-function formatChannelDeltas(channels: Array<{ channel: string; delta: number }>): string {
-  return channels.map(channel => `${channel.channel}: ${channel.delta}`).join('\n')
 }
 
 function monthlyFormToInput(form: MonthlyFormState, periodMonthValue: string): MonthlyStarViewInput {

@@ -268,11 +268,19 @@ export function computeMonthlyStarMetrics(input: MonthlyStarInput): MonthlyStarM
     dailyNeeded,
     liftNeededPct,
     onTrack: projectedMonthEnd >= input.target_sales,
-    draggingChannels: input.channel_deltas
-      .filter(channel => Number(channel.delta) < 0)
-      .sort((a, b) => a.delta - b.delta)
-      .slice(0, MONTHLY_STAR_DRAG_CHANNEL_LIMIT),
+    draggingChannels: topDraggingChannels(input.channel_deltas),
   }
+}
+
+export function topDraggingChannels(channels: Array<{ channel: string; delta: number }>): Array<{ channel: string; delta: number }> {
+  return channels
+    .filter(channel => Number(channel.delta) < 0)
+    .sort((a, b) => a.delta - b.delta)
+    .slice(0, MONTHLY_STAR_DRAG_CHANNEL_LIMIT)
+}
+
+export function formatMonthlyStarDragChannelNotes(channels: Array<{ channel: string; delta: number }>): string {
+  return topDraggingChannels(channels).map(channel => `${channel.channel}: ${channel.delta}`).join('\n')
 }
 
 export function deriveMonthlyStarFromSalesRows({

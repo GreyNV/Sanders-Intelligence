@@ -3,6 +3,7 @@ import {
   createNorthStarDraftRow,
   computeMonthlyStarMetrics,
   deriveMonthlyStarFromSalesRows,
+  formatMonthlyStarDragChannelNotes,
   NORTH_STAR_PROGRESS_FIELDS,
   NORTH_STAR_EDITABLE_FIELDS,
   buildNorthStarProgressPayload,
@@ -204,6 +205,17 @@ describe('NorthStar helpers', () => {
       { channel: 'Amazon', delta: -125000 },
       { channel: 'Dropship', delta: -75000 },
     ])
+  })
+
+  it('formats only the top three dragging channels for Monthly Star notes', () => {
+    expect(formatMonthlyStarDragChannelNotes([
+      { channel: 'FBA', delta: -250000 },
+      { channel: 'Wholesale', delta: 100000 },
+      { channel: 'WFS', delta: -50000 },
+      { channel: 'Amazon', delta: -125000 },
+      { channel: 'Dropship', delta: -75000 },
+      { channel: 'Retail', delta: -1000 },
+    ])).toBe('FBA: -250000\nAmazon: -125000\nDropship: -75000')
   })
 
   it('flags Monthly Star as not on track below target', () => {
