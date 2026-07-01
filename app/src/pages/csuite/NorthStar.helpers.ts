@@ -107,6 +107,17 @@ export function periodMonth(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`
 }
 
+export function addMonthsToPeriod(periodMonth: string, offset: number): string {
+  const start = new Date(`${periodMonth}T00:00:00Z`)
+  start.setUTCMonth(start.getUTCMonth() + offset)
+  return formatDate(start)
+}
+
+export function formatPeriodMonth(periodMonth: string): string {
+  const start = new Date(`${periodMonth}T00:00:00Z`)
+  return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(start)
+}
+
 export function periodWeek(date = new Date()): string {
   const start = new Date(date)
   start.setHours(0, 0, 0, 0)

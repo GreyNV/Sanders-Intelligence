@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { KeyboardEvent } from 'react'
-import { AlertTriangle, Check, Edit3, GripVertical, Plus, Save, Target, Trash2, TrendingDown, TrendingUp, X } from 'lucide-react'
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, Edit3, GripVertical, Plus, RotateCcw, Save, Target, Trash2, TrendingDown, TrendingUp, X } from 'lucide-react'
 import Badge from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/contexts/AuthContext'
@@ -9,11 +9,13 @@ import { useDeleteNorthStarRow, useMonthlyStar, useMonthlyStarSales, useNorthSta
 import type { NorthStarStatus } from '@/types'
 import {
   STATUS_LABELS,
+  addMonthsToPeriod,
   buildNorthStarProgressPayload,
   buildNorthStarUpdatePayload,
   computeMonthlyStarMetrics,
   createNorthStarDraftRow,
   deriveMonthlyStarFromSalesRows,
+  formatPeriodMonth,
   formatMonthlyStarDragChannelNotes,
   mergeNorthStarRows,
   monthlyStarSalesWindows,
@@ -56,10 +58,11 @@ export default function NorthStar() {
   const isAdmin = profile?.role === 'admin'
   const canEditProgress = isAdmin || profile?.role === 'csuite'
   const currentMonth = useMemo(() => periodMonth(), [])
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth)
   const currentWeek = useMemo(() => periodWeek(), [])
   const { data: savedRows = [], isLoading: rowsLoading, error: rowsError } = useNorthStarRows()
-  const { data: monthlyStar = null, isLoading: monthlyLoading, error: monthlyError } = useMonthlyStar(currentMonth)
-  const { data: salesRows, isLoading: salesLoading, error: salesError } = useMonthlyStarSales(currentMonth)
+  const { data: monthlyStar = null, isLoading: monthlyLoading, error: monthlyError } = useMonthlyStar(selectedMonth)
+  const { data: salesRows, isLoading: salesLoading, error: salesError } = useMonthlyStarSales(selectedMonth)
   const updateRow = useUpdateNorthStarRow()
   const updateProgress = useUpdateNorthStarProgress()
   const deleteRow = useDeleteNorthStarRow()
@@ -69,26 +72,26 @@ export default function NorthStar() {
   const [monthlyForm, setMonthlyForm] = useState<MonthlyFormState | null>(null)
 
   const savedDisplayRows = useMemo(
-    () => mergeNorthStarRows(savedRows, currentMonth, currentWeek),
-    [savedRows, currentMonth, currentWeek]
+    () => mergeNorthStarRows(savedRows, selectedMonth, currentWeek),
+    [savedRows, selectedMonth, currentWeek]
   )
   const rows = useMemo(
     () => [...savedDisplayRows, ...draftRows].sort((a, b) => a.slot_index - b.slot_index),
     [savedDisplayRows, draftRows]
   )
-  const manualMonthlyInput = useMemo(() => monthlyStarToInput(monthlyStar, currentMonth), [monthlyStar, currentMonth])
-  const salesWindows = useMemo(() => monthlyStarSalesWindows(currentMonth), [currentMonth])
+  const manualMonthlyInput = useMemo(() => monthlyStarToInput(monthlyStar, selectedMonth), [monthlyStar, selectedMonth])
+  const salesWindows = useMemo(() => monthlyStarSalesWindows(selectedMonth), [selectedMonth])
   const monthlyInput = useMemo(() => {
     if (!salesRows?.current.length) return manualMonthlyInput
     return deriveMonthlyStarFromSalesRows({
-      periodMonth: currentMonth,
+      periodMonth: selectedMonth,
       targetSales: manualMonthlyInput.target_sales,
       rows: salesRows.current,
       previousYearRows: salesRows.previousYear,
       daysElapsed: Math.max(1, salesWindows.daysElapsed),
       daysRemaining: salesWindows.daysRemaining,
     })
-  }, [salesRows, manualMonthlyInput, currentMonth, salesWindows])
+  }, [salesRows, manualMonthlyInput, selectedMonth, salesWindows])
   const monthlyDraft = monthlyForm ? monthlyFormToInput(monthlyForm, monthlyInput.period_month) : monthlyInput
   const monthlyMetrics = useMemo(() => computeMonthlyStarMetrics(monthlyDraft), [monthlyDraft])
 
@@ -102,6 +105,11 @@ export default function NorthStar() {
       dragging_channel_notes: monthlyInput.dragging_channel_notes ?? formatMonthlyStarDragChannelNotes(monthlyInput.channel_deltas),
     })
   }, [monthlyInput])
+
+  useEffect(() => {
+    setDraftRows([])
+    setManagePillars(false)
+  }, [selectedMonth])
 
   if (rowsLoading || monthlyLoading || salesLoading) return <PageLoader />
 
@@ -131,7 +139,7 @@ export default function NorthStar() {
 
   function addPillar() {
     setManagePillars(true)
-    setDraftRows(current => [...current, createNorthStarDraftRow(rows, currentMonth, currentWeek)])
+    setDraftRows(current => [...current, createNorthStarDraftRow(rows, selectedMonth, currentWeek)])
   }
 
   async function removePillar(row: NorthStarDisplayRow) {
@@ -169,6 +177,36 @@ export default function NorthStar() {
           <p className="text-text2 text-sm mt-0.5">Business plan review for the week of {currentWeek}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex items-center overflow-hidden rounded-lg border border-border bg-surface">
+            <button
+              type="button"
+              className="inline-flex h-9 w-9 items-center justify-center text-text2 transition hover:bg-surface2 hover:text-text1"
+              onClick={() => setSelectedMonth(month => addMonthsToPeriod(month, -1))}
+              title="Previous month"
+              aria-label="Previous month"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <div className="min-w-[132px] border-x border-border px-3 text-center text-sm font-semibold text-text1">
+              {formatPeriodMonth(selectedMonth)}
+            </div>
+            <button
+              type="button"
+              className="inline-flex h-9 w-9 items-center justify-center text-text2 transition hover:bg-surface2 hover:text-text1 disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() => setSelectedMonth(month => addMonthsToPeriod(month, 1))}
+              disabled={selectedMonth >= currentMonth}
+              title="Next month"
+              aria-label="Next month"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+          {selectedMonth !== currentMonth && (
+            <button type="button" className="btn-secondary text-xs" onClick={() => setSelectedMonth(currentMonth)}>
+              <RotateCcw size={14} />
+              Current month
+            </button>
+          )}
           <Badge variant="ok">On plan</Badge>
           <Badge variant="warning">At risk</Badge>
           <Badge variant="danger">Off plan</Badge>

@@ -231,7 +231,9 @@ async function fetchSalesRows(
     const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
     if (!response.ok) throw new Error(`SellerCloud sales fetch failed (${response.status})`)
     const body = await response.json()
-    const pageRows = await enrichOrdersWithCurrencyRates(base, token, extractRows(body))
+    let pageRows = extractRows(body)
+    pageRows = await enrichOrdersWithProfitAndLoss(base, token, pageRows)
+    pageRows = await enrichOrdersWithCurrencyRates(base, token, pageRows)
     const rows = flattenSalesRows(pageRows)
     all.push(...rows)
     pagesFetched += 1
@@ -241,6 +243,57 @@ async function fetchSalesRows(
   }
 
   return { rows: all, totalResults, pagesFetched }
+}
+
+async function enrichOrdersWithProfitAndLoss(base: string, token: string, orders: JsonRecord[]): Promise<JsonRecord[]> {
+  const orderIds = orders
+    .map(order => nullableText(first(order, ['ID', 'Id', 'OrderID', 'OrderId', 'orderID', 'orderId'])))
+    .filter((value): value is string => Boolean(value))
+  if (orderIds.length === 0) return orders
+
+  const profitAndLoss = new Map<string, JsonRecord>()
+  for (let index = 0; index < orderIds.length; index += 100) {
+    const batch = orderIds.slice(index, index + 100).map(Number).filter(value => Number.isFinite(value))
+    if (batch.length === 0) continue
+
+    const response = await fetch(`${base}/api/Orders/ProfitAndLoss`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ Orders: batch }),
+    })
+    if (!response.ok) throw new Error(`SellerCloud P&L fetch failed (${response.status})`)
+
+    const rows = await response.json()
+    if (!Array.isArray(rows)) continue
+    for (const row of rows) {
+      const orderId = nullableText(first(row, ['OrderID', 'OrderId', 'orderID', 'orderId', 'ID', 'Id']))
+      if (orderId) profitAndLoss.set(orderId, row)
+    }
+  }
+
+  return orders.map(order => {
+    const orderId = nullableText(first(order, ['ID', 'Id', 'OrderID', 'OrderId', 'orderID', 'orderId']))
+    const pnl = orderId ? profitAndLoss.get(orderId) : null
+    return pnl ? { ...order, ProfitAndLoss: pnl, ...profitAndLossFields(pnl) } : order
+  })
+}
+
+function profitAndLossFields(row: JsonRecord): JsonRecord {
+  const fields: JsonRecord = {}
+  for (const key of [
+    'OrderCost',
+    'OrderCostUsd',
+    'ProfitLoss',
+    'ProfitLossUsd',
+    'Payments',
+    'PaymentsUsd',
+  ]) {
+    if (row[key] != null) fields[key] = row[key]
+  }
+  return fields
 }
 
 function applyDateParams(url: URL, options: SyncOptions) {
@@ -418,6 +471,11 @@ interface OrderRevenueGroup {
   orderRevenue: number | null
 }
 
+interface ReportOrderTotal {
+  amount: number
+  applyCurrencyRate: boolean
+}
+
 function orderRevenueAllocations(rows: JsonRecord[]): Map<string, OrderRevenueGroup> {
   const groups = new Map<string, OrderRevenueGroup>()
   for (const row of rows) {
@@ -428,36 +486,57 @@ function orderRevenueAllocations(rows: JsonRecord[]): Map<string, OrderRevenueGr
     group.lineTotal += lineRevenueTotal(row)
     group.allocationBasis += lineRevenueBasis(row)
     group.lineTaxTotal += Math.max(0, nullableNumber(first(row, ['LineTaxTotal', 'lineTaxTotal'])) ?? 0)
-    const grandTotal = reportGrandTotal(row)
-    const currencyRate = nullableNumber(first(row, ['CurrencyRateToUSD', 'currencyRateToUsd'])) ?? 1
-    if (grandTotal != null) group.orderRevenue = Math.max(0, grandTotal * currencyRate)
+    const reportTotal = reportGrandTotal(row)
+    const currencyRate = reportTotal?.applyCurrencyRate
+      ? nullableNumber(first(row, ['CurrencyRateToUSD', 'currencyRateToUsd'])) ?? 1
+      : 1
+    if (reportTotal != null) group.orderRevenue = Math.max(0, reportTotal.amount * currencyRate)
     groups.set(orderId, group)
   }
   return groups
 }
 
-function revenueForRow(row: JsonRecord, orderRevenue: Map<string, OrderRevenueGroup>): number {
+function revenueForRow(row: JsonRecord, orderRevenueGroups: Map<string, OrderRevenueGroup>): number {
   const orderId = orderKey(row)
-  const group = orderId ? orderRevenue.get(orderId) : null
+  const group = orderId ? orderRevenueGroups.get(orderId) : null
   const lineTotal = lineRevenueTotal(row)
   const allocationBasis = lineRevenueBasis(row)
-  const orderRevenue = group?.orderRevenue ?? (group ? group.lineTotal + group.lineTaxTotal : null)
-  if (orderRevenue != null) {
-    if (group?.orderRevenue != null && group.allocationBasis > 0) return (allocationBasis / group.allocationBasis) * orderRevenue
-    if (group?.lineTotal && group.lineTotal > 0) return (lineTotal / group.lineTotal) * orderRevenue
-    if (group?.count && group.count > 0) return orderRevenue / group.count
+  const allocatedOrderRevenue = group?.orderRevenue ?? (group ? group.lineTotal + group.lineTaxTotal : null)
+  if (allocatedOrderRevenue != null) {
+    if (group?.orderRevenue != null && group.allocationBasis > 0) return (allocationBasis / group.allocationBasis) * allocatedOrderRevenue
+    if (group?.lineTotal && group.lineTotal > 0) return (lineTotal / group.lineTotal) * allocatedOrderRevenue
+    if (group?.count && group.count > 0) return allocatedOrderRevenue / group.count
   }
   return nullableNumber(first(row, ['LineTotal', 'lineTotal', 'SubTotal', 'subTotal', 'GrandTotal', 'grandTotal', 'Total', 'total'])) ?? 0
 }
 
-function reportGrandTotal(row: JsonRecord): number | null {
+function reportGrandTotal(row: JsonRecord): ReportOrderTotal | null {
+  const pnlUsdNet = sumPositiveFields(row, [
+    ['OrderCostUsd', 'orderCostUsd'],
+    ['ProfitLossUsd', 'profitLossUsd'],
+  ])
+  if (pnlUsdNet != null) return { amount: pnlUsdNet, applyCurrencyRate: false }
+
+  const pnlLocalNet = sumPositiveFields(row, [
+    ['OrderCost', 'orderCost'],
+    ['ProfitLoss', 'profitLoss'],
+  ])
+  if (pnlLocalNet != null) return { amount: pnlLocalNet, applyCurrencyRate: false }
+
   const grandTotal = nullableNumber(first(row, ['GrandTotal', 'grandTotal']))
-  if (grandTotal != null && grandTotal > 0) return grandTotal
+  if (grandTotal != null && grandTotal > 0) return { amount: grandTotal, applyCurrencyRate: true }
   const detailGrandTotal = nullableNumber(first(row, ['DetailGrandTotal', 'detailGrandTotal']))
-  if (detailGrandTotal != null && detailGrandTotal > 0) return detailGrandTotal
+  if (detailGrandTotal != null && detailGrandTotal > 0) return { amount: detailGrandTotal, applyCurrencyRate: true }
   const detailSubTotal = nullableNumber(first(row, ['DetailSubTotal', 'detailSubTotal']))
-  if (detailSubTotal != null && detailSubTotal > 0 && isAmazonEuOrder(row)) return detailSubTotal
+  if (detailSubTotal != null && detailSubTotal > 0 && isAmazonEuOrder(row)) return { amount: detailSubTotal, applyCurrencyRate: true }
   return null
+}
+
+function sumPositiveFields(row: JsonRecord, keys: [string, string][]): number | null {
+  const values = keys.map(([pascalKey, camelKey]) => nullableNumber(first(row, [pascalKey, camelKey])))
+  if (values.some(value => value == null)) return null
+  const sum = values.reduce((total, value) => total + (value ?? 0), 0)
+  return sum > 0 ? sum : null
 }
 
 function isAmazonEuOrder(row: JsonRecord): boolean {
@@ -594,7 +673,11 @@ function nullableDateText(value: unknown): string | null {
 
 function nullableNumber(value: unknown): number | null {
   if (value == null || value === '') return null
-  const number = Number(value)
+  const normalized = typeof value === 'string'
+    ? value.replace(/[$,\s]/g, '').match(/-?\d+(?:\.\d+)?/)?.[0]
+    : value
+  if (normalized == null || normalized === '') return null
+  const number = Number(normalized)
   return Number.isFinite(number) ? number : null
 }
 

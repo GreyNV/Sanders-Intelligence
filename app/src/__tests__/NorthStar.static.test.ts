@@ -42,6 +42,15 @@ describe('NorthStar inline editing contract', () => {
     expect(source).toContain('Dragging channels')
   })
 
+  it('lets users browse prior Monthly Star periods from the North Star page', () => {
+    expect(source).toContain('selectedMonth')
+    expect(source).toContain('useMonthlyStar(selectedMonth)')
+    expect(source).toContain('useMonthlyStarSales(selectedMonth)')
+    expect(source).toContain('addMonthsToPeriod(month, -1)')
+    expect(source).toContain('formatPeriodMonth(selectedMonth)')
+    expect(source).toContain('Current month')
+  })
+
   it('color-codes BPR rows by status', () => {
     expect(source).toContain('STATUS_ROW_CLASS')
     expect(source).toContain('on_plan: ')

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  addMonthsToPeriod,
   createNorthStarDraftRow,
   computeMonthlyStarMetrics,
   deriveMonthlyStarFromSalesRows,
+  formatPeriodMonth,
   formatMonthlyStarDragChannelNotes,
   NORTH_STAR_PROGRESS_FIELDS,
   NORTH_STAR_EDITABLE_FIELDS,
@@ -21,6 +23,13 @@ describe('NorthStar helpers', () => {
     const date = new Date('2026-06-17T12:00:00Z')
     expect(periodMonth(date)).toBe('2026-06-01')
     expect(periodWeek(date)).toBe('2026-06-14')
+  })
+
+  it('supports browsing Monthly Star periods across year boundaries', () => {
+    expect(addMonthsToPeriod('2026-07-01', -1)).toBe('2026-06-01')
+    expect(addMonthsToPeriod('2026-01-01', -1)).toBe('2025-12-01')
+    expect(addMonthsToPeriod('2026-12-01', 1)).toBe('2027-01-01')
+    expect(formatPeriodMonth('2026-06-01')).toBe('June 2026')
   })
 
   it('builds current-month sales windows through yesterday with matching LY days', () => {
