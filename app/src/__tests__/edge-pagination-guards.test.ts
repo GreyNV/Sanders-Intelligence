@@ -40,7 +40,7 @@ describe('Edge Supabase pagination guards', () => {
     expect(functionBody(salesSync, 'loadSkuBridge')).toContain('.range(from, from + pageSize - 1)')
   })
 
-  it('enriches sales orders with P&L and prefers USD net sales when available', () => {
+  it('enriches sales orders with P&L but prefers Orders GrandTotal for report matching', () => {
     const salesSync = readRepoFile('supabase/functions/sync-sales/index.ts')
     const enrichPnl = functionBody(salesSync, 'enrichOrdersWithProfitAndLoss')
     const revenueSelector = functionBody(salesSync, 'reportGrandTotal')
@@ -54,7 +54,8 @@ describe('Edge Supabase pagination guards', () => {
     expect(revenueSelector).toContain("['OrderCost', 'orderCost']")
     expect(revenueSelector).toContain('applyCurrencyRate: false')
     expect(revenueSelector).toContain('applyCurrencyRate: true')
+    expect(revenueSelector.indexOf('grandTotal')).toBeLessThan(revenueSelector.indexOf('pnlUsdNet'))
+    expect(revenueSelector.indexOf('detailGrandTotal')).toBeLessThan(revenueSelector.indexOf('pnlUsdNet'))
     expect(revenueSelector.indexOf('pnlUsdNet')).toBeLessThan(revenueSelector.indexOf('pnlLocalNet'))
-    expect(revenueSelector.indexOf('pnlLocalNet')).toBeLessThan(revenueSelector.indexOf('grandTotal'))
   })
 })

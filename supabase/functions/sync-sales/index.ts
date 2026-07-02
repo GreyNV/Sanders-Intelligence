@@ -511,6 +511,11 @@ function revenueForRow(row: JsonRecord, orderRevenueGroups: Map<string, OrderRev
 }
 
 function reportGrandTotal(row: JsonRecord): ReportOrderTotal | null {
+  const grandTotal = nullableNumber(first(row, ['GrandTotal', 'grandTotal']))
+  if (grandTotal != null && grandTotal > 0) return { amount: grandTotal, applyCurrencyRate: true }
+  const detailGrandTotal = nullableNumber(first(row, ['DetailGrandTotal', 'detailGrandTotal']))
+  if (detailGrandTotal != null && detailGrandTotal > 0) return { amount: detailGrandTotal, applyCurrencyRate: true }
+
   const pnlUsdNet = sumPositiveFields(row, [
     ['OrderCostUsd', 'orderCostUsd'],
     ['ProfitLossUsd', 'profitLossUsd'],
@@ -523,10 +528,6 @@ function reportGrandTotal(row: JsonRecord): ReportOrderTotal | null {
   ])
   if (pnlLocalNet != null) return { amount: pnlLocalNet, applyCurrencyRate: false }
 
-  const grandTotal = nullableNumber(first(row, ['GrandTotal', 'grandTotal']))
-  if (grandTotal != null && grandTotal > 0) return { amount: grandTotal, applyCurrencyRate: true }
-  const detailGrandTotal = nullableNumber(first(row, ['DetailGrandTotal', 'detailGrandTotal']))
-  if (detailGrandTotal != null && detailGrandTotal > 0) return { amount: detailGrandTotal, applyCurrencyRate: true }
   const detailSubTotal = nullableNumber(first(row, ['DetailSubTotal', 'detailSubTotal']))
   if (detailSubTotal != null && detailSubTotal > 0 && isAmazonEuOrder(row)) return { amount: detailSubTotal, applyCurrencyRate: true }
   return null
