@@ -6,19 +6,65 @@ import {
   deriveMonthlyStarFromSalesRows,
   formatPeriodMonth,
   formatMonthlyStarDragChannelNotes,
+  STATUS_LABELS,
   NORTH_STAR_PROGRESS_FIELDS,
   NORTH_STAR_EDITABLE_FIELDS,
   buildNorthStarProgressPayload,
   buildNorthStarUpdatePayload,
   mergeNorthStarRows,
   monthlyStarSalesWindows,
+  nextNorthStarSort,
   nextNorthStarSlot,
   periodMonth,
   periodWeek,
+  sortNorthStarRows,
 } from '../pages/csuite/NorthStar.helpers'
 import type { NorthStarRow } from '../types'
 
 describe('NorthStar helpers', () => {
+  it('uses feedback-approved BPR status labels without changing enum values', () => {
+    expect(STATUS_LABELS).toEqual({
+      on_plan: 'On track',
+      at_risk: 'Off track with a plan',
+      off_plan: 'Blocked',
+    })
+  })
+
+  it('sorts BPR rows by owner with unassigned rows last', () => {
+    const baseRows = mergeNorthStarRows([], '2026-06-01', '2026-06-14')
+    const rows = [
+      { ...baseRows[0], slot_index: 1, owner: 'Ryan' },
+      { ...baseRows[1], slot_index: 2, owner: null },
+      { ...baseRows[2], slot_index: 3, owner: 'Meilich' },
+    ]
+
+    expect(sortNorthStarRows(rows, { field: 'owner', dir: 'asc' }).map(row => row.owner)).toEqual([
+      'Meilich',
+      'Ryan',
+      null,
+    ])
+    expect(sortNorthStarRows(rows, { field: 'owner', dir: 'desc' }).map(row => row.owner)).toEqual([
+      'Ryan',
+      'Meilich',
+      null,
+    ])
+  })
+
+  it('toggles BPR sort state and returns slot order as the stable default', () => {
+    expect(nextNorthStarSort({ field: 'slot_index', dir: 'asc' }, 'owner')).toEqual({
+      field: 'owner',
+      dir: 'asc',
+    })
+    expect(nextNorthStarSort({ field: 'owner', dir: 'asc' }, 'owner')).toEqual({
+      field: 'owner',
+      dir: 'desc',
+    })
+    expect(nextNorthStarSort({ field: 'owner', dir: 'desc' }, 'slot_index')).toEqual({
+      field: 'slot_index',
+      dir: 'asc',
+    })
+  })
+
   it('derives stable month and week periods', () => {
     const date = new Date('2026-06-17T12:00:00Z')
     expect(periodMonth(date)).toBe('2026-06-01')

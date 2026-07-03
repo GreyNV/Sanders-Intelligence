@@ -60,4 +60,32 @@ describe('NorthStar inline editing contract', () => {
     expect(source).toContain('off_plan: ')
     expect(source).toContain('bg-danger/10')
   })
+
+  it('renders BPR status labels from the shared label map', () => {
+    expect(source).toContain('{STATUS_LABELS.on_plan}')
+    expect(source).toContain('{STATUS_LABELS.at_risk}')
+    expect(source).toContain('{STATUS_LABELS.off_plan}')
+    expect(source).not.toContain('<option value="on_plan">On plan</option>')
+    expect(source).not.toContain('<option value="at_risk">At risk</option>')
+    expect(source).not.toContain('<option value="off_plan">Off plan</option>')
+  })
+
+  it('lets BPR rows sort by owner without replacing the default slot order', () => {
+    expect(source).toContain('bprSort')
+    expect(source).toContain('sortNorthStarRows')
+    expect(source).toContain('BprSortableTh')
+    expect(source).toContain('field="owner"')
+  })
+
+  it('keeps BPR table headers sticky inside the scroll container', () => {
+    expect(source).toContain('max-h-[72vh] overflow-auto')
+    expect(source).toContain('sticky top-0 z-20')
+  })
+
+  it('has a read-only conference view for large-screen BPR review', () => {
+    expect(source).toContain('conference')
+    expect(source).toContain('ConferenceBprView')
+    expect(source).toContain('Editable table')
+    expect(source).toContain('Large screen')
+  })
 })

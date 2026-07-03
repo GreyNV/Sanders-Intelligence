@@ -28,9 +28,42 @@ export const NORTH_STAR_PROGRESS_FIELDS = [
 export type NorthStarProgressField = typeof NORTH_STAR_PROGRESS_FIELDS[number]
 
 export const STATUS_LABELS: Record<NorthStarStatus, string> = {
-  on_plan: 'On plan',
-  at_risk: 'At risk',
-  off_plan: 'Off plan',
+  on_plan: 'On track',
+  at_risk: 'Off track with a plan',
+  off_plan: 'Blocked',
+}
+
+export type NorthStarSortField = 'slot_index' | 'owner'
+export type NorthStarSortDirection = 'asc' | 'desc'
+
+export interface NorthStarSortState {
+  field: NorthStarSortField
+  dir: NorthStarSortDirection
+}
+
+export function nextNorthStarSort(current: NorthStarSortState, field: NorthStarSortField): NorthStarSortState {
+  if (field === 'slot_index') return { field: 'slot_index', dir: 'asc' }
+  if (current.field !== field) return { field, dir: 'asc' }
+  if (current.dir === 'asc') return { field, dir: 'desc' }
+  return { field: 'slot_index', dir: 'asc' }
+}
+
+export function sortNorthStarRows(rows: NorthStarDisplayRow[], sort: NorthStarSortState): NorthStarDisplayRow[] {
+  return [...rows].sort((a, b) => {
+    if (sort.field === 'owner') {
+      const leftOwner = a.owner?.trim() ?? ''
+      const rightOwner = b.owner?.trim() ?? ''
+      const leftMissing = leftOwner.length === 0
+      const rightMissing = rightOwner.length === 0
+
+      if (leftMissing !== rightMissing) return leftMissing ? 1 : -1
+
+      const ownerComparison = leftOwner.localeCompare(rightOwner, undefined, { sensitivity: 'base' })
+      if (ownerComparison !== 0) return sort.dir === 'asc' ? ownerComparison : -ownerComparison
+    }
+
+    return a.slot_index - b.slot_index
+  })
 }
 
 export const DEFAULT_NORTH_STAR_ROWS = [

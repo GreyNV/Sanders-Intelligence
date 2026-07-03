@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { KeyboardEvent } from 'react'
-import { AlertTriangle, Check, ChevronLeft, ChevronRight, Edit3, GripVertical, Plus, RotateCcw, Save, Target, Trash2, TrendingDown, TrendingUp, X } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronLeft, ChevronRight, ChevronsUpDown, Edit3, GripVertical, Monitor, Plus, RotateCcw, Save, Table2, Trash2, TrendingDown, TrendingUp, X } from 'lucide-react'
 import Badge from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/contexts/AuthContext'
@@ -20,12 +20,16 @@ import {
   mergeNorthStarRows,
   monthlyStarSalesWindows,
   monthlyStarToInput,
+  nextNorthStarSort,
   periodMonth,
   periodWeek,
   isNorthStarProgressField,
+  sortNorthStarRows,
   type MonthlyStarInput,
   type NorthStarDisplayRow,
   type NorthStarEditableField,
+  type NorthStarSortField,
+  type NorthStarSortState,
 } from './NorthStar.helpers'
 
 interface MonthlyFormState {
@@ -38,6 +42,7 @@ interface MonthlyFormState {
 }
 
 type MonthlyStarViewInput = MonthlyStarInput & { period_month: string }
+type BprViewMode = 'table' | 'conference'
 
 const STATUS_VARIANT: Record<NorthStarStatus, 'ok' | 'warning' | 'danger'> = {
   on_plan: 'ok',
@@ -69,6 +74,8 @@ export default function NorthStar() {
   const updateMonthly = useUpdateMonthlyStar()
   const [managePillars, setManagePillars] = useState(false)
   const [draftRows, setDraftRows] = useState<NorthStarDisplayRow[]>([])
+  const [bprSort, setBprSort] = useState<NorthStarSortState>({ field: 'slot_index', dir: 'asc' })
+  const [bprViewMode, setBprViewMode] = useState<BprViewMode>('table')
   const [monthlyForm, setMonthlyForm] = useState<MonthlyFormState | null>(null)
 
   const savedDisplayRows = useMemo(
@@ -76,8 +83,8 @@ export default function NorthStar() {
     [savedRows, selectedMonth, currentWeek]
   )
   const rows = useMemo(
-    () => [...savedDisplayRows, ...draftRows].sort((a, b) => a.slot_index - b.slot_index),
-    [savedDisplayRows, draftRows]
+    () => sortNorthStarRows([...savedDisplayRows, ...draftRows], bprSort),
+    [savedDisplayRows, draftRows, bprSort]
   )
   const manualMonthlyInput = useMemo(() => monthlyStarToInput(monthlyStar, selectedMonth), [monthlyStar, selectedMonth])
   const salesWindows = useMemo(() => monthlyStarSalesWindows(selectedMonth), [selectedMonth])
@@ -140,6 +147,11 @@ export default function NorthStar() {
   function addPillar() {
     setManagePillars(true)
     setDraftRows(current => [...current, createNorthStarDraftRow(rows, selectedMonth, currentWeek)])
+  }
+
+  function showConferenceView() {
+    setManagePillars(false)
+    setBprViewMode('conference')
   }
 
   async function removePillar(row: NorthStarDisplayRow) {
@@ -207,9 +219,9 @@ export default function NorthStar() {
               Current month
             </button>
           )}
-          <Badge variant="ok">On plan</Badge>
-          <Badge variant="warning">At risk</Badge>
-          <Badge variant="danger">Off plan</Badge>
+          <Badge variant="ok">{STATUS_LABELS.on_plan}</Badge>
+          <Badge variant="warning">{STATUS_LABELS.at_risk}</Badge>
+          <Badge variant="danger">{STATUS_LABELS.off_plan}</Badge>
         </div>
       </div>
 
@@ -231,33 +243,61 @@ export default function NorthStar() {
               Plan, actual, forecast, status, and notes are editable inline. Structure changes stay behind Manage pillars.
             </div>
           </div>
-          {isAdmin && (
-            <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex items-center overflow-hidden rounded-lg border border-border bg-surface">
               <button
                 type="button"
-                className={managePillars ? 'btn-primary text-xs' : 'btn-secondary text-xs'}
-                onClick={() => setManagePillars(value => !value)}
+                className={`inline-flex h-8 items-center gap-1.5 px-3 text-xs font-semibold transition ${bprViewMode === 'table' ? 'bg-accent text-white' : 'text-text2 hover:bg-surface2 hover:text-text1'}`}
+                onClick={() => setBprViewMode('table')}
               >
-                <GripVertical size={14} />
-                Manage pillars
+                <Table2 size={14} />
+                Editable table
               </button>
-              {managePillars && (
-                <button type="button" className="btn-secondary text-xs" onClick={addPillar}>
-                  <Plus size={14} />
-                  Add pillar
-                </button>
-              )}
+              <button
+                type="button"
+                className={`inline-flex h-8 items-center gap-1.5 border-l border-border px-3 text-xs font-semibold transition ${bprViewMode === 'conference' ? 'bg-accent text-white' : 'text-text2 hover:bg-surface2 hover:text-text1'}`}
+                onClick={showConferenceView}
+              >
+                <Monitor size={14} />
+                Large screen
+              </button>
             </div>
-          )}
+            {isAdmin && bprViewMode === 'table' && (
+              <>
+                <button
+                  type="button"
+                  className={managePillars ? 'btn-primary text-xs' : 'btn-secondary text-xs'}
+                  onClick={() => setManagePillars(value => !value)}
+                >
+                  <GripVertical size={14} />
+                  Manage pillars
+                </button>
+                {managePillars && (
+                  <button type="button" className="btn-secondary text-xs" onClick={addPillar}>
+                    <Plus size={14} />
+                    Add pillar
+                  </button>
+                )}
+              </>
+            )}
+          </div>
         </div>
 
-        <div className="overflow-x-auto">
+        {bprViewMode === 'conference' ? (
+          <ConferenceBprView rows={rows} />
+        ) : (
+          <div className="max-h-[72vh] overflow-auto">
           <table className="w-full min-w-[1320px] border-collapse text-sm">
-            <thead className="bg-surface2/70 text-xs uppercase tracking-wider text-text2">
+            <thead className="sticky top-0 z-20 bg-surface2 text-xs uppercase tracking-wider text-text2 shadow-sm">
               <tr>
                 {managePillars && isAdmin && <th className="w-12 px-3 py-3 text-left font-semibold">Slot</th>}
                 <th className="px-3 py-3 text-left font-semibold">Pillar</th>
-                <th className="px-3 py-3 text-left font-semibold">Owner</th>
+                <BprSortableTh
+                  field="owner"
+                  label="Owner"
+                  sort={bprSort}
+                  onSort={field => setBprSort(current => nextNorthStarSort(current, field))}
+                />
                 <th className="px-3 py-3 text-left font-semibold">Metric</th>
                 <th className="px-3 py-3 text-left font-semibold">Plan</th>
                 <th className="px-3 py-3 text-left font-semibold">Actual</th>
@@ -306,9 +346,9 @@ export default function NorthStar() {
                         disabled={isSavingRow}
                         aria-label={`Status for ${row.pillar}`}
                       >
-                        <option value="on_plan">On plan</option>
-                        <option value="at_risk">At risk</option>
-                        <option value="off_plan">Off plan</option>
+                        <option value="on_plan">{STATUS_LABELS.on_plan}</option>
+                        <option value="at_risk">{STATUS_LABELS.at_risk}</option>
+                        <option value="off_plan">{STATUS_LABELS.off_plan}</option>
                       </select>
                     ) : (
                       <Badge variant={STATUS_VARIANT[row.status]}>{STATUS_LABELS[row.status]}</Badge>
@@ -342,7 +382,8 @@ export default function NorthStar() {
               })}
             </tbody>
           </table>
-        </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -464,6 +505,86 @@ function MonthlyStarMetric({ label, value, sub, tone = 'default' }: { label: str
       <div className="mt-0.5 text-[11px] text-text2">{sub}</div>
     </div>
   )
+}
+
+function ConferenceBprView({ rows }: { rows: NorthStarDisplayRow[] }) {
+  return (
+    <div className="bg-border">
+      <div className="grid gap-px lg:grid-cols-2 2xl:grid-cols-3">
+        {rows.map(row => (
+          <section key={`${row.slot_index}-${row.id ?? 'draft'}-conference`} className={`min-h-[300px] p-5 transition-colors ${STATUS_ROW_CLASS[row.status]}`}>
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold uppercase text-text2">#{row.slot_index} / {row.owner?.trim() || 'Unassigned'}</div>
+                <h2 className="mt-1 break-words text-2xl font-bold leading-tight text-text1">{row.pillar}</h2>
+              </div>
+              <Badge variant={STATUS_VARIANT[row.status]}>{STATUS_LABELS[row.status]}</Badge>
+            </div>
+
+            <div className="mt-5">
+              <ConferenceField label="Metric" value={row.north_star} strong />
+            </div>
+
+            <div className="mt-5 grid gap-4 sm:grid-cols-3">
+              <ConferenceField label="Plan" value={row.plan_value} />
+              <ConferenceField label="Actual" value={row.actual_mtd} />
+              <ConferenceField label="Forecast" value={row.forecast} />
+            </div>
+
+            <div className="mt-5 grid gap-4 xl:grid-cols-3">
+              <ConferenceField label="Constraint now" value={row.constraint_now} />
+              <ConferenceField label="This week's move" value={row.weekly_move} />
+              <ConferenceField label="Last week" value={row.last_week_result} />
+            </div>
+          </section>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ConferenceField({ label, value, strong = false }: { label: string; value?: string | null; strong?: boolean }) {
+  const hasValue = Boolean(value?.trim())
+  return (
+    <div className="border-t border-border/70 pt-3">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-text2">{label}</div>
+      <div className={`mt-1 whitespace-pre-wrap break-words leading-relaxed ${strong ? 'text-base font-semibold' : 'text-sm'} ${hasValue ? 'text-text1' : 'text-text2/70'}`}>
+        {hasValue ? value : 'Not set'}
+      </div>
+    </div>
+  )
+}
+
+function BprSortableTh({
+  field,
+  label,
+  sort,
+  onSort,
+}: {
+  field: NorthStarSortField
+  label: string
+  sort: NorthStarSortState
+  onSort: (field: NorthStarSortField) => void
+}) {
+  const isActive = sort.field === field
+  return (
+    <th className="px-3 py-3 text-left font-semibold">
+      <button
+        type="button"
+        className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-semibold uppercase text-text2 transition hover:bg-surface hover:text-text1"
+        onClick={() => onSort(field)}
+        aria-label={`Sort by ${label}`}
+      >
+        {label}
+        <SortIcon active={isActive} dir={sort.dir} />
+      </button>
+    </th>
+  )
+}
+
+function SortIcon({ active, dir }: { active: boolean; dir: NorthStarSortState['dir'] }) {
+  if (!active) return <ChevronsUpDown size={13} aria-hidden="true" />
+  return dir === 'asc' ? <ArrowUp size={13} aria-hidden="true" /> : <ArrowDown size={13} aria-hidden="true" />
 }
 
 function InlineEditableCell({

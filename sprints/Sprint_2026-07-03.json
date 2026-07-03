@@ -1,0 +1,214 @@
+{
+  "$schema_note": "Sprint brief for the Sanders Intelligence app. Generated on 2026-07-03 after the user made North Star / BPR feedback the main priority.",
+  "sprint_id": "2026-07-03",
+  "sprint_date": "2026-07-03",
+  "phase_start": "2026-07-03",
+  "phase_end": "2026-07-10",
+  "planned_on": "2026-07-03",
+  "cadence": "feedback-first implementation batch",
+  "theme": "Implement the requested North Star / Business Plan Review feedback: clearer status language, owner sorting, frozen headers, and conference-friendly viewing.",
+  "priority_policy": "User feedback is the priority for this batch. Defer non-feedback backlog items unless they block this surface.",
+  "project": {
+    "name": "Sanders intelligence app",
+    "asana_project_id": "1214535706843813",
+    "repo_root": "D:\\Sanders Intelligence",
+    "app_source": "D:\\Sanders Intelligence\\app\\src",
+    "stack": "React 18 + TypeScript + Vite, Tailwind, React Router v6, TanStack Query v5, Supabase, lucide-react",
+    "dev_command": "cd app && npm run dev",
+    "test_command": "cd app && npm test"
+  },
+  "technical_documents": [
+    "docs/superpowers/specs/2026-07-03-north-star-bpr-feedback-expected-behavior.md",
+    "docs/superpowers/plans/2026-07-03-north-star-bpr-feedback.md"
+  ],
+  "selection_rationale": "The feedback is concentrated on one shipped executive surface: app/src/pages/csuite/NorthStar.tsx and app/src/pages/csuite/NorthStar.helpers.ts. The status label tasks are low-risk label/UI changes that should land first. Owner sorting and frozen headers improve repeated review usability. The conference format is the largest item and should build on the same row model after labels and sorting are stable.",
+  "instructions_for_implementer": "Work tasks in the order below. Treat the three status rename tasks as one implementation batch because they share the same code path and tests. Preserve existing database enum values: on_plan, at_risk, off_plan. Do not create a migration for label-only changes. Keep admin-only structure controls and csuite progress editing unchanged. When complete, update the Asana tasks with file/test evidence.",
+  "tasks": [
+    {
+      "order": 1,
+      "asana_task_id": "1216247498131413",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1216247498131413",
+      "title": "UX: Rename North Star BPR status label On plan to On track",
+      "type": "feedback",
+      "scope": "small",
+      "estimated_hours": "0.5-1",
+      "implementation_batch": "status-label-language",
+      "outline": "Display the on_plan status as On track everywhere on the North Star BPR surface.",
+      "technical_description": "Change STATUS_LABELS.on_plan in NorthStar.helpers.ts and make NorthStar.tsx consume STATUS_LABELS for select options and header badges.",
+      "likely_files": [
+        "app/src/pages/csuite/NorthStar.helpers.ts",
+        "app/src/pages/csuite/NorthStar.tsx",
+        "app/src/__tests__/NorthStar.helpers.test.ts",
+        "app/src/__tests__/NorthStar.static.test.ts"
+      ],
+      "requirements": [
+        "Display On track for on_plan.",
+        "Preserve the stored enum value on_plan.",
+        "Keep the green success styling already tied to on_plan."
+      ],
+      "completion_criteria": [
+        "Header badge, status select, and read-only badge show On track.",
+        "Focused North Star tests pass."
+      ],
+      "expected_outcomes": [
+        "Executives read the positive status as On track, matching the latest feedback."
+      ]
+    },
+    {
+      "order": 2,
+      "asana_task_id": "1216247584897795",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1216247584897795",
+      "title": "UX: Rename North Star BPR status label At risk to Off track with a plan",
+      "type": "feedback",
+      "scope": "small",
+      "estimated_hours": "0.5-1",
+      "implementation_batch": "status-label-language",
+      "outline": "Display the at_risk status as Off track with a plan everywhere on the North Star BPR surface.",
+      "technical_description": "Change STATUS_LABELS.at_risk in NorthStar.helpers.ts and make NorthStar.tsx consume STATUS_LABELS for select options and header badges.",
+      "likely_files": [
+        "app/src/pages/csuite/NorthStar.helpers.ts",
+        "app/src/pages/csuite/NorthStar.tsx",
+        "app/src/__tests__/NorthStar.helpers.test.ts",
+        "app/src/__tests__/NorthStar.static.test.ts"
+      ],
+      "requirements": [
+        "Display Off track with a plan for at_risk.",
+        "Preserve the stored enum value at_risk.",
+        "Keep the warning styling already tied to at_risk."
+      ],
+      "completion_criteria": [
+        "Header badge, status select, and read-only badge show Off track with a plan.",
+        "Focused North Star tests pass."
+      ],
+      "expected_outcomes": [
+        "Executives can distinguish a managed variance from a true block."
+      ]
+    },
+    {
+      "order": 3,
+      "asana_task_id": "1216247513339672",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1216247513339672",
+      "title": "UX: Rename North Star BPR status label Off plan to Blocked",
+      "type": "feedback",
+      "scope": "small",
+      "estimated_hours": "0.5-1",
+      "implementation_batch": "status-label-language",
+      "outline": "Display the off_plan status as Blocked everywhere on the North Star BPR surface.",
+      "technical_description": "Change STATUS_LABELS.off_plan in NorthStar.helpers.ts and make NorthStar.tsx consume STATUS_LABELS for select options and header badges.",
+      "likely_files": [
+        "app/src/pages/csuite/NorthStar.helpers.ts",
+        "app/src/pages/csuite/NorthStar.tsx",
+        "app/src/__tests__/NorthStar.helpers.test.ts",
+        "app/src/__tests__/NorthStar.static.test.ts"
+      ],
+      "requirements": [
+        "Display Blocked for off_plan.",
+        "Preserve the stored enum value off_plan.",
+        "Keep the danger styling already tied to off_plan."
+      ],
+      "completion_criteria": [
+        "Header badge, status select, and read-only badge show Blocked.",
+        "Focused North Star tests pass."
+      ],
+      "expected_outcomes": [
+        "Executives see a crisp blocked state for items needing escalation."
+      ]
+    },
+    {
+      "order": 4,
+      "asana_task_id": "1216247523286662",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1216247523286662",
+      "title": "UX: Add owner sorting to North Star BPR table",
+      "type": "feedback",
+      "scope": "medium",
+      "estimated_hours": "2-3",
+      "outline": "Let users sort the BPR table by owner while preserving the default slot order.",
+      "technical_description": "Add a NorthStar sort helper for slot_index and owner. Default remains slot_index ascending. Owner sorting is stable, null/empty owners sort last, and ties resolve by slot_index.",
+      "likely_files": [
+        "app/src/pages/csuite/NorthStar.helpers.ts",
+        "app/src/pages/csuite/NorthStar.tsx",
+        "app/src/__tests__/NorthStar.helpers.test.ts",
+        "app/src/__tests__/NorthStar.static.test.ts"
+      ],
+      "requirements": [
+        "Default BPR order remains slot_index ascending.",
+        "Owner header toggles owner ascending and descending.",
+        "Rows with no owner sort last in both directions.",
+        "Sorting does not affect inline edit permissions or save behavior."
+      ],
+      "completion_criteria": [
+        "Owner sort has visible direction feedback.",
+        "Helper tests cover owner ascending, owner descending, and null owners last.",
+        "Focused North Star tests pass."
+      ],
+      "expected_outcomes": [
+        "Leadership can quickly group the BPR review by owner during operating meetings."
+      ]
+    },
+    {
+      "order": 5,
+      "asana_task_id": "1216083073896527",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1216083073896527",
+      "title": "UX: Freeze North Star BPR table headers",
+      "type": "feedback",
+      "scope": "small",
+      "estimated_hours": "1-2",
+      "outline": "Keep BPR headers visible while scrolling vertically through the table.",
+      "technical_description": "The shared .tbl style already uses sticky headers, but NorthStar.tsx uses a custom table. Give the table container vertical overflow and make the BPR thead sticky.",
+      "likely_files": [
+        "app/src/pages/csuite/NorthStar.tsx",
+        "app/src/__tests__/NorthStar.static.test.ts"
+      ],
+      "requirements": [
+        "Headers stay visible during vertical scrolling.",
+        "Horizontal scrolling still works for the wide BPR table.",
+        "Sticky header does not overlap the top page controls."
+      ],
+      "completion_criteria": [
+        "Header remains fixed within the table viewport while row content scrolls.",
+        "Focused North Star static test guards the sticky header classes."
+      ],
+      "expected_outcomes": [
+        "Users reviewing many BPR rows do not lose column context."
+      ]
+    },
+    {
+      "order": 6,
+      "asana_task_id": "1216247499419260",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1216247499419260",
+      "title": "UX: Add conference / large-screen format for North Star BPR",
+      "type": "feedback",
+      "scope": "large",
+      "estimated_hours": "4-6",
+      "outline": "Add a conference-friendly read-only view of the BPR rows for large screens while preserving the current dense editing table.",
+      "technical_description": "Add a local view mode in NorthStar.tsx and a ConferenceBprView component that renders the same rows in a large-screen scanning layout. This view uses existing status classes and labels, shows owner/metric/plan/actual/forecast/status/constraint/move/last week, and keeps editing available only in the existing table mode.",
+      "likely_files": [
+        "app/src/pages/csuite/NorthStar.tsx",
+        "app/src/pages/csuite/NorthStar.helpers.ts",
+        "app/src/__tests__/NorthStar.static.test.ts"
+      ],
+      "requirements": [
+        "Users can switch between the current editable table and conference view.",
+        "Conference view is read-only and does not expose inline edit controls.",
+        "Conference view works at desktop and large-display widths without requiring horizontal scrolling for the main row summary.",
+        "Status labels and colors match the renamed status language."
+      ],
+      "completion_criteria": [
+        "Conference view renders all BPR rows from the same rows array as the table.",
+        "Editable table behavior remains unchanged.",
+        "Static tests guard the presence of the conference view and read-only rendering path."
+      ],
+      "expected_outcomes": [
+        "The BPR can be reviewed on a meeting-room display without relying on a cramped editable grid."
+      ]
+    }
+  ],
+  "sprint_close_checklist": [
+    "Run cd app && npm run test -- NorthStar.",
+    "Run cd app && npm test.",
+    "Run cd app && npm run build.",
+    "Smoke-test /executive/north-star as admin or csuite if an authenticated browser session is available.",
+    "If protected-route browser QA is unavailable, document the login limitation and use code/test/build evidence.",
+    "Update each Asana feedback task with file/test evidence and mark completed after verification."
+  ]
+}
