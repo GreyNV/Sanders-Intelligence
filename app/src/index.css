@@ -3,8 +3,43 @@
 @tailwind utilities;
 
 @layer base {
+  :root,
+  :root[data-theme='dark'] {
+    --color-bg: 15 17 23;
+    --color-surface: 26 29 39;
+    --color-surface2: 34 38 58;
+    --color-border: 46 50 80;
+    --color-text1: 232 234 246;
+    --color-text2: 136 144 181;
+    --color-accent: 108 138 255;
+    --color-success: 76 175 135;
+    --color-warning: 245 166 35;
+    --color-danger: 224 92 122;
+    --color-orange: 255 140 90;
+    color-scheme: dark;
+  }
+
+  :root[data-theme='light'] {
+    --color-bg: 246 247 251;
+    --color-surface: 255 255 255;
+    --color-surface2: 236 240 247;
+    --color-border: 211 217 232;
+    --color-text1: 22 28 45;
+    --color-text2: 96 108 133;
+    --color-accent: 49 87 213;
+    --color-success: 47 141 98;
+    --color-warning: 180 112 3;
+    --color-danger: 202 55 91;
+    --color-orange: 207 92 47;
+    color-scheme: light;
+  }
+
+  html {
+    @apply bg-bg;
+  }
+
   body {
-    @apply bg-bg text-text1 font-sans text-sm antialiased;
+    @apply min-h-screen bg-bg text-text1 font-sans text-sm antialiased;
   }
 
   ::-webkit-scrollbar {

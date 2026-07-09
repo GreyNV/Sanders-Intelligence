@@ -1,5 +1,6 @@
 .vercel
 .codex/
 .playwright-mcp/
+.tmp/
 app/logs/
 app/.sales-shipped-refill-state.json

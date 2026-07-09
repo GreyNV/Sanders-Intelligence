@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTheme } from '@/contexts/ThemeContext'
 import {
   LayoutDashboard, Package, Truck, BarChart3,
   CheckSquare, Users, Upload, Building2, LogOut, Store,
   PanelLeftClose, PanelLeftOpen, CalendarDays, ShoppingCart, Newspaper, Target,
+  Moon, Sun,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -41,6 +43,7 @@ const NAV: NavItem[] = [
 
 export default function Sidebar() {
   const { profile, signOut } = useAuth()
+  const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('ui.sidebar.collapsed') === 'true')
   if (!profile) return null
@@ -52,6 +55,8 @@ export default function Sidebar() {
 
   const visible = NAV.filter(item => item.roles.includes(profile.role))
   const ToggleIcon = collapsed ? PanelLeftOpen : PanelLeftClose
+  const ThemeIcon = theme === 'dark' ? Sun : Moon
+  const themeLabel = theme === 'dark' ? 'Light mode' : 'Dark mode'
 
   // Group the nav items
   const groups = visible.reduce<Record<string, NavItem[]>>((acc, item) => {
@@ -127,7 +132,7 @@ export default function Sidebar() {
       </nav>
 
       {/* User footer */}
-      <div className={cn('border-t border-border py-3', collapsed ? 'px-2 flex justify-center' : 'px-4')}>
+      <div className={cn('border-t border-border py-3', collapsed ? 'px-2 flex flex-col items-center gap-3' : 'px-4')}>
         {!collapsed && (
           <>
             <div className="text-xs text-text1 font-medium truncate">{profile.name}</div>
@@ -135,10 +140,23 @@ export default function Sidebar() {
           </>
         )}
         <button
+          type="button"
+          onClick={toggleTheme}
+          className={cn(
+            'flex items-center text-[12px] text-text2 hover:text-accent transition-colors',
+            collapsed ? 'justify-center' : 'mt-2.5 gap-1.5'
+          )}
+          title={`Switch to ${themeLabel.toLowerCase()}`}
+          aria-label={`Switch to ${themeLabel.toLowerCase()}`}
+        >
+          <ThemeIcon size={13} /> {!collapsed && themeLabel}
+        </button>
+        <button
+          type="button"
           onClick={handleSignOut}
           className={cn(
             'flex items-center text-[12px] text-text2 hover:text-danger transition-colors',
-            collapsed ? 'justify-center' : 'mt-2.5 gap-1.5'
+            collapsed ? 'justify-center' : 'mt-2 gap-1.5'
           )}
           title="Sign out"
           aria-label="Sign out"

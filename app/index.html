@@ -8,9 +8,22 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script>
+      (() => {
+        try {
+          const theme = localStorage.getItem('ui.theme') === 'light' ? 'light' : 'dark'
+          document.documentElement.dataset.theme = theme
+          document.documentElement.style.colorScheme = theme
+        } catch {
+          document.documentElement.dataset.theme = 'dark'
+          document.documentElement.style.colorScheme = 'dark'
+        }
+      })()
+    </script>
     <!-- Inline splash: prevents blank black screen before React mounts -->
     <style>
       html, body { background: #0f1117; margin: 0; }
+      html[data-theme='light'], html[data-theme='light'] body { background: #f6f7fb; }
       #splash {
         display: flex;
         height: 100vh;
@@ -24,6 +37,10 @@
         border-top-color: #6c8aff;
         border-radius: 50%;
         animation: splash-spin 0.75s linear infinite;
+      }
+      html[data-theme='light'] #splash-ring {
+        border-color: #d3d9e8;
+        border-top-color: #3157d5;
       }
       @keyframes splash-spin { to { transform: rotate(360deg); } }
     </style>
