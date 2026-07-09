@@ -34,4 +34,11 @@ describe('Stitch North Star page contract', () => {
     expect(pageSource).toContain('field="constraint_now"')
     expect(pageSource).toContain('field="weekly_move"')
   })
+
+  it('keeps compact labels and controls from collapsing into vertical text', () => {
+    expect(pageSource).toContain('whitespace-nowrap')
+    expect(pageSource).toContain('truncate')
+    expect(pageSource).toContain('shrink-0')
+    expect(pageSource).toContain('min-w-[176px]')
+  })
 })

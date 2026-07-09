@@ -224,7 +224,7 @@ export default function StitchNorthStar() {
                 key={tab.id}
                 type="button"
                 className={cn(
-                  'inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition',
+                  'inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition',
                   selectedPillar === tab.id
                     ? 'border-accent bg-accent/15 text-accent'
                     : 'border-border bg-surface2 text-text2 hover:border-accent/50 hover:text-text1'
@@ -351,12 +351,12 @@ function PillarWorkspaceCard({
   onSave: (row: NorthStarDisplayRow, field: NorthStarEditableField, value: string | NorthStarStatus) => Promise<void>
 }) {
   return (
-    <article className={cn('rounded-xl border bg-surface p-4', STATUS_ACCENT_CLASS[row.status])}>
+    <article className={cn('overflow-hidden rounded-xl border bg-surface p-4', STATUS_ACCENT_CLASS[row.status])}>
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <Badge variant={STATUS_VARIANT[row.status]}>{STATUS_LABELS[row.status]}</Badge>
-            <span className="text-xs font-semibold uppercase tracking-wider text-text2">#{row.slot_index}</span>
+            <span className="shrink-0 whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-text2">#{row.slot_index}</span>
           </div>
           <EditableText
             row={row}
@@ -368,8 +368,8 @@ function PillarWorkspaceCard({
             displayClassName="text-xl font-bold text-text1"
             placeholder="Untitled pillar"
           />
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text2">
-            <span>Owner</span>
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-text2">
+            <span className="shrink-0 whitespace-nowrap">Owner</span>
             <EditableText
               row={row}
               field="owner"
@@ -382,7 +382,9 @@ function PillarWorkspaceCard({
             />
           </div>
         </div>
-        <StatusSelect row={row} canEdit={canEditProgress} isSaving={isSaving} onSave={onSave} />
+        <div className="shrink-0">
+          <StatusSelect row={row} canEdit={canEditProgress} isSaving={isSaving} onSave={onSave} />
+        </div>
       </div>
 
       <div className="mt-4 rounded-lg border border-border bg-bg/40 p-4">
@@ -522,7 +524,7 @@ function OwnerDeckModal({
               <div>
                 <div className="mb-2 flex items-center gap-2">
                   <Badge variant={STATUS_VARIANT[row.status]}>{STATUS_LABELS[row.status]}</Badge>
-                  <span className="text-xs font-semibold uppercase tracking-wider text-text2">Owner {deck.owner}</span>
+                  <span className="min-w-0 truncate text-xs font-semibold uppercase tracking-wider text-text2">Owner {deck.owner}</span>
                 </div>
                 <EditableText
                   row={row}
@@ -748,7 +750,7 @@ function StatusSelect({
 
   return (
     <select
-      className="select w-full min-w-[176px] py-1.5 text-xs"
+      className="select w-full min-w-[176px] max-w-full shrink-0 py-1.5 text-xs"
       value={row.status}
       onChange={event => onSave(row, 'status', event.target.value as NorthStarStatus)}
       disabled={isSaving}
@@ -858,7 +860,7 @@ function EditableText({
   return (
     <button
       type="button"
-      className="group/edit flex min-h-[28px] w-full items-start justify-between gap-2 rounded-lg text-left transition hover:bg-surface2/70"
+      className="group/edit flex min-h-[28px] w-full min-w-0 items-start justify-between gap-2 rounded-lg text-left transition hover:bg-surface2/70"
       onClick={() => setEditing(true)}
       title="Edit"
     >
@@ -871,8 +873,12 @@ function EditableText({
 }
 
 function ReadOnlyText({ value, placeholder, className, compact }: { value: string; placeholder: string; className?: string; compact?: boolean }) {
-  if (!value.trim()) return <span className={cn('text-text2/70', className)}>{placeholder}</span>
-  return <span className={cn('block whitespace-pre-wrap break-words', compact ? 'leading-snug' : 'leading-relaxed', className)}>{value}</span>
+  const textClass = compact
+    ? 'block max-w-full truncate whitespace-nowrap leading-snug'
+    : 'block whitespace-pre-wrap break-words leading-relaxed'
+
+  if (!value.trim()) return <span className={cn('text-text2/70', textClass, className)}>{placeholder}</span>
+  return <span className={cn(textClass, className)}>{value}</span>
 }
 
 function countStatuses(rows: NorthStarDisplayRow[]): Record<NorthStarStatus, number> {

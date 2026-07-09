@@ -48,7 +48,7 @@ interface BadgeProps {
 export default function Badge({ variant, children, value }: BadgeProps) {
   const text = children ?? (value ? (labels[value] ?? value) : variant)
   return (
-    <span className={cn('inline-block px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide', styles[variant])}>
+    <span className={cn('inline-block whitespace-nowrap px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide', styles[variant])}>
       {text}
     </span>
   )
