@@ -16,6 +16,7 @@ const NewsFeed = lazy(() => import('@/pages/purchasing/NewsFeed'))
 const ExecutiveSummary = lazy(() => import('@/pages/csuite/ExecutiveSummary'))
 const DepartmentOverview = lazy(() => import('@/pages/csuite/DepartmentOverview'))
 const NorthStar = lazy(() => import('@/pages/csuite/NorthStar'))
+const StitchNorthStar = lazy(() => import('@/pages/csuite/StitchNorthStar'))
 const TasksPage = lazy(() => import('@/pages/tasks/TasksPage'))
 const TodayView = lazy(() => import('@/pages/work/TodayView'))
 const UsersPage = lazy(() => import('@/pages/admin/UsersPage'))
@@ -148,6 +149,9 @@ export default function App() {
           } />
           <Route path="/executive/north-star" element={
             <RoleGuard allow={['admin', 'csuite']}><NorthStar /></RoleGuard>
+          } />
+          <Route path="/executive/stitch-north-star" element={
+            <RoleGuard allow={['admin', 'csuite']}><StitchNorthStar /></RoleGuard>
           } />
 
           <Route path="/tasks" element={

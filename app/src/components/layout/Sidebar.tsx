@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Package, Truck, BarChart3,
   CheckSquare, Users, Upload, Building2, LogOut, Store,
   PanelLeftClose, PanelLeftOpen, CalendarDays, ShoppingCart, Newspaper, Target,
-  Moon, Sun,
+  Monitor, Moon, Sun,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -30,6 +30,7 @@ const NAV: NavItem[] = [
   // C-Suite
   { to: '/executive',              label: 'Executive Summary', icon: <BarChart3 size={16} />,  roles: ['admin', 'csuite'], group: 'C-Suite' },
   { to: '/executive/north-star',   label: 'North Star',        icon: <Target size={16} />,     roles: ['admin', 'csuite'], group: 'C-Suite' },
+  { to: '/executive/stitch-north-star', label: 'Stitch North Star', icon: <Monitor size={16} />, roles: ['admin', 'csuite'], group: 'C-Suite' },
   { to: '/executive/departments',  label: 'Departments',       icon: <Building2 size={16} />, roles: ['admin', 'csuite'], group: 'C-Suite' },
 
   // Shared
