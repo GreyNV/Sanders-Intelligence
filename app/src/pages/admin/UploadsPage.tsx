@@ -1,10 +1,12 @@
 import { useRef, useState } from 'react'
 import { useUploads, useUploadCSV } from '@/hooks/useUploads'
 import { fetchInventoryForUpload } from '@/hooks/useInventory'
+import { useLeadershipSnapshot, useReplaceLeadershipSnapshot } from '@/hooks/useLeadershipSnapshot'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import { fmtDate, fmtNumber } from '@/lib/utils'
-import { Upload, CheckCircle, XCircle, Clock, AlertTriangle, Download } from 'lucide-react'
+import { parseLeadershipToolFile } from '@/lib/leadershipToolParser'
+import { Upload, CheckCircle, XCircle, Clock, AlertTriangle, Download, FileSpreadsheet } from 'lucide-react'
 import { InventoryRecord } from '@/types'
 
 function recordsToCsv(records: InventoryRecord[]): string {
@@ -31,12 +33,17 @@ function downloadCsv(content: string, filename: string) {
 
 export default function UploadsPage() {
   const { data: uploads = [], isLoading, error } = useUploads()
+  const { data: leadershipSnapshot = null } = useLeadershipSnapshot()
   const uploadCSV = useUploadCSV()
+  const replaceLeadershipSnapshot = useReplaceLeadershipSnapshot()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const leadershipInputRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver]         = useState(false)
   const [uploadError, setUploadError]   = useState<string | null>(null)
   const [uploadSuccess, setUploadSuccess] = useState(false)
   const [downloading, setDownloading]   = useState<string | null>(null) // upload id being downloaded
+  const [leadershipError, setLeadershipError] = useState<string | null>(null)
+  const [leadershipSuccess, setLeadershipSuccess] = useState(false)
 
   async function handleDownload(uploadId: string, filename: string, uploadedAt: string) {
     setDownloading(uploadId)
@@ -62,6 +69,25 @@ export default function UploadsPage() {
       setUploadSuccess(true)
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Upload failed')
+    }
+  }
+
+  async function handleLeadershipFile(file: File) {
+    const lowerName = file.name.toLowerCase()
+    if (!lowerName.endsWith('.xlsx') && !lowerName.endsWith('.xlsm')) {
+      setLeadershipError('Please upload a .xlsx or .xlsm leadership workbook')
+      return
+    }
+
+    setLeadershipError(null)
+    setLeadershipSuccess(false)
+
+    try {
+      const parsed = await parseLeadershipToolFile(file)
+      await replaceLeadershipSnapshot.mutateAsync({ filename: file.name, parsed })
+      setLeadershipSuccess(true)
+    } catch (err) {
+      setLeadershipError(err instanceof Error ? err.message : 'Leadership workbook upload failed')
     }
   }
 
@@ -137,6 +163,56 @@ export default function UploadsPage() {
           <AlertTriangle size={15} /> {uploadError}
         </div>
       )}
+
+      <div className="card mb-6 border border-border p-5">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-[14px] font-semibold text-text1">Leadership Tool</h2>
+            <p className="mt-1 text-sm text-text2">Upload the weekly leadership workbook to replace the current finance snapshot.</p>
+          </div>
+          <FileSpreadsheet size={20} className="text-accent" />
+        </div>
+
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => leadershipInputRef.current?.click()}
+          disabled={replaceLeadershipSnapshot.isPending}
+        >
+          {replaceLeadershipSnapshot.isPending ? <LoadingSpinner size="sm" /> : <Upload size={14} />}
+          Upload Leadership Tool
+        </button>
+
+        <input
+          ref={leadershipInputRef}
+          type="file"
+          accept=".xlsx,.xlsm"
+          className="hidden"
+          onChange={event => {
+            const file = event.target.files?.[0]
+            if (file) handleLeadershipFile(file)
+            event.currentTarget.value = ''
+          }}
+        />
+
+        {leadershipSnapshot && (
+          <p className="mt-3 text-xs text-text2">
+            Current snapshot: {leadershipSnapshot.filename} uploaded {fmtDate(leadershipSnapshot.uploaded_at)}
+          </p>
+        )}
+
+        {leadershipSuccess && (
+          <div className="mt-4 flex items-center gap-2 rounded-xl border border-success/20 bg-success/10 px-4 py-3 text-sm text-success">
+            <CheckCircle size={15} /> Leadership snapshot refreshed.
+          </div>
+        )}
+
+        {leadershipError && (
+          <div className="mt-4 flex items-center gap-2 rounded-xl border border-danger/20 bg-danger/10 px-4 py-3 text-sm text-danger">
+            <AlertTriangle size={15} /> {leadershipError}
+          </div>
+        )}
+      </div>
 
       {/* Upload History */}
       <h2 className="text-[14px] font-semibold text-text1 mb-3">Upload History</h2>

@@ -21,6 +21,7 @@ import {
 import Badge from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/contexts/AuthContext'
+import { useLeadershipSnapshot } from '@/hooks/useLeadershipSnapshot'
 import { useMonthlyStar, useMonthlyStarSales, useNorthStarRows, useUpdateNorthStarProgress, useUpdateNorthStarRow } from '@/hooks/useNorthStar'
 import { cn, fmtCurrency, fmtNumber } from '@/lib/utils'
 import type { NorthStarStatus } from '@/types'
@@ -45,9 +46,13 @@ import {
 } from './NorthStar.helpers'
 import {
   STITCH_ALL_PILLARS_TAB,
+  buildLeadershipFinanceRows,
+  buildStitchFinanceMetricRow,
   buildOwnerSlideDeck,
   buildStitchPillarTabs,
   filterRowsByPillar,
+  isStitchAutoFinanceField,
+  mergeStitchFinanceRows,
   type StitchOwnerDeck,
 } from './StitchNorthStar.helpers'
 
@@ -71,6 +76,14 @@ const STATUS_TEXT_CLASS: Record<NorthStarStatus, string> = {
 
 const COMPACT_FIELDS = new Set<NorthStarEditableField>(['pillar', 'owner', 'plan_value', 'actual_mtd', 'forecast'])
 
+type MonthlyStarOverrideState = {
+  target_sales?: number
+  mtd_actual?: number
+  forecast?: number
+}
+
+type GeneratedRowOverrideMap = Record<string, Partial<Record<NorthStarEditableField, string | NorthStarStatus>>>
+
 export default function StitchNorthStar() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
@@ -82,29 +95,17 @@ export default function StitchNorthStar() {
   const [search, setSearch] = useState('')
   const [presentingOwner, setPresentingOwner] = useState<string | null>(null)
   const [activeSlide, setActiveSlide] = useState(0)
+  const [monthlyStarOverrides, setMonthlyStarOverrides] = useState<MonthlyStarOverrideState>({})
+  const [generatedRowOverrides, setGeneratedRowOverrides] = useState<GeneratedRowOverrideMap>({})
 
   const { data: savedRows = [], isLoading: rowsLoading, error: rowsError } = useNorthStarRows()
   const { data: monthlyStar = null, isLoading: monthlyLoading, error: monthlyError } = useMonthlyStar(selectedMonth)
   const { data: salesRows, isLoading: salesLoading, error: salesError } = useMonthlyStarSales(selectedMonth)
+  const { data: leadershipSnapshot = null, isLoading: leadershipLoading, error: leadershipError } = useLeadershipSnapshot()
   const updateRow = useUpdateNorthStarRow()
   const updateProgress = useUpdateNorthStarProgress()
 
-  const rows = useMemo(
-    () => sortNorthStarRows(mergeNorthStarRows(savedRows, selectedMonth, currentWeek), { field: 'slot_index', dir: 'asc' }),
-    [savedRows, selectedMonth, currentWeek]
-  )
-  const tabs = useMemo(() => buildStitchPillarTabs(rows), [rows])
-  const filteredRows = useMemo(() => {
-    const query = search.trim().toLowerCase()
-    return filterRowsByPillar(rows, selectedPillar).filter(row => {
-      if (!query) return true
-      return [row.pillar, row.owner, row.north_star, row.constraint_now, row.weekly_move, row.last_week_result]
-        .some(value => (value ?? '').toLowerCase().includes(query))
-    })
-  }, [rows, selectedPillar, search])
-  const ownerDecks = useMemo(() => buildOwnerSlideDeck(rows), [rows])
-  const selectedDeck = ownerDecks.find(deck => deck.owner === presentingOwner) ?? null
-
+  const baseRows = useMemo(() => mergeNorthStarRows(savedRows, selectedMonth, currentWeek), [savedRows, selectedMonth, currentWeek])
   const salesWindows = useMemo(() => monthlyStarSalesWindows(selectedMonth), [selectedMonth])
   const manualMonthlyInput = useMemo(() => monthlyStarToInput(monthlyStar, selectedMonth), [monthlyStar, selectedMonth])
   const monthlyInput = useMemo(() => {
@@ -118,8 +119,51 @@ export default function StitchNorthStar() {
       daysRemaining: salesWindows.daysRemaining,
     })
   }, [salesRows, manualMonthlyInput, selectedMonth, salesWindows])
-  const monthlyMetrics = useMemo(() => computeMonthlyStarMetrics(monthlyInput), [monthlyInput])
+  const displayedMonthlyInput = useMemo(() => ({
+    ...monthlyInput,
+    target_sales: monthlyStarOverrides.target_sales ?? monthlyInput.target_sales,
+    mtd_actual: monthlyStarOverrides.mtd_actual ?? monthlyInput.mtd_actual,
+  }), [monthlyInput, monthlyStarOverrides.mtd_actual, monthlyStarOverrides.target_sales])
+  const displayedMonthlyMetrics = useMemo(() => {
+    const metrics = computeMonthlyStarMetrics(displayedMonthlyInput)
+    if (monthlyStarOverrides.forecast === undefined) return metrics
+
+    return {
+      ...metrics,
+      projectedMonthEnd: monthlyStarOverrides.forecast,
+      onTrack: monthlyStarOverrides.forecast >= displayedMonthlyInput.target_sales,
+    }
+  }, [displayedMonthlyInput, monthlyStarOverrides.forecast])
+  const financeMetricRow = useMemo(
+    () => buildStitchFinanceMetricRow(baseRows, displayedMonthlyInput, displayedMonthlyMetrics, currentWeek),
+    [baseRows, displayedMonthlyInput, displayedMonthlyMetrics, currentWeek]
+  )
+  const leadershipFinanceRows = useMemo(
+    () => buildLeadershipFinanceRows([...baseRows, financeMetricRow], leadershipSnapshot, selectedMonth, currentWeek),
+    [baseRows, financeMetricRow, leadershipSnapshot, selectedMonth, currentWeek]
+  )
+  const rows = useMemo(
+    () => sortNorthStarRows(
+      mergeStitchFinanceRows(baseRows, [financeMetricRow, ...leadershipFinanceRows])
+        .map(row => applyGeneratedRowOverrides(row, generatedRowOverrides)),
+      { field: 'slot_index', dir: 'asc' }
+    ),
+    [baseRows, financeMetricRow, leadershipFinanceRows, generatedRowOverrides]
+  )
+  const tabs = useMemo(() => buildStitchPillarTabs(rows), [rows])
+  const filteredRows = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return filterRowsByPillar(rows, selectedPillar).filter(row => {
+      if (!query) return true
+      return [row.pillar, row.owner, row.north_star, row.constraint_now, row.weekly_move, row.last_week_result]
+        .some(value => (value ?? '').toLowerCase().includes(query))
+    })
+  }, [rows, selectedPillar, search])
+  const ownerDecks = useMemo(() => buildOwnerSlideDeck(rows), [rows])
+  const selectedDeck = ownerDecks.find(deck => deck.owner === presentingOwner) ?? null
   const statusCounts = useMemo(() => countStatuses(rows), [rows])
+  const dailyLift = Math.max(0, displayedMonthlyMetrics.dailyNeeded - displayedMonthlyMetrics.dailyPace)
+  const liftPct = displayedMonthlyMetrics.liftNeededPct === null ? 'n/a' : `${Math.max(0, displayedMonthlyMetrics.liftNeededPct).toFixed(1)}%`
 
   useEffect(() => {
     if (!tabs.some(tab => tab.id === selectedPillar)) {
@@ -132,14 +176,19 @@ export default function StitchNorthStar() {
   }, [presentingOwner])
 
   useEffect(() => {
+    setMonthlyStarOverrides({})
+    setGeneratedRowOverrides({})
+  }, [selectedMonth])
+
+  useEffect(() => {
     if (presentingOwner && !selectedDeck) {
       setPresentingOwner(null)
     }
   }, [presentingOwner, selectedDeck])
 
-  if (rowsLoading || monthlyLoading || salesLoading) return <PageLoader />
+  if (rowsLoading || monthlyLoading || salesLoading || leadershipLoading) return <PageLoader />
 
-  const error = rowsError ?? monthlyError ?? salesError
+  const error = rowsError ?? monthlyError ?? salesError ?? leadershipError
   if (error) {
     return (
       <div className="card text-center py-16">
@@ -152,7 +201,25 @@ export default function StitchNorthStar() {
 
   const isSaving = updateRow.isPending || updateProgress.isPending
 
+  function canEditField(row: NorthStarDisplayRow, field: NorthStarEditableField): boolean {
+    if (row.source === 'monthly_star') {
+      if (field === 'pillar' || field === 'owner') return false
+      return canEditProgress
+    }
+    if (row.source === 'leadership_tool') {
+      if (field === 'pillar' || field === 'owner') return false
+      return canEditProgress
+    }
+    if (isStitchAutoFinanceField(row, field)) return false
+    if (row.source === 'monthly_star' && field === 'pillar') return false
+    if (field === 'pillar' || field === 'owner' || field === 'north_star') return isAdmin
+    return canEditProgress && (isAdmin || Boolean(row.id))
+  }
+
   async function handleCellSave(row: NorthStarDisplayRow, field: NorthStarEditableField, value: string | NorthStarStatus) {
+    if (handleGeneratedRowSessionSave(row, field, value)) return
+    if (isStitchAutoFinanceField(row, field)) return
+
     if (!isAdmin && isNorthStarProgressField(field)) {
       if (!row.id) throw new Error('Admin must create the row before progress can be edited')
       await updateProgress.mutateAsync({ ...buildNorthStarProgressPayload(row, field, value), id: row.id })
@@ -160,6 +227,30 @@ export default function StitchNorthStar() {
     }
 
     await updateRow.mutateAsync(buildNorthStarUpdatePayload(row, field, value))
+  }
+
+  function handleGeneratedRowSessionSave(row: NorthStarDisplayRow, field: NorthStarEditableField, value: string | NorthStarStatus): boolean {
+    if (row.source === 'monthly_star' && (field === 'plan_value' || field === 'actual_mtd' || field === 'forecast')) {
+      const parsed = parseMetricNumber(String(value))
+      if (!Number.isFinite(parsed)) throw new Error('Enter a valid number')
+      const overrideKey = field === 'plan_value' ? 'target_sales' : field === 'actual_mtd' ? 'mtd_actual' : 'forecast'
+      setMonthlyStarOverrides(previous => ({ ...previous, [overrideKey]: parsed }))
+      return true
+    }
+
+    if (row.source !== 'monthly_star' && row.source !== 'leadership_tool') return false
+    if (field === 'pillar' || field === 'owner') return true
+
+    const textValue = typeof value === 'string' ? value.trim() : value
+    const key = generatedRowSessionKey(row)
+    setGeneratedRowOverrides(previous => ({
+      ...previous,
+      [key]: {
+        ...previous[key],
+        [field]: textValue,
+      },
+    }))
+    return true
   }
 
   return (
@@ -208,10 +299,12 @@ export default function StitchNorthStar() {
         </div>
       </div>
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        <StitchMetric label="MTD sales" value={fmtCurrency(monthlyInput.mtd_actual)} sub={`${fmtCurrency(monthlyMetrics.dailyPace)} / day`} icon={<BarChart3 size={16} />} tone="info" />
-        <StitchMetric label="Projected" value={fmtCurrency(monthlyMetrics.projectedMonthEnd)} sub="Month-end pace" icon={monthlyMetrics.onTrack ? <TrendingUp size={16} /> : <TrendingDown size={16} />} tone={monthlyMetrics.onTrack ? 'success' : 'warning'} />
-        <StitchMetric label="Gap" value={fmtCurrency(monthlyMetrics.remainingToTarget)} sub="To monthly target" icon={<Target size={16} />} tone={monthlyMetrics.remainingToTarget > 0 ? 'warning' : 'success'} />
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+        <StitchMetric label="MTD sales" value={fmtCurrency(displayedMonthlyInput.mtd_actual)} sub={`${fmtCurrency(displayedMonthlyMetrics.dailyPace)} / day`} icon={<BarChart3 size={16} />} tone="info" />
+        <StitchMetric label="Projected" value={fmtCurrency(displayedMonthlyMetrics.projectedMonthEnd)} sub="Month-end pace" icon={displayedMonthlyMetrics.onTrack ? <TrendingUp size={16} /> : <TrendingDown size={16} />} tone={displayedMonthlyMetrics.onTrack ? 'success' : 'warning'} />
+        <StitchMetric label="Gap" value={fmtCurrency(displayedMonthlyMetrics.remainingToTarget)} sub="To monthly target" icon={<Target size={16} />} tone={displayedMonthlyMetrics.remainingToTarget > 0 ? 'warning' : 'success'} />
+        <StitchMetric label="Daily lift" value={fmtCurrency(dailyLift)} sub="Extra per day needed" icon={<TrendingUp size={16} />} tone={displayedMonthlyMetrics.onTrack ? 'success' : 'warning'} />
+        <StitchMetric label="Lift %" value={liftPct} sub="Required pace lift" icon={<Target size={16} />} tone={displayedMonthlyMetrics.onTrack ? 'success' : 'warning'} />
         <StitchMetric label="Pillars" value={fmtNumber(rows.length)} sub={`${fmtNumber(ownerDecks.length)} owner decks`} icon={<Layers size={16} />} />
         <StitchMetric label="Blocked" value={fmtNumber(statusCounts.off_plan)} sub={`${fmtNumber(statusCounts.at_risk)} with plan`} icon={<AlertTriangle size={16} />} tone={statusCounts.off_plan > 0 ? 'danger' : 'success'} />
       </section>
@@ -257,8 +350,7 @@ export default function StitchNorthStar() {
               <PillarWorkspaceCard
                 key={`${row.slot_index}-${row.id ?? 'draft'}`}
                 row={row}
-                canEditStructure={isAdmin}
-                canEditProgress={canEditProgress && (isAdmin || Boolean(row.id))}
+                canEditField={canEditField}
                 isSaving={isSaving}
                 onSave={handleCellSave}
               />
@@ -296,10 +388,10 @@ export default function StitchNorthStar() {
           <div className="rounded-xl border border-border bg-surface p-4">
             <div className="text-xs font-semibold uppercase tracking-wider text-text2">Dragging channels</div>
             <div className="mt-3 space-y-2">
-              {monthlyMetrics.draggingChannels.length === 0 ? (
+              {displayedMonthlyMetrics.draggingChannels.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border px-3 py-3 text-sm text-text2">No negative channel deltas recorded.</div>
               ) : (
-                monthlyMetrics.draggingChannels.map(channel => (
+                displayedMonthlyMetrics.draggingChannels.map(channel => (
                   <div key={channel.channel} className="flex items-center justify-between gap-3 rounded-lg bg-surface2 px-3 py-2">
                     <span className="truncate text-sm text-text1">{channel.channel}</span>
                     <span className="text-sm font-semibold text-danger tabular-nums">{fmtCurrency(channel.delta)}</span>
@@ -312,7 +404,7 @@ export default function StitchNorthStar() {
                 {monthlyInput.dragging_channel_notes}
               </div>
             )}
-            {!monthlyInput.dragging_channel_notes && monthlyMetrics.draggingChannels.length > 0 && (
+            {!monthlyInput.dragging_channel_notes && displayedMonthlyMetrics.draggingChannels.length > 0 && (
               <div className="mt-3 whitespace-pre-wrap rounded-lg border border-border bg-bg px-3 py-2 text-xs text-text2">
                 {formatMonthlyStarDragChannelNotes(monthlyInput.channel_deltas)}
               </div>
@@ -325,8 +417,7 @@ export default function StitchNorthStar() {
         <OwnerDeckModal
           deck={selectedDeck}
           activeSlide={Math.min(activeSlide, selectedDeck.rows.length - 1)}
-          canEditStructure={isAdmin}
-          canEditProgress={canEditProgress}
+          canEditField={canEditField}
           isSaving={isSaving}
           onSave={handleCellSave}
           onSlideChange={setActiveSlide}
@@ -339,14 +430,12 @@ export default function StitchNorthStar() {
 
 function PillarWorkspaceCard({
   row,
-  canEditStructure,
-  canEditProgress,
+  canEditField,
   isSaving,
   onSave,
 }: {
   row: NorthStarDisplayRow
-  canEditStructure: boolean
-  canEditProgress: boolean
+  canEditField: (row: NorthStarDisplayRow, field: NorthStarEditableField) => boolean
   isSaving: boolean
   onSave: (row: NorthStarDisplayRow, field: NorthStarEditableField, value: string | NorthStarStatus) => Promise<void>
 }) {
@@ -362,7 +451,7 @@ function PillarWorkspaceCard({
             row={row}
             field="pillar"
             value={row.pillar}
-            canEdit={canEditStructure}
+            canEdit={canEditField(row, 'pillar')}
             isSaving={isSaving}
             onSave={onSave}
             displayClassName="text-xl font-bold text-text1"
@@ -374,7 +463,7 @@ function PillarWorkspaceCard({
               row={row}
               field="owner"
               value={row.owner ?? ''}
-              canEdit={canEditStructure}
+              canEdit={canEditField(row, 'owner')}
               isSaving={isSaving}
               onSave={onSave}
               displayClassName="font-semibold text-text1"
@@ -383,7 +472,7 @@ function PillarWorkspaceCard({
           </div>
         </div>
         <div className="shrink-0">
-          <StatusSelect row={row} canEdit={canEditProgress} isSaving={isSaving} onSave={onSave} />
+          <StatusSelect row={row} canEdit={canEditField(row, 'status')} isSaving={isSaving} onSave={onSave} />
         </div>
       </div>
 
@@ -393,7 +482,7 @@ function PillarWorkspaceCard({
           row={row}
           field="north_star"
           value={row.north_star}
-          canEdit={canEditStructure}
+          canEdit={canEditField(row, 'north_star')}
           isSaving={isSaving}
           onSave={onSave}
           multiline
@@ -403,9 +492,9 @@ function PillarWorkspaceCard({
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <ValueTile label="Plan" row={row} field="plan_value" value={row.plan_value ?? ''} canEdit={canEditProgress} isSaving={isSaving} onSave={onSave} />
-        <ValueTile label="Actual" row={row} field="actual_mtd" value={row.actual_mtd ?? ''} canEdit={canEditProgress} isSaving={isSaving} onSave={onSave} />
-        <ValueTile label="Forecast" row={row} field="forecast" value={row.forecast ?? ''} canEdit={canEditProgress} isSaving={isSaving} onSave={onSave} />
+        <ValueTile label="Plan" row={row} field="plan_value" value={row.plan_value ?? ''} canEdit={canEditField(row, 'plan_value')} isSaving={isSaving} onSave={onSave} />
+        <ValueTile label="Actual" row={row} field="actual_mtd" value={row.actual_mtd ?? ''} canEdit={canEditField(row, 'actual_mtd')} isSaving={isSaving} onSave={onSave} />
+        <ValueTile label="Forecast" row={row} field="forecast" value={row.forecast ?? ''} canEdit={canEditField(row, 'forecast')} isSaving={isSaving} onSave={onSave} />
       </div>
 
       <div className="mt-4 grid gap-3 xl:grid-cols-2">
@@ -414,7 +503,7 @@ function PillarWorkspaceCard({
           row={row}
           field="constraint_now"
           value={row.constraint_now ?? ''}
-          canEdit={canEditProgress}
+          canEdit={canEditField(row, 'constraint_now')}
           isSaving={isSaving}
           onSave={onSave}
           tone="danger"
@@ -424,7 +513,7 @@ function PillarWorkspaceCard({
           row={row}
           field="weekly_move"
           value={row.weekly_move ?? ''}
-          canEdit={canEditProgress}
+          canEdit={canEditField(row, 'weekly_move')}
           isSaving={isSaving}
           onSave={onSave}
           tone="accent"
@@ -436,7 +525,7 @@ function PillarWorkspaceCard({
           row={row}
           field="last_week_result"
           value={row.last_week_result ?? ''}
-          canEdit={canEditProgress}
+          canEdit={canEditField(row, 'last_week_result')}
           isSaving={isSaving}
           onSave={onSave}
           tone="neutral"
@@ -449,8 +538,7 @@ function PillarWorkspaceCard({
 function OwnerDeckModal({
   deck,
   activeSlide,
-  canEditStructure,
-  canEditProgress,
+  canEditField,
   isSaving,
   onSave,
   onSlideChange,
@@ -458,8 +546,7 @@ function OwnerDeckModal({
 }: {
   deck: StitchOwnerDeck
   activeSlide: number
-  canEditStructure: boolean
-  canEditProgress: boolean
+  canEditField: (row: NorthStarDisplayRow, field: NorthStarEditableField) => boolean
   isSaving: boolean
   onSave: (row: NorthStarDisplayRow, field: NorthStarEditableField, value: string | NorthStarStatus) => Promise<void>
   onSlideChange: (slide: number) => void
@@ -467,7 +554,6 @@ function OwnerDeckModal({
 }) {
   const row = deck.rows[activeSlide]
   if (!row) return null
-  const canEditRowProgress = canEditProgress && (canEditStructure || Boolean(row.id))
 
   function previous() {
     onSlideChange(activeSlide === 0 ? deck.rows.length - 1 : activeSlide - 1)
@@ -495,7 +581,7 @@ function OwnerDeckModal({
                 row={row}
                 field="pillar"
                 value={row.pillar}
-                canEdit={canEditStructure}
+                canEdit={canEditField(row, 'pillar')}
                 isSaving={isSaving}
                 onSave={onSave}
                 displayClassName="text-2xl font-bold text-text1"
@@ -530,7 +616,7 @@ function OwnerDeckModal({
                   row={row}
                   field="north_star"
                   value={row.north_star}
-                  canEdit={canEditStructure}
+                  canEdit={canEditField(row, 'north_star')}
                   isSaving={isSaving}
                   onSave={onSave}
                   multiline
@@ -545,7 +631,7 @@ function OwnerDeckModal({
                   row={row}
                   field="constraint_now"
                   value={row.constraint_now ?? ''}
-                  canEdit={canEditRowProgress}
+                  canEdit={canEditField(row, 'constraint_now')}
                   isSaving={isSaving}
                   onSave={onSave}
                   tone="danger"
@@ -556,7 +642,7 @@ function OwnerDeckModal({
                   row={row}
                   field="weekly_move"
                   value={row.weekly_move ?? ''}
-                  canEdit={canEditRowProgress}
+                  canEdit={canEditField(row, 'weekly_move')}
                   isSaving={isSaving}
                   onSave={onSave}
                   tone="accent"
@@ -569,7 +655,7 @@ function OwnerDeckModal({
                 row={row}
                 field="last_week_result"
                 value={row.last_week_result ?? ''}
-                canEdit={canEditRowProgress}
+                canEdit={canEditField(row, 'last_week_result')}
                 isSaving={isSaving}
                 onSave={onSave}
                 tone="neutral"
@@ -580,12 +666,12 @@ function OwnerDeckModal({
               <div className="rounded-xl border border-border bg-surface2 p-4">
                 <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-text2">Metrics</div>
                 <div className="grid gap-3">
-                  <ValueTile label="Plan" row={row} field="plan_value" value={row.plan_value ?? ''} canEdit={canEditRowProgress} isSaving={isSaving} onSave={onSave} />
-                  <ValueTile label="Actual" row={row} field="actual_mtd" value={row.actual_mtd ?? ''} canEdit={canEditRowProgress} isSaving={isSaving} onSave={onSave} />
-                  <ValueTile label="Forecast" row={row} field="forecast" value={row.forecast ?? ''} canEdit={canEditRowProgress} isSaving={isSaving} onSave={onSave} />
+                  <ValueTile label="Plan" row={row} field="plan_value" value={row.plan_value ?? ''} canEdit={canEditField(row, 'plan_value')} isSaving={isSaving} onSave={onSave} />
+                  <ValueTile label="Actual" row={row} field="actual_mtd" value={row.actual_mtd ?? ''} canEdit={canEditField(row, 'actual_mtd')} isSaving={isSaving} onSave={onSave} />
+                  <ValueTile label="Forecast" row={row} field="forecast" value={row.forecast ?? ''} canEdit={canEditField(row, 'forecast')} isSaving={isSaving} onSave={onSave} />
                 </div>
                 <div className="mt-3">
-                  <StatusSelect row={row} canEdit={canEditRowProgress} isSaving={isSaving} onSave={onSave} />
+                  <StatusSelect row={row} canEdit={canEditField(row, 'status')} isSaving={isSaving} onSave={onSave} />
                 </div>
               </div>
 
@@ -889,4 +975,19 @@ function countStatuses(rows: NorthStarDisplayRow[]): Record<NorthStarStatus, num
     },
     { on_plan: 0, at_risk: 0, off_plan: 0 }
   )
+}
+
+function applyGeneratedRowOverrides(row: NorthStarDisplayRow, overrides: GeneratedRowOverrideMap): NorthStarDisplayRow {
+  if (row.source !== 'monthly_star' && row.source !== 'leadership_tool') return row
+  const rowOverrides = overrides[generatedRowSessionKey(row)]
+  if (!rowOverrides) return row
+  return { ...row, ...rowOverrides } as NorthStarDisplayRow
+}
+
+function generatedRowSessionKey(row: NorthStarDisplayRow): string {
+  return `${row.source ?? 'persisted'}:${row.pillar}:${row.north_star}`
+}
+
+function parseMetricNumber(value: string): number {
+  return Number(value.replace(/[$,\s]/g, ''))
 }

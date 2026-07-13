@@ -81,6 +81,8 @@ export interface NorthStarDisplayRow {
   id: string | null
   is_set: boolean
   is_locked: boolean
+  source?: 'monthly_star' | 'leadership_tool'
+  autoFields?: readonly NorthStarEditableField[]
   period_month: string
   period_week: string
   slot_index: number

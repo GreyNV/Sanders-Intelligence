@@ -35,10 +35,25 @@ describe('Stitch North Star page contract', () => {
     expect(pageSource).toContain('field="weekly_move"')
   })
 
+  it('merges live Monthly Star finance metrics into the same table and deck rows', () => {
+    expect(pageSource).toContain('buildStitchFinanceMetricRow')
+    expect(pageSource).toContain('buildLeadershipFinanceRows')
+    expect(pageSource).toContain('mergeStitchFinanceRows')
+    expect(pageSource).toContain('isStitchAutoFinanceField')
+    expect(pageSource).toContain('canEditField')
+  })
+
   it('keeps compact labels and controls from collapsing into vertical text', () => {
     expect(pageSource).toContain('whitespace-nowrap')
     expect(pageSource).toContain('truncate')
     expect(pageSource).toContain('shrink-0')
     expect(pageSource).toContain('min-w-[176px]')
+  })
+
+  it('keeps Monthly Star actual and forecast overrides local to the Stitch session', () => {
+    expect(pageSource).toContain('monthlyStarOverrides')
+    expect(pageSource).toContain('setMonthlyStarOverrides')
+    expect(pageSource).toContain('useLeadershipSnapshot')
+    expect(pageSource).not.toContain('useUpdateMonthlyStar')
   })
 })

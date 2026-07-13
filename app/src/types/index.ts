@@ -316,3 +316,67 @@ export interface SalesDaily {
   synced_at: string
   created_at: string
 }
+
+export interface LeadershipCashflowWeek {
+  week: number
+  week_start_date: string
+  beginning_cash: number
+  fixed_outflows: number
+  tier_1_vendor_payments: number
+  tier_2_vendor_payments: number
+  tier_3_vendor_payments: number
+  vendor_deposits: number
+  total_vendor_payments: number
+  total_outflows: number
+  ending_cash: number
+  ending_cash_vs_floor: number
+}
+
+export interface LeadershipPayrollDepartment {
+  department: string
+  periods: Array<{
+    month: string
+    current_year: number
+    last_year: number
+    difference_pct: number | null
+  }>
+}
+
+export interface LeadershipPnlAccount {
+  account: string
+  periods: Array<{
+    month: string
+    current_year: number
+    last_year: number
+    difference_pct: number | null
+  }>
+}
+
+export interface LeadershipSalesSimulation {
+  noi_benchmark_pct: number
+  latest_income: number
+  latest_noi: number
+  latest_noi_pct: number | null
+  sales_needed_for_benchmark: number | null
+}
+
+export interface LeadershipToolSnapshot {
+  id: string
+  snapshot_key: 'current'
+  filename: string
+  uploaded_by: string | null
+  uploaded_at: string
+  cashflow: {
+    current_cash_balance: number | null
+    minimum_cash_floor: number | null
+    weeks: LeadershipCashflowWeek[]
+  }
+  payroll: {
+    departments: LeadershipPayrollDepartment[]
+  }
+  pnl: {
+    accounts: LeadershipPnlAccount[]
+  }
+  sales_simulation: LeadershipSalesSimulation
+  source_meta: Record<string, unknown>
+}
