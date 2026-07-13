@@ -136,4 +136,169 @@ describe('Stitch North Star helpers', () => {
     expect(financeRows.map(row => row.pillar)).toEqual(['Finance metrics', 'Finance metrics', 'Finance metrics'])
     expect(financeRows.map(row => row.north_star)).toEqual(['13-week cash runway', 'Payroll by department', 'PnL / 9% NOI'])
   })
+
+  it('uses the last completed month for payroll actuals and totals', () => {
+    const rows = mergeNorthStarRows([], '2026-07-01', '2026-07-05')
+    const snapshot = baseLeadershipSnapshot({
+      payroll: {
+        departments: [
+          {
+            department: 'Admin',
+            periods: [
+              { month: '2026-03-01', current_year: 30559.1, last_year: 2779.8, difference_pct: 9.993 },
+              { month: '2026-06-01', current_year: 41834.53, last_year: 4211.84, difference_pct: 0.893 },
+            ],
+          },
+          {
+            department: 'Finance',
+            periods: [
+              { month: '2026-03-01', current_year: 31307.17, last_year: 16657.59, difference_pct: 0.88 },
+              { month: '2026-06-01', current_year: 29124.42, last_year: 13775.3, difference_pct: 1.11425 },
+            ],
+          },
+          {
+            department: 'Grand Total',
+            periods: [
+              { month: '2026-03-01', current_year: 722092.59, last_year: 890805.73, difference_pct: -0.19 },
+              { month: '2026-06-01', current_year: 465785.91, last_year: 660523.3, difference_pct: -0.29 },
+            ],
+          },
+        ],
+      },
+    })
+
+    const financeRows = buildLeadershipFinanceRows(rows, snapshot, '2026-07-01', '2026-07-05')
+    const payroll = financeRows.find(row => row.north_star === 'Payroll by department')
+
+    expect(payroll).toMatchObject({
+      actual_mtd: 'Finance: 111.4%',
+      forecast: 'Grand Total $465,786',
+      last_week_result: 'June payroll total is $465,786.',
+      status: 'at_risk',
+    })
+    expect(payroll?.actual_mtd).not.toContain('999')
+    expect(payroll?.forecast).not.toContain('$722,093')
+  })
+
+  it('uses last month NOI for actual and current-month expense run rate for end-of-month NOI forecast', () => {
+    const rows = mergeNorthStarRows([], '2026-07-01', '2026-07-05')
+    const snapshot = baseLeadershipSnapshot({
+      pnl: {
+        accounts: [
+          {
+            account: 'Income',
+            periods: [
+              { month: '2026-07-01', current_year: 100000, last_year: 9748455.74, difference_pct: -0.98 },
+              { month: '2026-06-01', current_year: 1000000, last_year: 7173126.82, difference_pct: 0.2 },
+              { month: '2026-05-01', current_year: 900000, last_year: 8066699.22, difference_pct: -0.18 },
+              { month: '2026-04-01', current_year: 800000, last_year: 6308999.67, difference_pct: 0.13 },
+            ],
+          },
+          {
+            account: 'COGS',
+            periods: [
+              { month: '2026-07-01', current_year: -45000, last_year: -4686318.65, difference_pct: -1 },
+              { month: '2026-06-01', current_year: -500000, last_year: -3450107.77, difference_pct: 0.28 },
+              { month: '2026-05-01', current_year: -450000, last_year: -4122906.83, difference_pct: -0.21 },
+              { month: '2026-04-01', current_year: -400000, last_year: -3135669.65, difference_pct: 0.16 },
+            ],
+          },
+          {
+            account: 'Expense',
+            periods: [
+              { month: '2026-07-01', current_year: -100000, last_year: -4746361.54, difference_pct: -0.88 },
+              { month: '2026-06-01', current_year: -300000, last_year: -3493851.69, difference_pct: -0.1 },
+              { month: '2026-05-01', current_year: -280000, last_year: -3933963.9, difference_pct: -0.21 },
+              { month: '2026-04-01', current_year: -260000, last_year: -3439448.72, difference_pct: -0.04 },
+            ],
+          },
+          {
+            account: 'Grand Total',
+            periods: [
+              { month: '2026-07-01', current_year: -10871.01, last_year: 261911.23, difference_pct: -1.04 },
+              { month: '2026-06-01', current_year: 100000, last_year: 149182.34, difference_pct: 5.933 },
+              { month: '2026-05-01', current_year: 254726.02, last_year: -39413.19, difference_pct: -7.46 },
+              { month: '2026-04-01', current_year: 188049.36, last_year: 532664.26, difference_pct: -0.65 },
+            ],
+          },
+        ],
+      },
+    })
+
+    const financeRows = buildLeadershipFinanceRows(rows, snapshot, '2026-07-01', '2026-07-05', {
+      projectedMonthEndSales: 1000000,
+      daysElapsed: 10,
+      daysRemaining: 20,
+    })
+    const pnl = financeRows.find(row => row.north_star === 'PnL / 9% NOI')
+
+    expect(pnl).toMatchObject({
+      actual_mtd: '10.0% NOI',
+      forecast: '20.0% end-of-month NOI',
+      last_week_result: 'June NOI was $100,000 on income of $1,000,000.',
+      status: 'on_plan',
+    })
+    expect(pnl?.forecast).not.toContain('to benchmark')
+    expect(pnl?.actual_mtd).not.toBe('-10.9% NOI')
+  })
+
+  it('adds graph payloads for Ryan finance presentation slides', () => {
+    const rows = mergeNorthStarRows([], '2026-07-01', '2026-07-05')
+    const monthlyInput = {
+      period_month: '2026-07-01',
+      target_sales: 8500000,
+      mtd_actual: 843000,
+      ly_mtd_actual: 1462000,
+      days_elapsed: 8,
+      days_remaining: 23,
+      dragging_channel_notes: null,
+      channel_deltas: [],
+    }
+    const monthlyMetrics = computeMonthlyStarMetrics(monthlyInput)
+    const financeRow = buildStitchFinanceMetricRow(rows, monthlyInput, monthlyMetrics, '2026-07-05')
+    const leadershipRows = buildLeadershipFinanceRows([...rows, financeRow], baseLeadershipSnapshot(), '2026-07-01', '2026-07-05', {
+      projectedMonthEndSales: monthlyMetrics.projectedMonthEnd,
+      daysElapsed: monthlyInput.days_elapsed,
+      daysRemaining: monthlyInput.days_remaining,
+    })
+    const financeRows = [financeRow, ...leadershipRows]
+
+    expect(financeRows.map(row => row.chart?.kind)).toEqual(['sales', 'cash_runway', 'payroll', 'pnl'])
+    expect(financeRows.every(row => row.chart?.points.length)).toBe(true)
+  })
 })
+
+function baseLeadershipSnapshot(overrides: Partial<Parameters<typeof buildLeadershipFinanceRows>[1]> = {}) {
+  return {
+    cashflow: {
+      current_cash_balance: 4247564.99,
+      minimum_cash_floor: 600000,
+      weeks: [
+        { week: 1, week_start_date: '2026-07-06', beginning_cash: 4247564.99, fixed_outflows: 75531.34, tier_1_vendor_payments: 100000, tier_2_vendor_payments: 200000, tier_3_vendor_payments: 300000, vendor_deposits: 0, total_vendor_payments: 600000, total_outflows: 675531.34, ending_cash: 3389535.39, ending_cash_vs_floor: 2789535.39 },
+        { week: 13, week_start_date: '2026-09-28', beginning_cash: 100000, fixed_outflows: 75531.34, tier_1_vendor_payments: 100000, tier_2_vendor_payments: 200000, tier_3_vendor_payments: 300000, vendor_deposits: 0, total_vendor_payments: 600000, total_outflows: 675531.34, ending_cash: -415916.26, ending_cash_vs_floor: -831511.25 },
+      ],
+    },
+    payroll: {
+      departments: [
+        { department: 'Finance', periods: [{ month: '2026-06-01', current_year: 29124.42, last_year: 13775.3, difference_pct: 1.11425 }] },
+        { department: 'Grand Total', periods: [{ month: '2026-06-01', current_year: 120000, last_year: 100000, difference_pct: 0.2 }] },
+      ],
+    },
+    pnl: {
+      accounts: [
+        { account: 'Income', periods: [{ month: '2026-06-01', current_year: 8632172.09, last_year: 7173126.82, difference_pct: 0.2 }] },
+        { account: 'COGS', periods: [{ month: '2026-06-01', current_year: -4407472.32, last_year: -3450107.77, difference_pct: 0.28 }] },
+        { account: 'Expense', periods: [{ month: '2026-07-01', current_year: -550205.49, last_year: -4746361.54, difference_pct: -0.88 }] },
+        { account: 'Grand Total', periods: [{ month: '2026-06-01', current_year: 1034278.45, last_year: 149182.34, difference_pct: 5.933 }] },
+      ],
+    },
+    sales_simulation: {
+      noi_benchmark_pct: 0.09,
+      latest_income: 8632172.09,
+      latest_noi: 1034278.45,
+      latest_noi_pct: 0.1198,
+      sales_needed_for_benchmark: 0,
+    },
+    ...overrides,
+  }
+}

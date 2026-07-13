@@ -139,8 +139,12 @@ export default function StitchNorthStar() {
     [baseRows, displayedMonthlyInput, displayedMonthlyMetrics, currentWeek]
   )
   const leadershipFinanceRows = useMemo(
-    () => buildLeadershipFinanceRows([...baseRows, financeMetricRow], leadershipSnapshot, selectedMonth, currentWeek),
-    [baseRows, financeMetricRow, leadershipSnapshot, selectedMonth, currentWeek]
+    () => buildLeadershipFinanceRows([...baseRows, financeMetricRow], leadershipSnapshot, selectedMonth, currentWeek, {
+      projectedMonthEndSales: displayedMonthlyMetrics.projectedMonthEnd,
+      daysElapsed: Math.max(1, displayedMonthlyInput.days_elapsed),
+      daysRemaining: displayedMonthlyInput.days_remaining,
+    }),
+    [baseRows, financeMetricRow, leadershipSnapshot, selectedMonth, currentWeek, displayedMonthlyMetrics.projectedMonthEnd, displayedMonthlyInput.days_elapsed, displayedMonthlyInput.days_remaining]
   )
   const rows = useMemo(
     () => sortNorthStarRows(
@@ -625,6 +629,8 @@ function OwnerDeckModal({
                 />
               </div>
 
+              <FinanceSlideGraph row={row} />
+
               <div className="grid gap-4 sm:grid-cols-2">
                 <NarrativeBox
                   label="Constraint now"
@@ -660,13 +666,23 @@ function OwnerDeckModal({
                 onSave={onSave}
                 tone="neutral"
               />
+
+              <NarrativeBox
+                label="Plan"
+                row={row}
+                field="plan_value"
+                value={row.plan_value ?? ''}
+                canEdit={canEditField(row, 'plan_value')}
+                isSaving={isSaving}
+                onSave={onSave}
+                tone="neutral"
+              />
             </div>
 
             <aside className="space-y-4">
               <div className="rounded-xl border border-border bg-surface2 p-4">
                 <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-text2">Metrics</div>
                 <div className="grid gap-3">
-                  <ValueTile label="Plan" row={row} field="plan_value" value={row.plan_value ?? ''} canEdit={canEditField(row, 'plan_value')} isSaving={isSaving} onSave={onSave} />
                   <ValueTile label="Actual" row={row} field="actual_mtd" value={row.actual_mtd ?? ''} canEdit={canEditField(row, 'actual_mtd')} isSaving={isSaving} onSave={onSave} />
                   <ValueTile label="Forecast" row={row} field="forecast" value={row.forecast ?? ''} canEdit={canEditField(row, 'forecast')} isSaving={isSaving} onSave={onSave} />
                 </div>
@@ -703,6 +719,58 @@ function OwnerDeckModal({
       </section>
     </div>
   )
+}
+
+function FinanceSlideGraph({ row }: { row: NorthStarDisplayRow }) {
+  const chart = row.chart
+  if (!chart?.points.length) return null
+
+  const maxValue = Math.max(
+    1,
+    ...chart.points.map(point => Math.abs(point.value)),
+    ...chart.points.map(point => Math.abs(point.benchmark ?? 0))
+  )
+
+  return (
+    <div className="rounded-xl border border-border bg-surface2 p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="text-xs font-semibold uppercase tracking-wider text-text2">Trend</div>
+        {chart.benchmarkLabel && <div className="truncate text-xs font-semibold text-text2">{chart.benchmarkLabel}</div>}
+      </div>
+      <div className="flex h-36 items-end gap-2 overflow-hidden rounded-lg border border-border bg-bg/45 px-3 py-3">
+        {chart.points.map(point => {
+          const height = `${Math.max(8, Math.round((Math.abs(point.value) / maxValue) * 100))}%`
+          const isNegative = point.value < 0
+          return (
+            <div key={`${chart.kind}-${point.label}`} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
+              <div className="text-center text-[10px] font-semibold tabular-nums text-text2">{formatGraphValue(point.value, chart.valueFormat)}</div>
+              <div
+                className={cn(
+                  'w-full max-w-12 rounded-t-md border transition',
+                  isNegative ? 'border-danger/40 bg-danger/60' : 'border-accent/35 bg-accent/70'
+                )}
+                style={{ height }}
+                title={`${point.label}: ${formatGraphValue(point.value, chart.valueFormat)}`}
+              />
+            </div>
+          )
+        })}
+      </div>
+      <div className="mt-2 grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(chart.points.length, 6)}, minmax(0, 1fr))` }}>
+        {chart.points.slice(0, 6).map(point => (
+          <div key={`${chart.kind}-${point.label}-label`} className="truncate text-center text-[10px] font-semibold uppercase tracking-wide text-text2" title={point.label}>
+            {point.label}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function formatGraphValue(value: number, format: 'currency' | 'percent' | 'number'): string {
+  if (format === 'currency') return fmtCurrency(value)
+  if (format === 'percent') return `${(value * 100).toFixed(1)}%`
+  return fmtNumber(value)
 }
 
 function StitchMetric({

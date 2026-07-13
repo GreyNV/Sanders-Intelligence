@@ -30,9 +30,11 @@ describe('Stitch North Star page contract', () => {
     expect(pageSource).toContain('filterRowsByPillar')
     expect(pageSource).toContain('buildOwnerSlideDeck')
     expect(pageSource).toContain('OwnerDeckModal')
+    expect(pageSource).toContain('FinanceSlideGraph')
     expect(pageSource).toContain("This week's move")
     expect(pageSource).toContain('field="constraint_now"')
     expect(pageSource).toContain('field="weekly_move"')
+    expect(pageSource).toContain('label="Plan"')
   })
 
   it('merges live Monthly Star finance metrics into the same table and deck rows', () => {

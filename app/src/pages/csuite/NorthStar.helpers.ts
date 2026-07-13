@@ -83,6 +83,7 @@ export interface NorthStarDisplayRow {
   is_locked: boolean
   source?: 'monthly_star' | 'leadership_tool'
   autoFields?: readonly NorthStarEditableField[]
+  chart?: NorthStarSlideChart
   period_month: string
   period_week: string
   slot_index: number
@@ -96,6 +97,20 @@ export interface NorthStarDisplayRow {
   weekly_move: string | null
   last_week_result: string | null
   status: NorthStarStatus
+}
+
+export interface NorthStarSlideChart {
+  kind: 'sales' | 'cash_runway' | 'payroll' | 'pnl'
+  valueFormat: 'currency' | 'percent' | 'number'
+  points: NorthStarSlideChartPoint[]
+  benchmarkLabel?: string
+}
+
+export interface NorthStarSlideChartPoint {
+  label: string
+  value: number
+  secondaryValue?: number
+  benchmark?: number
 }
 
 export interface MonthlyStarInput {
