@@ -103,6 +103,8 @@ export interface NorthStarSlideChart {
   kind: 'sales' | 'cash_runway' | 'payroll' | 'pnl'
   valueFormat: 'currency' | 'percent' | 'number'
   points: NorthStarSlideChartPoint[]
+  comparisonPoints?: NorthStarSlideChartComparisonPoint[]
+  threshold?: number
   benchmarkLabel?: string
 }
 
@@ -111,6 +113,13 @@ export interface NorthStarSlideChartPoint {
   value: number
   secondaryValue?: number
   benchmark?: number
+  tone?: 'success' | 'danger' | 'accent'
+}
+
+export interface NorthStarSlideChartComparisonPoint {
+  label: string
+  currentValue: number
+  previousValue: number
 }
 
 export interface MonthlyStarInput {

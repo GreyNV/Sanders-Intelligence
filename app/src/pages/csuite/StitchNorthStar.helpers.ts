@@ -20,10 +20,19 @@ export interface StitchOwnerDeck {
   rows: NorthStarDisplayRow[]
 }
 
-export interface StitchFinanceProjectionContext {
-  projectedMonthEndSales: number
-  daysElapsed: number
-  daysRemaining: number
+export function scaledChartDomain(values: number[]): { min: number; max: number } {
+  const finiteValues = values.filter(value => Number.isFinite(value))
+  if (finiteValues.length === 0) return { min: 0, max: 1 }
+
+  const min = Math.min(...finiteValues)
+  const max = Math.max(...finiteValues)
+  const spread = max - min
+  const padding = spread > 0 ? spread * 0.1 : Math.max(1, Math.abs(max) * 0.1)
+
+  return {
+    min: roundChartNumber(min - padding),
+    max: roundChartNumber(max + padding),
+  }
 }
 
 export function buildStitchFinanceMetricRow(
@@ -93,8 +102,7 @@ export function buildLeadershipFinanceRows(
   rows: NorthStarDisplayRow[],
   snapshot: Pick<LeadershipToolSnapshot, 'cashflow' | 'payroll' | 'pnl' | 'sales_simulation'> | null,
   periodMonth: string,
-  currentWeek: string,
-  projection?: StitchFinanceProjectionContext
+  currentWeek: string
 ): NorthStarDisplayRow[] {
   if (!snapshot) return []
 
@@ -102,7 +110,7 @@ export function buildLeadershipFinanceRows(
   return [
     buildCashRunwayRow(snapshot, periodMonth, currentWeek, startSlot),
     buildPayrollRow(snapshot, periodMonth, currentWeek, startSlot + 1),
-    buildPnlRow(snapshot, periodMonth, currentWeek, startSlot + 2, projection),
+    buildPnlRow(snapshot, periodMonth, currentWeek, startSlot + 2),
   ]
 }
 
@@ -213,11 +221,13 @@ function buildCashRunwayRow(
     chart: {
       kind: 'cash_runway',
       valueFormat: 'currency',
+      threshold: snapshot.cashflow.minimum_cash_floor ?? 0,
       benchmarkLabel: 'Cash floor',
       points: snapshot.cashflow.weeks.map(week => ({
         label: `W${week.week}`,
         value: week.ending_cash,
         benchmark: snapshot.cashflow.minimum_cash_floor ?? 0,
+        tone: week.ending_cash >= (snapshot.cashflow.minimum_cash_floor ?? 0) ? 'success' : 'danger',
       })),
     },
   })
@@ -229,7 +239,8 @@ function buildPayrollRow(
   currentWeek: string,
   slotIndex: number
 ): NorthStarDisplayRow {
-  const targetMonth = addMonthsToPeriod(periodMonth, -1)
+  const targetMonth = periodMonth
+  const weekProgress = monthWeekProgress(periodMonth, currentWeek)
   const departments = snapshot.payroll.departments.filter(department => department.department !== 'Grand Total')
   const largestVariance = departments
     .map(department => ({ department, period: findPeriodForMonth(department.periods, targetMonth) }))
@@ -242,8 +253,12 @@ function buildPayrollRow(
     .map(department => ({ department: department.department, period: findPeriodForMonth(department.periods, targetMonth) }))
     .filter(hasPeriod)
     .sort((a, b) => Math.abs(b.period.current_year) - Math.abs(a.period.current_year))
-    .slice(0, 6)
     .map(item => ({ label: item.department, value: item.period.current_year }))
+  const comparisonPoints = departments
+    .map(department => ({ department: department.department, period: findPeriodForMonth(department.periods, targetMonth) }))
+    .filter(hasPeriod)
+    .map(item => ({ label: item.department, currentValue: item.period.current_year, previousValue: item.period.last_year }))
+  const projectedTotal = total ? (total.current_year / weekProgress.elapsedWeeks) * weekProgress.totalWeeks : null
 
   return generatedLeadershipRow({
     periodMonth,
@@ -252,15 +267,16 @@ function buildPayrollRow(
     northStar: 'Payroll by department',
     plan: 'Payroll variance controlled by department',
     actual: largestVariance ? `${largestVariance.department.department}: ${formatPct(variancePct)}` : 'No payroll rows',
-    forecast: total ? `Grand Total ${fmtCurrency(total.current_year)}` : 'Grand Total unavailable',
+    forecast: projectedTotal !== null ? `Projected Grand Total ${fmtCurrency(projectedTotal)}` : 'Grand Total unavailable',
     constraint: largestVariance ? `${largestVariance.department.department} is the largest payroll variance.` : 'Payroll data has not been uploaded.',
     move: largestVariance ? `Review ${largestVariance.department.department} payroll drivers.` : 'Upload the leadership tool to refresh payroll.',
-    result: total ? `${resultMonth} payroll total is ${fmtCurrency(total.current_year)}.` : null,
+    result: total ? `${resultMonth} payroll actual is ${fmtCurrency(total.current_year)}; projected from ${weekProgress.elapsedWeeks} of ${weekProgress.totalWeeks} weeks.` : null,
     status: variancePct !== null && variancePct > 0.25 ? 'at_risk' : 'on_plan',
     chart: {
       kind: 'payroll',
       valueFormat: 'currency',
       points: chartPoints,
+      comparisonPoints,
     },
   })
 }
@@ -269,39 +285,23 @@ function buildPnlRow(
   snapshot: Pick<LeadershipToolSnapshot, 'pnl' | 'sales_simulation'>,
   periodMonth: string,
   currentWeek: string,
-  slotIndex: number,
-  projection?: StitchFinanceProjectionContext
+  slotIndex: number
 ): NorthStarDisplayRow {
   const benchmarkPct = snapshot.sales_simulation.noi_benchmark_pct || 0.09
   const actualMonth = addMonthsToPeriod(periodMonth, -1)
-  const trailingMonths = [actualMonth, addMonthsToPeriod(actualMonth, -1), addMonthsToPeriod(actualMonth, -2)]
   const income = findPnlAccount(snapshot, 'Income')
-  const cogs = findPnlAccount(snapshot, 'COGS', 'Cost of Goods')
-  const expense = findPnlAccount(snapshot, 'Expense')
   const grandTotal = findPnlAccount(snapshot, 'Grand Total', 'NOI')
   const actualIncome = findPeriodForMonth(income?.periods ?? [], actualMonth)
   const actualNoi = findPeriodForMonth(grandTotal?.periods ?? [], actualMonth)
   const actualNoiPct = actualIncome && actualIncome.current_year > 0 && actualNoi ? actualNoi.current_year / actualIncome.current_year : snapshot.sales_simulation.latest_noi_pct
-  const averageCogsPct = average(
-    trailingMonths
-      .map(month => {
-        const monthIncome = findExactPeriod(income?.periods ?? [], month)
-        const monthCogs = findExactPeriod(cogs?.periods ?? [], month)
-        if (!monthIncome || !monthCogs || monthIncome.current_year <= 0) return null
-        return Math.abs(monthCogs.current_year) / monthIncome.current_year
-      })
-      .filter((value): value is number => value !== null && Number.isFinite(value))
-  )
-  const currentExpense = findExactPeriod(expense?.periods ?? [], periodMonth)
-  const projectedSales = Math.max(0, projection?.projectedMonthEndSales ?? snapshot.sales_simulation.latest_income)
-  const daysElapsed = Math.max(1, projection?.daysElapsed ?? 1)
-  const monthDays = Math.max(daysElapsed, daysElapsed + Math.max(0, projection?.daysRemaining ?? 0))
-  const projectedExpense = currentExpense ? -Math.abs(currentExpense.current_year / daysElapsed) * monthDays : 0
-  const projectedCogs = projectedSales > 0 ? -projectedSales * (averageCogsPct ?? 0) : 0
-  const forecastNoi = projectedSales + projectedCogs + projectedExpense
-  const forecastNoiPct = projectedSales > 0 ? forecastNoi / projectedSales : null
+  const forecastIncome = findPeriodForMonth(income?.periods ?? [], periodMonth)
+  const forecastNoi = findPeriodForMonth(grandTotal?.periods ?? [], periodMonth)
+  const forecastNoiValue = forecastNoi?.last_year ?? null
+  const forecastIncomeValue = forecastIncome?.last_year ?? null
+  const forecastNoiPct = forecastIncomeValue && forecastIncomeValue > 0 && forecastNoiValue !== null ? forecastNoiValue / forecastIncomeValue : null
   const needsAction = forecastNoiPct === null || forecastNoiPct < benchmarkPct
   const actualMonthLabel = formatShortMonth(actualNoi?.month || actualIncome?.month || actualMonth)
+  const forecastMonthLabel = formatShortMonth(forecastNoi?.month || forecastIncome?.month || periodMonth)
   const benchmarkLabel = formatPct(benchmarkPct)
 
   return generatedLeadershipRow({
@@ -311,9 +311,9 @@ function buildPnlRow(
     northStar: 'PnL / 9% NOI',
     plan: `${benchmarkLabel} NOI benchmark`,
     actual: `${formatPct(actualNoiPct)} NOI`,
-    forecast: `${formatPct(forecastNoiPct)} end-of-month NOI`,
-    constraint: needsAction ? `Forecast NOI is below the ${benchmarkLabel} benchmark.` : `Forecast NOI is at or above the ${benchmarkLabel} benchmark.`,
-    move: needsAction ? 'Simulate sales, COGS, and expense actions to close the NOI gap.' : 'Protect gross margin and expense discipline through month end.',
+    forecast: forecastNoiValue !== null ? `${fmtCurrency(forecastNoiValue)} forecast NOI` : 'Last year NOI unavailable',
+    constraint: pnlForecastConstraint(forecastNoiPct, benchmarkLabel, needsAction),
+    move: needsAction ? `Use last year's ${forecastMonthLabel} NOI baseline to define margin actions.` : `Use last year's ${forecastMonthLabel} NOI baseline and protect margin discipline.`,
     result: actualNoi && actualIncome ? `${actualMonthLabel} NOI was ${fmtCurrency(actualNoi.current_year)} on income of ${fmtCurrency(actualIncome.current_year)}.` : null,
     status: needsAction ? 'at_risk' : 'on_plan',
     chart: {
@@ -321,7 +321,7 @@ function buildPnlRow(
       valueFormat: 'percent',
       benchmarkLabel: `${benchmarkLabel} benchmark`,
       points: [
-        { label: 'Actual', value: actualNoiPct ?? 0, benchmark: benchmarkPct },
+        { label: 'Last month', value: actualNoiPct ?? 0, benchmark: benchmarkPct },
         { label: 'Forecast', value: forecastNoiPct ?? 0, benchmark: benchmarkPct },
         { label: 'Benchmark', value: benchmarkPct, benchmark: benchmarkPct },
       ],
@@ -406,11 +406,35 @@ function hasPeriod<T extends { period: unknown }>(item: T): item is T & { period
   return Boolean(item.period)
 }
 
-function average(values: number[]): number | null {
-  if (values.length === 0) return null
-  return values.reduce((sum, value) => sum + value, 0) / values.length
-}
-
 function formatShortMonth(periodMonth: string): string {
   return formatPeriodMonth(periodMonth).split(' ')[0]
+}
+
+function monthWeekProgress(periodMonth: string, currentWeek: string): { elapsedWeeks: number; totalWeeks: number } {
+  const monthStart = new Date(`${periodMonth}T00:00:00Z`)
+  const nextMonthStart = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1))
+  const currentWeekStart = new Date(`${currentWeek}T00:00:00Z`)
+  const currentWeekEnd = new Date(currentWeekStart)
+  currentWeekEnd.setUTCDate(currentWeekEnd.getUTCDate() + 7)
+
+  const daysInMonth = daysBetween(monthStart, nextMonthStart)
+  const elapsedDays = Math.min(daysInMonth, Math.max(1, daysBetween(monthStart, currentWeekEnd)))
+  const totalWeeks = Math.max(1, Math.ceil(daysInMonth / 7))
+  const elapsedWeeks = Math.min(totalWeeks, Math.max(1, Math.ceil(elapsedDays / 7)))
+
+  return { elapsedWeeks, totalWeeks }
+}
+
+function daysBetween(start: Date, end: Date): number {
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / 86_400_000))
+}
+
+function roundChartNumber(value: number): number {
+  return Number(value.toFixed(2))
+}
+
+function pnlForecastConstraint(forecastNoiPct: number | null, benchmarkLabel: string, needsAction: boolean): string {
+  if (forecastNoiPct === null) return "Last year's same-month NOI is unavailable."
+  const comparison = needsAction ? 'below' : 'at or above'
+  return `Last year's same-month NOI was ${formatPct(forecastNoiPct)}, ${comparison} the ${benchmarkLabel} benchmark.`
 }

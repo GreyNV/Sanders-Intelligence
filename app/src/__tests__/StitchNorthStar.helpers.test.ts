@@ -8,6 +8,7 @@ import {
   buildOwnerSlideDeck,
   buildStitchFinanceMetricRow,
   buildStitchPillarTabs,
+  scaledChartDomain,
   filterRowsByPillar,
   mergeStitchFinanceMetricRow,
 } from '../pages/csuite/StitchNorthStar.helpers'
@@ -137,7 +138,7 @@ describe('Stitch North Star helpers', () => {
     expect(financeRows.map(row => row.north_star)).toEqual(['13-week cash runway', 'Payroll by department', 'PnL / 9% NOI'])
   })
 
-  it('uses the last completed month for payroll actuals and totals', () => {
+  it('uses current-month payroll actuals and projects the month from elapsed weeks', () => {
     const rows = mergeNorthStarRows([], '2026-07-01', '2026-07-05')
     const snapshot = baseLeadershipSnapshot({
       payroll: {
@@ -147,6 +148,7 @@ describe('Stitch North Star helpers', () => {
             periods: [
               { month: '2026-03-01', current_year: 30559.1, last_year: 2779.8, difference_pct: 9.993 },
               { month: '2026-06-01', current_year: 41834.53, last_year: 4211.84, difference_pct: 0.893 },
+              { month: '2026-07-01', current_year: 21215.36, last_year: 25610.3, difference_pct: -0.17 },
             ],
           },
           {
@@ -154,6 +156,7 @@ describe('Stitch North Star helpers', () => {
             periods: [
               { month: '2026-03-01', current_year: 31307.17, last_year: 16657.59, difference_pct: 0.88 },
               { month: '2026-06-01', current_year: 29124.42, last_year: 13775.3, difference_pct: 1.11425 },
+              { month: '2026-07-01', current_year: 9114.58, last_year: 18243.2, difference_pct: -0.1 },
             ],
           },
           {
@@ -161,26 +164,31 @@ describe('Stitch North Star helpers', () => {
             periods: [
               { month: '2026-03-01', current_year: 722092.59, last_year: 890805.73, difference_pct: -0.19 },
               { month: '2026-06-01', current_year: 465785.91, last_year: 660523.3, difference_pct: -0.29 },
+              { month: '2026-07-01', current_year: 215451.78, last_year: 872844.62, difference_pct: -0.75 },
             ],
           },
         ],
       },
     })
 
-    const financeRows = buildLeadershipFinanceRows(rows, snapshot, '2026-07-01', '2026-07-05')
+    const financeRows = buildLeadershipFinanceRows(rows, snapshot, '2026-07-01', '2026-07-12')
     const payroll = financeRows.find(row => row.north_star === 'Payroll by department')
 
     expect(payroll).toMatchObject({
-      actual_mtd: 'Finance: 111.4%',
-      forecast: 'Grand Total $465,786',
-      last_week_result: 'June payroll total is $465,786.',
-      status: 'at_risk',
+      actual_mtd: 'Admin: -17.0%',
+      forecast: 'Projected Grand Total $359,086',
+      last_week_result: 'July payroll actual is $215,452; projected from 3 of 5 weeks.',
+      status: 'on_plan',
     })
-    expect(payroll?.actual_mtd).not.toContain('999')
-    expect(payroll?.forecast).not.toContain('$722,093')
+    expect(payroll?.actual_mtd).not.toContain('111.4%')
+    expect(payroll?.forecast).not.toContain('$465,786')
+    expect(payroll?.chart?.comparisonPoints).toEqual([
+      { label: 'Admin', currentValue: 21215.36, previousValue: 25610.3 },
+      { label: 'Finance', currentValue: 9114.58, previousValue: 18243.2 },
+    ])
   })
 
-  it('uses last month NOI for actual and current-month expense run rate for end-of-month NOI forecast', () => {
+  it('uses last year same-month NOI as the PnL forecast', () => {
     const rows = mergeNorthStarRows([], '2026-07-01', '2026-07-05')
     const snapshot = baseLeadershipSnapshot({
       pnl: {
@@ -225,21 +233,21 @@ describe('Stitch North Star helpers', () => {
       },
     })
 
-    const financeRows = buildLeadershipFinanceRows(rows, snapshot, '2026-07-01', '2026-07-05', {
-      projectedMonthEndSales: 1000000,
-      daysElapsed: 10,
-      daysRemaining: 20,
-    })
+    const financeRows = buildLeadershipFinanceRows(rows, snapshot, '2026-07-01', '2026-07-05')
     const pnl = financeRows.find(row => row.north_star === 'PnL / 9% NOI')
 
     expect(pnl).toMatchObject({
       actual_mtd: '10.0% NOI',
-      forecast: '20.0% end-of-month NOI',
+      forecast: '$261,911 forecast NOI',
       last_week_result: 'June NOI was $100,000 on income of $1,000,000.',
-      status: 'on_plan',
+      constraint_now: "Last year's same-month NOI was 2.7%, below the 9.0% benchmark.",
+      status: 'at_risk',
     })
     expect(pnl?.forecast).not.toContain('to benchmark')
+    expect(pnl?.forecast).not.toContain('end-of-month NOI')
     expect(pnl?.actual_mtd).not.toBe('-10.9% NOI')
+    expect(pnl?.chart?.points.map(point => point.label)).toEqual(['Last month', 'Forecast', 'Benchmark'])
+    expect(pnl?.chart?.points.find(point => point.label === 'Forecast')?.value).toBeCloseTo(0.0269, 4)
   })
 
   it('adds graph payloads for Ryan finance presentation slides', () => {
@@ -256,15 +264,18 @@ describe('Stitch North Star helpers', () => {
     }
     const monthlyMetrics = computeMonthlyStarMetrics(monthlyInput)
     const financeRow = buildStitchFinanceMetricRow(rows, monthlyInput, monthlyMetrics, '2026-07-05')
-    const leadershipRows = buildLeadershipFinanceRows([...rows, financeRow], baseLeadershipSnapshot(), '2026-07-01', '2026-07-05', {
-      projectedMonthEndSales: monthlyMetrics.projectedMonthEnd,
-      daysElapsed: monthlyInput.days_elapsed,
-      daysRemaining: monthlyInput.days_remaining,
-    })
+    const leadershipRows = buildLeadershipFinanceRows([...rows, financeRow], baseLeadershipSnapshot(), '2026-07-01', '2026-07-05')
     const financeRows = [financeRow, ...leadershipRows]
 
     expect(financeRows.map(row => row.chart?.kind)).toEqual(['sales', 'cash_runway', 'payroll', 'pnl'])
     expect(financeRows.every(row => row.chart?.points.length)).toBe(true)
+    expect(financeRows.find(row => row.north_star === '13-week cash runway')?.chart?.threshold).toBe(600000)
+    expect(financeRows.find(row => row.north_star === 'Payroll by department')?.chart?.comparisonPoints?.length).toBeGreaterThan(0)
+  })
+
+  it('scales chart domains around the presented min and max values', () => {
+    expect(scaledChartDomain([100, 102, 104])).toEqual({ min: 99.6, max: 104.4 })
+    expect(scaledChartDomain([250, 250])).toEqual({ min: 225, max: 275 })
   })
 })
 
@@ -280,16 +291,29 @@ function baseLeadershipSnapshot(overrides: Partial<Parameters<typeof buildLeader
     },
     payroll: {
       departments: [
-        { department: 'Finance', periods: [{ month: '2026-06-01', current_year: 29124.42, last_year: 13775.3, difference_pct: 1.11425 }] },
-        { department: 'Grand Total', periods: [{ month: '2026-06-01', current_year: 120000, last_year: 100000, difference_pct: 0.2 }] },
+        { department: 'Admin', periods: [{ month: '2026-07-01', current_year: 21215.36, last_year: 25610.3, difference_pct: -0.17162 }] },
+        { department: 'Finance', periods: [{ month: '2026-07-01', current_year: 9114.58, last_year: 18243.2, difference_pct: -0.50039 }] },
+        { department: 'Grand Total', periods: [{ month: '2026-07-01', current_year: 215451.78, last_year: 872844.62, difference_pct: -0.75316 }] },
       ],
     },
     pnl: {
       accounts: [
-        { account: 'Income', periods: [{ month: '2026-06-01', current_year: 8632172.09, last_year: 7173126.82, difference_pct: 0.2 }] },
+        {
+          account: 'Income',
+          periods: [
+            { month: '2026-07-01', current_year: 149930.81, last_year: 9748455.74, difference_pct: -0.98 },
+            { month: '2026-06-01', current_year: 8632172.09, last_year: 7173126.82, difference_pct: 0.2 },
+          ],
+        },
         { account: 'COGS', periods: [{ month: '2026-06-01', current_year: -4407472.32, last_year: -3450107.77, difference_pct: 0.28 }] },
         { account: 'Expense', periods: [{ month: '2026-07-01', current_year: -550205.49, last_year: -4746361.54, difference_pct: -0.88 }] },
-        { account: 'Grand Total', periods: [{ month: '2026-06-01', current_year: 1034278.45, last_year: 149182.34, difference_pct: 5.933 }] },
+        {
+          account: 'Grand Total',
+          periods: [
+            { month: '2026-07-01', current_year: -10871.01, last_year: 261911.23, difference_pct: -1.04 },
+            { month: '2026-06-01', current_year: 1034278.45, last_year: 149182.34, difference_pct: 5.933 },
+          ],
+        },
       ],
     },
     sales_simulation: {

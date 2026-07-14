@@ -53,6 +53,7 @@ import {
   filterRowsByPillar,
   isStitchAutoFinanceField,
   mergeStitchFinanceRows,
+  scaledChartDomain,
   type StitchOwnerDeck,
 } from './StitchNorthStar.helpers'
 
@@ -139,12 +140,8 @@ export default function StitchNorthStar() {
     [baseRows, displayedMonthlyInput, displayedMonthlyMetrics, currentWeek]
   )
   const leadershipFinanceRows = useMemo(
-    () => buildLeadershipFinanceRows([...baseRows, financeMetricRow], leadershipSnapshot, selectedMonth, currentWeek, {
-      projectedMonthEndSales: displayedMonthlyMetrics.projectedMonthEnd,
-      daysElapsed: Math.max(1, displayedMonthlyInput.days_elapsed),
-      daysRemaining: displayedMonthlyInput.days_remaining,
-    }),
-    [baseRows, financeMetricRow, leadershipSnapshot, selectedMonth, currentWeek, displayedMonthlyMetrics.projectedMonthEnd, displayedMonthlyInput.days_elapsed, displayedMonthlyInput.days_remaining]
+    () => buildLeadershipFinanceRows([...baseRows, financeMetricRow], leadershipSnapshot, selectedMonth, currentWeek),
+    [baseRows, financeMetricRow, leadershipSnapshot, selectedMonth, currentWeek]
   )
   const rows = useMemo(
     () => sortNorthStarRows(
@@ -683,7 +680,7 @@ function OwnerDeckModal({
               <div className="rounded-xl border border-border bg-surface2 p-4">
                 <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-text2">Metrics</div>
                 <div className="grid gap-3">
-                  <ValueTile label="Actual" row={row} field="actual_mtd" value={row.actual_mtd ?? ''} canEdit={canEditField(row, 'actual_mtd')} isSaving={isSaving} onSave={onSave} />
+                  <ValueTile label={actualMetricLabel(row)} row={row} field="actual_mtd" value={row.actual_mtd ?? ''} canEdit={canEditField(row, 'actual_mtd')} isSaving={isSaving} onSave={onSave} />
                   <ValueTile label="Forecast" row={row} field="forecast" value={row.forecast ?? ''} canEdit={canEditField(row, 'forecast')} isSaving={isSaving} onSave={onSave} />
                 </div>
                 <div className="mt-3">
@@ -725,52 +722,196 @@ function FinanceSlideGraph({ row }: { row: NorthStarDisplayRow }) {
   const chart = row.chart
   if (!chart?.points.length) return null
 
-  const maxValue = Math.max(
-    1,
-    ...chart.points.map(point => Math.abs(point.value)),
-    ...chart.points.map(point => Math.abs(point.benchmark ?? 0))
-  )
-
   return (
     <div className="rounded-xl border border-border bg-surface2 p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="text-xs font-semibold uppercase tracking-wider text-text2">Trend</div>
         {chart.benchmarkLabel && <div className="truncate text-xs font-semibold text-text2">{chart.benchmarkLabel}</div>}
       </div>
-      <div className="flex h-36 items-end gap-2 overflow-hidden rounded-lg border border-border bg-bg/45 px-3 py-3">
-        {chart.points.map(point => {
-          const height = `${Math.max(8, Math.round((Math.abs(point.value) / maxValue) * 100))}%`
-          const isNegative = point.value < 0
-          return (
-            <div key={`${chart.kind}-${point.label}`} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
-              <div className="text-center text-[10px] font-semibold tabular-nums text-text2">{formatGraphValue(point.value, chart.valueFormat)}</div>
-              <div
-                className={cn(
-                  'w-full max-w-12 rounded-t-md border transition',
-                  isNegative ? 'border-danger/40 bg-danger/60' : 'border-accent/35 bg-accent/70'
-                )}
-                style={{ height }}
-                title={`${point.label}: ${formatGraphValue(point.value, chart.valueFormat)}`}
-              />
-            </div>
-          )
-        })}
-      </div>
-      <div className="mt-2 grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(chart.points.length, 6)}, minmax(0, 1fr))` }}>
-        {chart.points.slice(0, 6).map(point => (
-          <div key={`${chart.kind}-${point.label}-label`} className="truncate text-center text-[10px] font-semibold uppercase tracking-wide text-text2" title={point.label}>
-            {point.label}
-          </div>
-        ))}
-      </div>
+      {chart.kind === 'payroll' && chart.comparisonPoints?.length ? (
+        <PayrollPieComparisonChart chart={chart} />
+      ) : chart.kind === 'cash_runway' ? (
+        <CashflowThresholdChart chart={chart} />
+      ) : (
+        <RangeColumnChart chart={chart} />
+      )}
     </div>
   )
 }
+
+function RangeColumnChart({ chart }: { chart: NonNullable<NorthStarDisplayRow['chart']> }) {
+  const domain = scaledChartDomain(chart.points.flatMap(point => [point.value, point.benchmark ?? point.value]))
+  const chartHeight = 124
+  const topPad = 8
+  const bottomPad = 18
+  const plotHeight = chartHeight - topPad - bottomPad
+
+  function y(value: number): number {
+    const span = Math.max(1, domain.max - domain.min)
+    return topPad + (1 - (value - domain.min) / span) * plotHeight
+  }
+
+  return (
+    <div className="rounded-lg border border-border bg-bg/45 px-3 py-3">
+      <svg viewBox="0 0 320 156" className="h-40 w-full overflow-visible" role="img" aria-label={`${chart.kind} trend chart`}>
+        <line x1="24" y1={y(domain.max)} x2="304" y2={y(domain.max)} className="stroke-border/70" strokeDasharray="2 4" />
+        <line x1="24" y1={y(domain.min)} x2="304" y2={y(domain.min)} className="stroke-border/70" strokeDasharray="2 4" />
+        <text x="0" y={y(domain.max) + 4} className="fill-text2 text-[9px]">{formatGraphValue(domain.max, chart.valueFormat)}</text>
+        <text x="0" y={y(domain.min) + 4} className="fill-text2 text-[9px]">{formatGraphValue(domain.min, chart.valueFormat)}</text>
+        {chart.points.map((point, index) => {
+          const x = 46 + index * (240 / Math.max(1, chart.points.length - 1))
+          const barTop = y(point.value)
+          const barBottom = y(domain.min)
+          const barHeight = Math.max(4, barBottom - barTop)
+          return (
+            <g key={`${chart.kind}-${point.label}`}>
+              <rect
+                x={x - 13}
+                y={barBottom - barHeight}
+                width="26"
+                height={barHeight}
+                rx="5"
+                className={cn('stroke-accent/30', point.value < 0 ? 'fill-danger/70' : 'fill-accent/75')}
+              >
+                <title>{`${point.label}: ${formatGraphValue(point.value, chart.valueFormat)}`}</title>
+              </rect>
+              <text x={x} y="150" textAnchor="middle" className="fill-text2 text-[9px] font-semibold uppercase tracking-wide">{point.label}</text>
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
+function CashflowThresholdChart({ chart }: { chart: NonNullable<NorthStarDisplayRow['chart']> }) {
+  const threshold = chart.threshold ?? 0
+  const domain = scaledChartDomain([...chart.points.map(point => point.value), threshold])
+  const chartHeight = 124
+  const topPad = 8
+  const bottomPad = 18
+  const plotHeight = chartHeight - topPad - bottomPad
+
+  function y(value: number): number {
+    const span = Math.max(1, domain.max - domain.min)
+    return topPad + (1 - (value - domain.min) / span) * plotHeight
+  }
+
+  const thresholdY = y(threshold)
+
+  return (
+    <div className="rounded-lg border border-border bg-bg/45 px-3 py-3">
+      <svg viewBox="0 0 340 156" className="h-40 w-full overflow-visible" role="img" aria-label="Cashflow threshold chart">
+        <line x1="30" y1={thresholdY} x2="320" y2={thresholdY} className="stroke-text2" strokeDasharray="6 5" />
+        <text x="2" y={thresholdY - 4} className="fill-text2 text-[9px]">{formatGraphValue(threshold, chart.valueFormat)}</text>
+        {chart.points.map((point, index) => {
+          const spacing = 278 / Math.max(1, chart.points.length)
+          const x = 42 + index * spacing
+          const valueY = y(point.value)
+          const barY = Math.min(valueY, thresholdY)
+          const barHeight = Math.max(3, Math.abs(thresholdY - valueY))
+          const isAbove = point.value >= threshold
+          return (
+            <g key={`${chart.kind}-${point.label}`}>
+              <rect
+                x={x}
+                y={barY}
+                width={Math.max(8, spacing * 0.55)}
+                height={barHeight}
+                rx="4"
+                className={cn(isAbove ? 'fill-success/75 stroke-success/40' : 'fill-danger/75 stroke-danger/40')}
+              >
+                <title>{`${point.label}: ${formatGraphValue(point.value, chart.valueFormat)} (${isAbove ? 'above' : 'below'} floor)`}</title>
+              </rect>
+              <text x={x + Math.max(8, spacing * 0.55) / 2} y="150" textAnchor="middle" className="fill-text2 text-[8px] font-semibold uppercase tracking-wide">{point.label}</text>
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
+function PayrollPieComparisonChart({ chart }: { chart: NonNullable<NorthStarDisplayRow['chart']> }) {
+  const points = chart.comparisonPoints ?? []
+  return (
+    <div className="grid gap-3 rounded-lg border border-border bg-bg/45 p-3 sm:grid-cols-2">
+      <PiePanel title="Last year" points={points.map(point => ({ label: point.label, value: point.previousValue }))} format={chart.valueFormat} />
+      <PiePanel title="This year" points={points.map(point => ({ label: point.label, value: point.currentValue }))} format={chart.valueFormat} />
+    </div>
+  )
+}
+
+function PiePanel({ title, points, format }: { title: string; points: Array<{ label: string; value: number }>; format: 'currency' | 'percent' | 'number' }) {
+  const slices = pieSlices(points)
+  return (
+    <div>
+      <div className="mb-2 text-center text-[10px] font-semibold uppercase tracking-wider text-text2">{title}</div>
+      <svg viewBox="0 0 120 120" className="mx-auto h-32 w-32" role="img" aria-label={`${title} payroll mix`}>
+        {slices.length === 0 ? (
+          <circle cx="60" cy="60" r="42" className="fill-surface stroke-border" />
+        ) : (
+          slices.map((slice, index) => (
+            <path key={`${title}-${slice.label}`} d={slice.path} fill={PIE_COLORS[index % PIE_COLORS.length]} className="stroke-bg stroke-[1.5]">
+              <title>{`${slice.label}: ${formatGraphValue(slice.value, format)} (${slice.percent.toFixed(1)}%)`}</title>
+            </path>
+          ))
+        )}
+      </svg>
+    </div>
+  )
+}
+
+function pieSlices(points: Array<{ label: string; value: number }>) {
+  const sanitized = points
+    .map(point => ({ ...point, value: Math.max(0, Number(point.value) || 0) }))
+    .filter(point => point.value > 0)
+  const total = sanitized.reduce((sum, point) => sum + point.value, 0)
+  if (total <= 0) return []
+
+  let startAngle = -90
+  return sanitized.map(point => {
+    const angle = (point.value / total) * 360
+    const endAngle = startAngle + angle
+    const slice = {
+      label: point.label,
+      value: point.value,
+      percent: (point.value / total) * 100,
+      path: describePieSlice(60, 60, 42, startAngle, endAngle),
+    }
+    startAngle = endAngle
+    return slice
+  })
+}
+
+function describePieSlice(cx: number, cy: number, radius: number, startAngle: number, endAngle: number): string {
+  if (endAngle - startAngle >= 359.99) {
+    return `M ${cx} ${cy - radius} A ${radius} ${radius} 0 1 1 ${cx - 0.01} ${cy - radius} Z`
+  }
+  const start = polarToCartesian(cx, cy, radius, endAngle)
+  const end = polarToCartesian(cx, cy, radius, startAngle)
+  const largeArcFlag = endAngle - startAngle <= 180 ? 0 : 1
+  return [`M ${cx} ${cy}`, `L ${start.x} ${start.y}`, `A ${radius} ${radius} 0 ${largeArcFlag} 0 ${end.x} ${end.y}`, 'Z'].join(' ')
+}
+
+function polarToCartesian(cx: number, cy: number, radius: number, angleInDegrees: number) {
+  const angleInRadians = (angleInDegrees - 90) * Math.PI / 180
+  return {
+    x: cx + radius * Math.cos(angleInRadians),
+    y: cy + radius * Math.sin(angleInRadians),
+  }
+}
+
+const PIE_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#4b5563', '#be123c']
 
 function formatGraphValue(value: number, format: 'currency' | 'percent' | 'number'): string {
   if (format === 'currency') return fmtCurrency(value)
   if (format === 'percent') return `${(value * 100).toFixed(1)}%`
   return fmtNumber(value)
+}
+
+function actualMetricLabel(row: NorthStarDisplayRow): string {
+  return row.north_star === 'PnL / 9% NOI' ? 'Last month' : 'Actual'
 }
 
 function StitchMetric({
