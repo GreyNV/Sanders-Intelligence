@@ -81,6 +81,8 @@ type MonthlyStarOverrideState = {
   target_sales?: number
   mtd_actual?: number
   forecast?: number
+  status?: NorthStarStatus
+  last_week_result?: string
 }
 
 type GeneratedRowOverrideMap = Record<string, Partial<Record<NorthStarEditableField, string | NorthStarStatus>>>
@@ -135,10 +137,21 @@ export default function StitchNorthStar() {
       onTrack: monthlyStarOverrides.forecast >= displayedMonthlyInput.target_sales,
     }
   }, [displayedMonthlyInput, monthlyStarOverrides.forecast])
-  const financeMetricRow = useMemo(
-    () => buildStitchFinanceMetricRow(baseRows, displayedMonthlyInput, displayedMonthlyMetrics, currentWeek),
-    [baseRows, displayedMonthlyInput, displayedMonthlyMetrics, currentWeek]
-  )
+  const financeMetricRow = useMemo(() => {
+    const row = buildStitchFinanceMetricRow(baseRows, displayedMonthlyInput, displayedMonthlyMetrics, currentWeek)
+    return {
+      ...row,
+      status: monthlyStarOverrides.status ?? row.status,
+      last_week_result: monthlyStarOverrides.last_week_result ?? row.last_week_result,
+    }
+  }, [
+    baseRows,
+    displayedMonthlyInput,
+    displayedMonthlyMetrics,
+    currentWeek,
+    monthlyStarOverrides.last_week_result,
+    monthlyStarOverrides.status,
+  ])
   const leadershipFinanceRows = useMemo(
     () => buildLeadershipFinanceRows([...baseRows, financeMetricRow], leadershipSnapshot, selectedMonth, currentWeek),
     [baseRows, financeMetricRow, leadershipSnapshot, selectedMonth, currentWeek]
@@ -236,6 +249,12 @@ export default function StitchNorthStar() {
       if (!Number.isFinite(parsed)) throw new Error('Enter a valid number')
       const overrideKey = field === 'plan_value' ? 'target_sales' : field === 'actual_mtd' ? 'mtd_actual' : 'forecast'
       setMonthlyStarOverrides(previous => ({ ...previous, [overrideKey]: parsed }))
+      return true
+    }
+
+    if (row.source === 'monthly_star' && (field === 'status' || field === 'last_week_result')) {
+      const overrideValue = field === 'status' ? value as NorthStarStatus : String(value).trim()
+      setMonthlyStarOverrides(previous => ({ ...previous, [field]: overrideValue }))
       return true
     }
 
@@ -522,7 +541,7 @@ function PillarWorkspaceCard({
       </div>
       <div className="mt-3">
         <NarrativeBox
-          label="Last week"
+          label={commentBoxLabel(row)}
           row={row}
           field="last_week_result"
           value={row.last_week_result ?? ''}
@@ -654,7 +673,7 @@ function OwnerDeckModal({
               </div>
 
               <NarrativeBox
-                label="Last week"
+                label={commentBoxLabel(row)}
                 row={row}
                 field="last_week_result"
                 value={row.last_week_result ?? ''}
@@ -912,6 +931,10 @@ function formatGraphValue(value: number, format: 'currency' | 'percent' | 'numbe
 
 function actualMetricLabel(row: NorthStarDisplayRow): string {
   return row.north_star === 'PnL / 9% NOI' ? 'Last month' : 'Actual'
+}
+
+function commentBoxLabel(row: NorthStarDisplayRow): string {
+  return row.source === 'monthly_star' ? 'Comment' : 'Last week'
 }
 
 function StitchMetric({
