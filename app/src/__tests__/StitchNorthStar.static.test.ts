@@ -32,6 +32,9 @@ describe('Stitch North Star page contract', () => {
     expect(pageSource).toContain('OwnerDeckModal')
     expect(pageSource).toContain('FinanceSlideGraph')
     expect(pageSource).toContain('PayrollPieComparisonChart')
+    expect(pageSource).toContain('PayrollPieLegend')
+    expect(pageSource).toContain('buildPieColorMap')
+    expect(pageSource).toContain('aria-label="Payroll pie color legend"')
     expect(pageSource).toContain('CashflowThresholdChart')
     expect(pageSource).toContain('RangeColumnChart')
     expect(pageSource).toContain("This week's move")
@@ -55,11 +58,11 @@ describe('Stitch North Star page contract', () => {
     expect(pageSource).toContain('min-w-[176px]')
   })
 
-  it('keeps Monthly Star metric, status, and comment overrides local to the Stitch session', () => {
+  it('keeps Monthly Star metric overrides local while status and comments survive refresh', () => {
     expect(pageSource).toContain('monthlyStarOverrides')
     expect(pageSource).toContain('setMonthlyStarOverrides')
-    expect(pageSource).toContain('status?: NorthStarStatus')
-    expect(pageSource).toContain('last_week_result?: string')
+    expect(pageSource).toContain('readMonthlyStarPresentationOverrides')
+    expect(pageSource).toContain('writeMonthlyStarPresentationOverrides')
     expect(pageSource).toContain("field === 'status' || field === 'last_week_result'")
     expect(pageSource).toContain('label={commentBoxLabel(row)}')
     expect(pageSource).toContain("return row.source === 'monthly_star' ? 'Comment' : 'Last week'")

@@ -8,6 +8,14 @@ export const STITCH_UNASSIGNED_OWNER = 'Unassigned'
 export const MONTHLY_STAR_FINANCE_PILLAR = 'Finance metrics'
 export const MONTHLY_STAR_FINANCE_NORTH_STAR = 'Monthly sales target / MTD pace'
 export const STITCH_AUTO_FINANCE_FIELDS = ['plan_value', 'actual_mtd', 'forecast'] as const satisfies readonly NorthStarEditableField[]
+export const MONTHLY_STAR_PRESENTATION_OVERRIDE_STORAGE_KEY = 'sanders:stitch-monthly-star-presentation-overrides:v1'
+
+type MonthlyStarPresentationOverrideStorage = Pick<Storage, 'getItem' | 'setItem'>
+
+export interface MonthlyStarPresentationOverrides {
+  status?: NorthStarStatus
+  last_week_result?: string
+}
 
 export interface StitchPillarTab {
   id: string
@@ -18,6 +26,26 @@ export interface StitchPillarTab {
 export interface StitchOwnerDeck {
   owner: string
   rows: NorthStarDisplayRow[]
+}
+
+export function readMonthlyStarPresentationOverrides(
+  periodMonth: string,
+  storage: MonthlyStarPresentationOverrideStorage | null = browserLocalStorage()
+): MonthlyStarPresentationOverrides {
+  if (!storage) return {}
+  return sanitizeMonthlyStarPresentationOverrides(readMonthlyStarPresentationOverrideMap(storage)[periodMonth])
+}
+
+export function writeMonthlyStarPresentationOverrides(
+  periodMonth: string,
+  overrides: MonthlyStarPresentationOverrides,
+  storage: MonthlyStarPresentationOverrideStorage | null = browserLocalStorage()
+): void {
+  if (!storage) return
+  const overrideMap = readMonthlyStarPresentationOverrideMap(storage)
+  const existing = sanitizeMonthlyStarPresentationOverrides(overrideMap[periodMonth])
+  overrideMap[periodMonth] = sanitizeMonthlyStarPresentationOverrides({ ...existing, ...overrides })
+  storage.setItem(MONTHLY_STAR_PRESENTATION_OVERRIDE_STORAGE_KEY, JSON.stringify(overrideMap))
 }
 
 export function scaledChartDomain(values: number[]): { min: number; max: number } {
@@ -431,6 +459,38 @@ function daysBetween(start: Date, end: Date): number {
 
 function roundChartNumber(value: number): number {
   return Number(value.toFixed(2))
+}
+
+function browserLocalStorage(): MonthlyStarPresentationOverrideStorage | null {
+  if (typeof window === 'undefined') return null
+  return window.localStorage
+}
+
+function readMonthlyStarPresentationOverrideMap(storage: MonthlyStarPresentationOverrideStorage): Record<string, MonthlyStarPresentationOverrides> {
+  const raw = storage.getItem(MONTHLY_STAR_PRESENTATION_OVERRIDE_STORAGE_KEY)
+  if (!raw) return {}
+
+  try {
+    const parsed = JSON.parse(raw)
+    return typeof parsed === 'object' && parsed !== null ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function sanitizeMonthlyStarPresentationOverrides(value: unknown): MonthlyStarPresentationOverrides {
+  if (typeof value !== 'object' || value === null) return {}
+  const candidate = value as MonthlyStarPresentationOverrides
+  const sanitized: MonthlyStarPresentationOverrides = {}
+
+  if (candidate.status === 'on_plan' || candidate.status === 'at_risk' || candidate.status === 'off_plan') {
+    sanitized.status = candidate.status
+  }
+  if (typeof candidate.last_week_result === 'string') {
+    sanitized.last_week_result = candidate.last_week_result
+  }
+
+  return sanitized
 }
 
 function pnlForecastConstraint(forecastNoiPct: number | null, benchmarkLabel: string, needsAction: boolean): string {

@@ -53,7 +53,10 @@ import {
   filterRowsByPillar,
   isStitchAutoFinanceField,
   mergeStitchFinanceRows,
+  readMonthlyStarPresentationOverrides,
   scaledChartDomain,
+  writeMonthlyStarPresentationOverrides,
+  type MonthlyStarPresentationOverrides,
   type StitchOwnerDeck,
 } from './StitchNorthStar.helpers'
 
@@ -77,12 +80,10 @@ const STATUS_TEXT_CLASS: Record<NorthStarStatus, string> = {
 
 const COMPACT_FIELDS = new Set<NorthStarEditableField>(['pillar', 'owner', 'plan_value', 'actual_mtd', 'forecast'])
 
-type MonthlyStarOverrideState = {
+type MonthlyStarOverrideState = MonthlyStarPresentationOverrides & {
   target_sales?: number
   mtd_actual?: number
   forecast?: number
-  status?: NorthStarStatus
-  last_week_result?: string
 }
 
 type GeneratedRowOverrideMap = Record<string, Partial<Record<NorthStarEditableField, string | NorthStarStatus>>>
@@ -98,7 +99,7 @@ export default function StitchNorthStar() {
   const [search, setSearch] = useState('')
   const [presentingOwner, setPresentingOwner] = useState<string | null>(null)
   const [activeSlide, setActiveSlide] = useState(0)
-  const [monthlyStarOverrides, setMonthlyStarOverrides] = useState<MonthlyStarOverrideState>({})
+  const [monthlyStarOverrides, setMonthlyStarOverrides] = useState<MonthlyStarOverrideState>(() => readMonthlyStarPresentationOverrides(currentMonth))
   const [generatedRowOverrides, setGeneratedRowOverrides] = useState<GeneratedRowOverrideMap>({})
 
   const { data: savedRows = [], isLoading: rowsLoading, error: rowsError } = useNorthStarRows()
@@ -190,7 +191,7 @@ export default function StitchNorthStar() {
   }, [presentingOwner])
 
   useEffect(() => {
-    setMonthlyStarOverrides({})
+    setMonthlyStarOverrides(readMonthlyStarPresentationOverrides(selectedMonth))
     setGeneratedRowOverrides({})
   }, [selectedMonth])
 
@@ -253,8 +254,11 @@ export default function StitchNorthStar() {
     }
 
     if (row.source === 'monthly_star' && (field === 'status' || field === 'last_week_result')) {
-      const overrideValue = field === 'status' ? value as NorthStarStatus : String(value).trim()
-      setMonthlyStarOverrides(previous => ({ ...previous, [field]: overrideValue }))
+      const presentationOverride: MonthlyStarPresentationOverrides = field === 'status'
+        ? { status: value as NorthStarStatus }
+        : { last_week_result: String(value).trim() }
+      setMonthlyStarOverrides(previous => ({ ...previous, ...presentationOverride }))
+      writeMonthlyStarPresentationOverrides(selectedMonth, presentationOverride)
       return true
     }
 
@@ -853,15 +857,27 @@ function CashflowThresholdChart({ chart }: { chart: NonNullable<NorthStarDisplay
 
 function PayrollPieComparisonChart({ chart }: { chart: NonNullable<NorthStarDisplayRow['chart']> }) {
   const points = chart.comparisonPoints ?? []
+  const colorByLabel = buildPieColorMap(points.map(point => point.label))
   return (
     <div className="grid gap-3 rounded-lg border border-border bg-bg/45 p-3 sm:grid-cols-2">
-      <PiePanel title="Last year" points={points.map(point => ({ label: point.label, value: point.previousValue }))} format={chart.valueFormat} />
-      <PiePanel title="This year" points={points.map(point => ({ label: point.label, value: point.currentValue }))} format={chart.valueFormat} />
+      <PiePanel title="Last year" points={points.map(point => ({ label: point.label, value: point.previousValue }))} format={chart.valueFormat} colorByLabel={colorByLabel} />
+      <PiePanel title="This year" points={points.map(point => ({ label: point.label, value: point.currentValue }))} format={chart.valueFormat} colorByLabel={colorByLabel} />
+      <PayrollPieLegend colorByLabel={colorByLabel} />
     </div>
   )
 }
 
-function PiePanel({ title, points, format }: { title: string; points: Array<{ label: string; value: number }>; format: 'currency' | 'percent' | 'number' }) {
+function PiePanel({
+  title,
+  points,
+  format,
+  colorByLabel,
+}: {
+  title: string
+  points: Array<{ label: string; value: number }>
+  format: 'currency' | 'percent' | 'number'
+  colorByLabel: Map<string, string>
+}) {
   const slices = pieSlices(points)
   return (
     <div>
@@ -870,8 +886,8 @@ function PiePanel({ title, points, format }: { title: string; points: Array<{ la
         {slices.length === 0 ? (
           <circle cx="60" cy="60" r="42" className="fill-surface stroke-border" />
         ) : (
-          slices.map((slice, index) => (
-            <path key={`${title}-${slice.label}`} d={slice.path} fill={PIE_COLORS[index % PIE_COLORS.length]} className="stroke-bg stroke-[1.5]">
+          slices.map(slice => (
+            <path key={`${title}-${slice.label}`} d={slice.path} fill={colorByLabel.get(slice.label) ?? PIE_COLORS[0]} className="stroke-bg stroke-[1.5]">
               <title>{`${slice.label}: ${formatGraphValue(slice.value, format)} (${slice.percent.toFixed(1)}%)`}</title>
             </path>
           ))
@@ -879,6 +895,31 @@ function PiePanel({ title, points, format }: { title: string; points: Array<{ la
       </svg>
     </div>
   )
+}
+
+function PayrollPieLegend({ colorByLabel }: { colorByLabel: Map<string, string> }) {
+  return (
+    <div className="sm:col-span-2">
+      <div className="grid max-h-24 grid-cols-2 gap-x-3 gap-y-1 overflow-y-auto pr-1 sm:grid-cols-3" aria-label="Payroll pie color legend">
+        {Array.from(colorByLabel.entries()).map(([label, color]) => (
+          <div key={label} className="flex min-w-0 items-center gap-2 text-[10px] font-semibold text-text2">
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full border border-bg" style={{ backgroundColor: color }} aria-hidden="true" />
+            <span className="truncate" title={label}>{label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function buildPieColorMap(labels: string[]): Map<string, string> {
+  const colorByLabel = new Map<string, string>()
+  labels.forEach(label => {
+    if (!colorByLabel.has(label)) {
+      colorByLabel.set(label, PIE_COLORS[colorByLabel.size % PIE_COLORS.length])
+    }
+  })
+  return colorByLabel
 }
 
 function pieSlices(points: Array<{ label: string; value: number }>) {

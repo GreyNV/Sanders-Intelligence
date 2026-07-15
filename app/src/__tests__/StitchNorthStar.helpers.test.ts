@@ -8,9 +8,11 @@ import {
   buildOwnerSlideDeck,
   buildStitchFinanceMetricRow,
   buildStitchPillarTabs,
-  scaledChartDomain,
   filterRowsByPillar,
   mergeStitchFinanceMetricRow,
+  readMonthlyStarPresentationOverrides,
+  scaledChartDomain,
+  writeMonthlyStarPresentationOverrides,
 } from '../pages/csuite/StitchNorthStar.helpers'
 
 describe('Stitch North Star helpers', () => {
@@ -97,6 +99,23 @@ describe('Stitch North Star helpers', () => {
     expect(financeRow.owner).toBe('Ryan')
     expect(financeRow.constraint_now).toContain('daily lift')
     expect(financeRow.constraint_now).toContain('%')
+  })
+
+  it('persists Monthly Star presentation status and comment overrides by month', () => {
+    const storage = createMemoryStorage()
+
+    writeMonthlyStarPresentationOverrides('2026-07-01', { status: 'off_plan', last_week_result: 'Discuss channel drag.' }, storage)
+    writeMonthlyStarPresentationOverrides('2026-08-01', { status: 'on_plan', last_week_result: 'August is clean.' }, storage)
+    writeMonthlyStarPresentationOverrides('2026-07-01', { last_week_result: '' }, storage)
+
+    expect(readMonthlyStarPresentationOverrides('2026-07-01', storage)).toEqual({
+      status: 'off_plan',
+      last_week_result: '',
+    })
+    expect(readMonthlyStarPresentationOverrides('2026-08-01', storage)).toEqual({
+      status: 'on_plan',
+      last_week_result: 'August is clean.',
+    })
   })
 
   it('builds Ryan finance rows from the latest leadership snapshot', () => {
@@ -278,6 +297,16 @@ describe('Stitch North Star helpers', () => {
     expect(scaledChartDomain([250, 250])).toEqual({ min: 225, max: 275 })
   })
 })
+
+function createMemoryStorage() {
+  const values = new Map<string, string>()
+  return {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      values.set(key, value)
+    },
+  }
+}
 
 function baseLeadershipSnapshot(overrides: Partial<Parameters<typeof buildLeadershipFinanceRows>[1]> = {}) {
   return {
