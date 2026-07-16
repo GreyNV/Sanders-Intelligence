@@ -9,10 +9,15 @@ import {
   buildStitchFinanceMetricRow,
   buildStitchPillarTabs,
   filterRowsByPillar,
+  leadershipToolOverrideSourceVersion,
   mergeStitchFinanceMetricRow,
+  monthlyStarOverrideSourceVersion,
   readMonthlyStarPresentationOverrides,
+  readStitchAutoRowOverrides,
   scaledChartDomain,
+  stitchAutoRowOverrideKey,
   writeMonthlyStarPresentationOverrides,
+  writeStitchAutoRowOverride,
 } from '../pages/csuite/StitchNorthStar.helpers'
 
 describe('Stitch North Star helpers', () => {
@@ -116,6 +121,60 @@ describe('Stitch North Star helpers', () => {
       status: 'on_plan',
       last_week_result: 'August is clean.',
     })
+  })
+
+  it('persists auto-populated row overrides until that source data changes', () => {
+    const storage = createMemoryStorage()
+    const monthlyKey = stitchAutoRowOverrideKey({ source: 'monthly_star', chart: { kind: 'sales' }, north_star: 'Edited sales title' })
+    const payrollKey = stitchAutoRowOverrideKey({ source: 'leadership_tool', chart: { kind: 'payroll' }, north_star: 'Edited payroll title' })
+
+    writeStitchAutoRowOverride('2026-07-01', 'monthly_star', 'sales-sync-a', monthlyKey, 'status', 'off_plan', storage)
+    writeStitchAutoRowOverride('2026-07-01', 'monthly_star', 'sales-sync-a', monthlyKey, 'last_week_result', 'Sales comment survives refresh.', storage)
+    writeStitchAutoRowOverride('2026-07-01', 'leadership_tool', 'leadership-upload-a', payrollKey, 'forecast', 'Projected payroll override', storage)
+
+    expect(readStitchAutoRowOverrides('2026-07-01', { monthly_star: 'sales-sync-a', leadership_tool: 'leadership-upload-a' }, storage)).toEqual({
+      [monthlyKey]: {
+        status: 'off_plan',
+        last_week_result: 'Sales comment survives refresh.',
+      },
+      [payrollKey]: {
+        forecast: 'Projected payroll override',
+      },
+    })
+    expect(readStitchAutoRowOverrides('2026-07-01', { monthly_star: 'sales-sync-b', leadership_tool: 'leadership-upload-a' }, storage)).toEqual({
+      [payrollKey]: {
+        forecast: 'Projected payroll override',
+      },
+    })
+    expect(readStitchAutoRowOverrides('2026-07-01', { monthly_star: 'sales-sync-a', leadership_tool: 'leadership-upload-b' }, storage)).toEqual({
+      [monthlyKey]: {
+        status: 'off_plan',
+        last_week_result: 'Sales comment survives refresh.',
+      },
+    })
+  })
+
+  it('versions Monthly Star overrides from sync data and leadership overrides from workbook uploads', () => {
+    const firstSalesVersion = monthlyStarOverrideSourceVersion(
+      '2026-07-01',
+      { updated_at: '2026-07-02T00:00:00Z' },
+      {
+        current: [{ synced_at: '2026-07-08T12:00:00Z', revenue: 100 }],
+        previousYear: [{ synced_at: '2026-07-08T12:00:00Z', revenue: 75 }],
+      }
+    )
+    const secondSalesVersion = monthlyStarOverrideSourceVersion(
+      '2026-07-01',
+      { updated_at: '2026-07-02T00:00:00Z' },
+      {
+        current: [{ synced_at: '2026-07-09T12:00:00Z', revenue: 100 }],
+        previousYear: [{ synced_at: '2026-07-08T12:00:00Z', revenue: 75 }],
+      }
+    )
+
+    expect(firstSalesVersion).not.toEqual(secondSalesVersion)
+    expect(leadershipToolOverrideSourceVersion({ uploaded_at: '2026-07-09T15:00:00Z', filename: 'Weekly Reporting Tool.xlsm' }))
+      .not.toEqual(leadershipToolOverrideSourceVersion({ uploaded_at: '2026-07-10T15:00:00Z', filename: 'Weekly Reporting Tool.xlsm' }))
   })
 
   it('builds Ryan finance rows from the latest leadership snapshot', () => {

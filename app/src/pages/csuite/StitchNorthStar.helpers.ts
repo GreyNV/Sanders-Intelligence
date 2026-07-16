@@ -1,7 +1,7 @@
 import { fmtCurrency } from '@/lib/utils'
-import type { LeadershipToolSnapshot, NorthStarStatus } from '@/types'
+import type { LeadershipToolSnapshot, MonthlyStar, NorthStarStatus, SalesDaily } from '@/types'
 import type { MonthlyStarInput, MonthlyStarMetrics, NorthStarDisplayRow, NorthStarEditableField, NorthStarSlideChart } from './NorthStar.helpers'
-import { addMonthsToPeriod, formatMonthlyStarDragChannelNotes, formatPeriodMonth, nextNorthStarSlot } from './NorthStar.helpers'
+import { NORTH_STAR_EDITABLE_FIELDS, addMonthsToPeriod, formatMonthlyStarDragChannelNotes, formatPeriodMonth, nextNorthStarSlot } from './NorthStar.helpers'
 
 export const STITCH_ALL_PILLARS_TAB = '__all__'
 export const STITCH_UNASSIGNED_OWNER = 'Unassigned'
@@ -9,8 +9,20 @@ export const MONTHLY_STAR_FINANCE_PILLAR = 'Finance metrics'
 export const MONTHLY_STAR_FINANCE_NORTH_STAR = 'Monthly sales target / MTD pace'
 export const STITCH_AUTO_FINANCE_FIELDS = ['plan_value', 'actual_mtd', 'forecast'] as const satisfies readonly NorthStarEditableField[]
 export const MONTHLY_STAR_PRESENTATION_OVERRIDE_STORAGE_KEY = 'sanders:stitch-monthly-star-presentation-overrides:v1'
+export const STITCH_AUTO_ROW_OVERRIDE_STORAGE_KEY = 'sanders:stitch-auto-row-overrides:v1'
 
-type MonthlyStarPresentationOverrideStorage = Pick<Storage, 'getItem' | 'setItem'>
+type StitchOverrideStorage = Pick<Storage, 'getItem' | 'setItem'>
+export type StitchAutoRowOverrideSource = 'monthly_star' | 'leadership_tool'
+export type StitchAutoRowOverrideValue = string | NorthStarStatus
+export type StitchAutoRowOverrideMap = Record<string, Partial<Record<NorthStarEditableField, StitchAutoRowOverrideValue>>>
+export type StitchAutoRowOverrideSourceVersions = Partial<Record<StitchAutoRowOverrideSource, string>>
+
+interface StoredStitchAutoRowOverrideSource {
+  sourceVersion: string
+  rows: StitchAutoRowOverrideMap
+}
+
+type StoredStitchAutoRowOverrideMap = Record<string, Partial<Record<StitchAutoRowOverrideSource, StoredStitchAutoRowOverrideSource>>>
 
 export interface MonthlyStarPresentationOverrides {
   status?: NorthStarStatus
@@ -30,7 +42,7 @@ export interface StitchOwnerDeck {
 
 export function readMonthlyStarPresentationOverrides(
   periodMonth: string,
-  storage: MonthlyStarPresentationOverrideStorage | null = browserLocalStorage()
+  storage: StitchOverrideStorage | null = browserLocalStorage()
 ): MonthlyStarPresentationOverrides {
   if (!storage) return {}
   return sanitizeMonthlyStarPresentationOverrides(readMonthlyStarPresentationOverrideMap(storage)[periodMonth])
@@ -39,13 +51,99 @@ export function readMonthlyStarPresentationOverrides(
 export function writeMonthlyStarPresentationOverrides(
   periodMonth: string,
   overrides: MonthlyStarPresentationOverrides,
-  storage: MonthlyStarPresentationOverrideStorage | null = browserLocalStorage()
+  storage: StitchOverrideStorage | null = browserLocalStorage()
 ): void {
   if (!storage) return
   const overrideMap = readMonthlyStarPresentationOverrideMap(storage)
   const existing = sanitizeMonthlyStarPresentationOverrides(overrideMap[periodMonth])
   overrideMap[periodMonth] = sanitizeMonthlyStarPresentationOverrides({ ...existing, ...overrides })
   storage.setItem(MONTHLY_STAR_PRESENTATION_OVERRIDE_STORAGE_KEY, JSON.stringify(overrideMap))
+}
+
+export function stitchAutoRowOverrideKey(row: Pick<NorthStarDisplayRow, 'source' | 'north_star'> & { chart?: Pick<NorthStarSlideChart, 'kind'> | null }): string {
+  const source = row.source ?? 'persisted'
+  const identity = row.chart?.kind ?? normalizeTabId(row.north_star)
+  return `${source}:${identity}`
+}
+
+export function monthlyStarOverrideSourceVersion(
+  periodMonth: string,
+  monthlyStar: Pick<MonthlyStar, 'updated_at'> | null,
+  salesRows?: {
+    current?: Array<Pick<SalesDaily, 'synced_at' | 'revenue'>>
+    previousYear?: Array<Pick<SalesDaily, 'synced_at' | 'revenue'>>
+  } | null
+): string {
+  const currentRows = salesRows?.current ?? []
+  const previousRows = salesRows?.previousYear ?? []
+  const allSalesRows = [...currentRows, ...previousRows]
+
+  return [
+    'monthly_star',
+    periodMonth,
+    monthlyStar?.updated_at ?? 'no-monthly-star',
+    latestSyncedAt(allSalesRows) ?? 'no-sales-sync',
+    currentRows.length,
+    roundVersionNumber(sumRevenue(currentRows)),
+    previousRows.length,
+    roundVersionNumber(sumRevenue(previousRows)),
+  ].join('|')
+}
+
+export function leadershipToolOverrideSourceVersion(snapshot: Pick<LeadershipToolSnapshot, 'uploaded_at' | 'filename'> | null | undefined): string {
+  return ['leadership_tool', snapshot?.uploaded_at ?? 'no-upload', snapshot?.filename ?? 'no-file'].join('|')
+}
+
+export function readStitchAutoRowOverrides(
+  periodMonth: string,
+  sourceVersions: StitchAutoRowOverrideSourceVersions,
+  storage: StitchOverrideStorage | null = browserLocalStorage()
+): StitchAutoRowOverrideMap {
+  if (!storage) return {}
+  const overrideMap = readStitchAutoRowOverrideMap(storage)
+  const periodOverrides = overrideMap[periodMonth]
+  if (!periodOverrides) return {}
+
+  const result: StitchAutoRowOverrideMap = {}
+  for (const source of stitchAutoRowOverrideSources()) {
+    const expectedSourceVersion = sourceVersions[source]
+    const sourceOverrides = periodOverrides[source]
+    if (!expectedSourceVersion || !sourceOverrides || sourceOverrides.sourceVersion !== expectedSourceVersion) continue
+    Object.assign(result, sanitizeStitchAutoRowOverrideRows(sourceOverrides.rows))
+  }
+
+  return result
+}
+
+export function writeStitchAutoRowOverride(
+  periodMonth: string,
+  source: StitchAutoRowOverrideSource,
+  sourceVersion: string,
+  rowKey: string,
+  field: NorthStarEditableField,
+  value: StitchAutoRowOverrideValue,
+  storage: StitchOverrideStorage | null = browserLocalStorage()
+): void {
+  if (!storage) return
+
+  const overrideMap = readStitchAutoRowOverrideMap(storage)
+  const periodOverrides = overrideMap[periodMonth] ?? {}
+  const existingSourceOverrides = sanitizeStoredStitchAutoRowOverrideSource(periodOverrides[source])
+  const sourceRows = existingSourceOverrides?.sourceVersion === sourceVersion ? existingSourceOverrides.rows : {}
+  const existingRowOverrides = sourceRows[rowKey] ?? {}
+
+  periodOverrides[source] = {
+    sourceVersion,
+    rows: {
+      ...sourceRows,
+      [rowKey]: sanitizeStitchAutoRowOverrideRow({
+        ...existingRowOverrides,
+        [field]: value,
+      }),
+    },
+  }
+  overrideMap[periodMonth] = periodOverrides
+  storage.setItem(STITCH_AUTO_ROW_OVERRIDE_STORAGE_KEY, JSON.stringify(overrideMap))
 }
 
 export function scaledChartDomain(values: number[]): { min: number; max: number } {
@@ -461,12 +559,12 @@ function roundChartNumber(value: number): number {
   return Number(value.toFixed(2))
 }
 
-function browserLocalStorage(): MonthlyStarPresentationOverrideStorage | null {
+function browserLocalStorage(): StitchOverrideStorage | null {
   if (typeof window === 'undefined') return null
   return window.localStorage
 }
 
-function readMonthlyStarPresentationOverrideMap(storage: MonthlyStarPresentationOverrideStorage): Record<string, MonthlyStarPresentationOverrides> {
+function readMonthlyStarPresentationOverrideMap(storage: StitchOverrideStorage): Record<string, MonthlyStarPresentationOverrides> {
   const raw = storage.getItem(MONTHLY_STAR_PRESENTATION_OVERRIDE_STORAGE_KEY)
   if (!raw) return {}
 
@@ -491,6 +589,85 @@ function sanitizeMonthlyStarPresentationOverrides(value: unknown): MonthlyStarPr
   }
 
   return sanitized
+}
+
+function readStitchAutoRowOverrideMap(storage: StitchOverrideStorage): StoredStitchAutoRowOverrideMap {
+  const raw = storage.getItem(STITCH_AUTO_ROW_OVERRIDE_STORAGE_KEY)
+  if (!raw) return {}
+
+  try {
+    const parsed = JSON.parse(raw)
+    return typeof parsed === 'object' && parsed !== null ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function sanitizeStoredStitchAutoRowOverrideSource(value: unknown): StoredStitchAutoRowOverrideSource | null {
+  if (typeof value !== 'object' || value === null) return null
+  const candidate = value as StoredStitchAutoRowOverrideSource
+  if (typeof candidate.sourceVersion !== 'string') return null
+
+  return {
+    sourceVersion: candidate.sourceVersion,
+    rows: sanitizeStitchAutoRowOverrideRows(candidate.rows),
+  }
+}
+
+function sanitizeStitchAutoRowOverrideRows(value: unknown): StitchAutoRowOverrideMap {
+  if (typeof value !== 'object' || value === null) return {}
+
+  const sanitized: StitchAutoRowOverrideMap = {}
+  for (const [rowKey, rowOverrides] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof rowKey !== 'string' || rowKey.trim().length === 0) continue
+    const sanitizedRow = sanitizeStitchAutoRowOverrideRow(rowOverrides)
+    if (Object.keys(sanitizedRow).length > 0) {
+      sanitized[rowKey] = sanitizedRow
+    }
+  }
+
+  return sanitized
+}
+
+function sanitizeStitchAutoRowOverrideRow(value: unknown): Partial<Record<NorthStarEditableField, StitchAutoRowOverrideValue>> {
+  if (typeof value !== 'object' || value === null) return {}
+
+  const allowedFields = new Set<NorthStarEditableField>(NORTH_STAR_EDITABLE_FIELDS)
+  const sanitized: Partial<Record<NorthStarEditableField, StitchAutoRowOverrideValue>> = {}
+  for (const [field, fieldValue] of Object.entries(value as Record<string, unknown>)) {
+    if (!allowedFields.has(field as NorthStarEditableField)) continue
+    if (field === 'status') {
+      if (fieldValue === 'on_plan' || fieldValue === 'at_risk' || fieldValue === 'off_plan') {
+        sanitized.status = fieldValue
+      }
+      continue
+    }
+    if (typeof fieldValue === 'string') {
+      sanitized[field as NorthStarEditableField] = fieldValue
+    }
+  }
+
+  return sanitized
+}
+
+function stitchAutoRowOverrideSources(): StitchAutoRowOverrideSource[] {
+  return ['monthly_star', 'leadership_tool']
+}
+
+function latestSyncedAt(rows: Array<Pick<SalesDaily, 'synced_at'>>): string | null {
+  const syncedDates = rows
+    .map(row => row.synced_at)
+    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    .sort()
+  return syncedDates.length > 0 ? syncedDates[syncedDates.length - 1] : null
+}
+
+function sumRevenue(rows: Array<Pick<SalesDaily, 'revenue'>>): number {
+  return rows.reduce((sum, row) => sum + Number(row.revenue ?? 0), 0)
+}
+
+function roundVersionNumber(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(2) : '0.00'
 }
 
 function pnlForecastConstraint(forecastNoiPct: number | null, benchmarkLabel: string, needsAction: boolean): string {

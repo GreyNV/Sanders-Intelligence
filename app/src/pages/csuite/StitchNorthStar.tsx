@@ -46,17 +46,22 @@ import {
 } from './NorthStar.helpers'
 import {
   STITCH_ALL_PILLARS_TAB,
+  MONTHLY_STAR_FINANCE_NORTH_STAR,
   buildLeadershipFinanceRows,
   buildStitchFinanceMetricRow,
   buildOwnerSlideDeck,
   buildStitchPillarTabs,
   filterRowsByPillar,
   isStitchAutoFinanceField,
+  leadershipToolOverrideSourceVersion,
   mergeStitchFinanceRows,
-  readMonthlyStarPresentationOverrides,
+  monthlyStarOverrideSourceVersion,
+  readStitchAutoRowOverrides,
   scaledChartDomain,
-  writeMonthlyStarPresentationOverrides,
-  type MonthlyStarPresentationOverrides,
+  stitchAutoRowOverrideKey,
+  writeStitchAutoRowOverride,
+  type StitchAutoRowOverrideMap,
+  type StitchAutoRowOverrideSourceVersions,
   type StitchOwnerDeck,
 } from './StitchNorthStar.helpers'
 
@@ -80,14 +85,6 @@ const STATUS_TEXT_CLASS: Record<NorthStarStatus, string> = {
 
 const COMPACT_FIELDS = new Set<NorthStarEditableField>(['pillar', 'owner', 'plan_value', 'actual_mtd', 'forecast'])
 
-type MonthlyStarOverrideState = MonthlyStarPresentationOverrides & {
-  target_sales?: number
-  mtd_actual?: number
-  forecast?: number
-}
-
-type GeneratedRowOverrideMap = Record<string, Partial<Record<NorthStarEditableField, string | NorthStarStatus>>>
-
 export default function StitchNorthStar() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
@@ -99,8 +96,7 @@ export default function StitchNorthStar() {
   const [search, setSearch] = useState('')
   const [presentingOwner, setPresentingOwner] = useState<string | null>(null)
   const [activeSlide, setActiveSlide] = useState(0)
-  const [monthlyStarOverrides, setMonthlyStarOverrides] = useState<MonthlyStarOverrideState>(() => readMonthlyStarPresentationOverrides(currentMonth))
-  const [generatedRowOverrides, setGeneratedRowOverrides] = useState<GeneratedRowOverrideMap>({})
+  const [generatedRowOverrides, setGeneratedRowOverrides] = useState<StitchAutoRowOverrideMap>({})
 
   const { data: savedRows = [], isLoading: rowsLoading, error: rowsError } = useNorthStarRows()
   const { data: monthlyStar = null, isLoading: monthlyLoading, error: monthlyError } = useMonthlyStar(selectedMonth)
@@ -112,6 +108,22 @@ export default function StitchNorthStar() {
   const baseRows = useMemo(() => mergeNorthStarRows(savedRows, selectedMonth, currentWeek), [savedRows, selectedMonth, currentWeek])
   const salesWindows = useMemo(() => monthlyStarSalesWindows(selectedMonth), [selectedMonth])
   const manualMonthlyInput = useMemo(() => monthlyStarToInput(monthlyStar, selectedMonth), [monthlyStar, selectedMonth])
+  const autoRowSourceVersions = useMemo<StitchAutoRowOverrideSourceVersions>(() => ({
+    monthly_star: monthlyStarOverrideSourceVersion(selectedMonth, monthlyStar, salesRows),
+    leadership_tool: leadershipToolOverrideSourceVersion(leadershipSnapshot),
+  }), [selectedMonth, monthlyStar, salesRows, leadershipSnapshot])
+  const monthlyStarRowOverrideKey = useMemo(
+    () => stitchAutoRowOverrideKey({ source: 'monthly_star', chart: { kind: 'sales' }, north_star: MONTHLY_STAR_FINANCE_NORTH_STAR }),
+    []
+  )
+  const monthlyStarMetricOverrides = useMemo(() => {
+    const rowOverrides = generatedRowOverrides[monthlyStarRowOverrideKey]
+    return {
+      target_sales: metricOverrideNumber(rowOverrides?.plan_value),
+      mtd_actual: metricOverrideNumber(rowOverrides?.actual_mtd),
+      forecast: metricOverrideNumber(rowOverrides?.forecast),
+    }
+  }, [generatedRowOverrides, monthlyStarRowOverrideKey])
   const monthlyInput = useMemo(() => {
     if (!salesRows?.current.length) return manualMonthlyInput
     return deriveMonthlyStarFromSalesRows({
@@ -125,34 +137,22 @@ export default function StitchNorthStar() {
   }, [salesRows, manualMonthlyInput, selectedMonth, salesWindows])
   const displayedMonthlyInput = useMemo(() => ({
     ...monthlyInput,
-    target_sales: monthlyStarOverrides.target_sales ?? monthlyInput.target_sales,
-    mtd_actual: monthlyStarOverrides.mtd_actual ?? monthlyInput.mtd_actual,
-  }), [monthlyInput, monthlyStarOverrides.mtd_actual, monthlyStarOverrides.target_sales])
+    target_sales: monthlyStarMetricOverrides.target_sales ?? monthlyInput.target_sales,
+    mtd_actual: monthlyStarMetricOverrides.mtd_actual ?? monthlyInput.mtd_actual,
+  }), [monthlyInput, monthlyStarMetricOverrides.mtd_actual, monthlyStarMetricOverrides.target_sales])
   const displayedMonthlyMetrics = useMemo(() => {
     const metrics = computeMonthlyStarMetrics(displayedMonthlyInput)
-    if (monthlyStarOverrides.forecast === undefined) return metrics
+    if (monthlyStarMetricOverrides.forecast === undefined) return metrics
 
     return {
       ...metrics,
-      projectedMonthEnd: monthlyStarOverrides.forecast,
-      onTrack: monthlyStarOverrides.forecast >= displayedMonthlyInput.target_sales,
+      projectedMonthEnd: monthlyStarMetricOverrides.forecast,
+      onTrack: monthlyStarMetricOverrides.forecast >= displayedMonthlyInput.target_sales,
     }
-  }, [displayedMonthlyInput, monthlyStarOverrides.forecast])
+  }, [displayedMonthlyInput, monthlyStarMetricOverrides.forecast])
   const financeMetricRow = useMemo(() => {
-    const row = buildStitchFinanceMetricRow(baseRows, displayedMonthlyInput, displayedMonthlyMetrics, currentWeek)
-    return {
-      ...row,
-      status: monthlyStarOverrides.status ?? row.status,
-      last_week_result: monthlyStarOverrides.last_week_result ?? row.last_week_result,
-    }
-  }, [
-    baseRows,
-    displayedMonthlyInput,
-    displayedMonthlyMetrics,
-    currentWeek,
-    monthlyStarOverrides.last_week_result,
-    monthlyStarOverrides.status,
-  ])
+    return buildStitchFinanceMetricRow(baseRows, displayedMonthlyInput, displayedMonthlyMetrics, currentWeek)
+  }, [baseRows, displayedMonthlyInput, displayedMonthlyMetrics, currentWeek])
   const leadershipFinanceRows = useMemo(
     () => buildLeadershipFinanceRows([...baseRows, financeMetricRow], leadershipSnapshot, selectedMonth, currentWeek),
     [baseRows, financeMetricRow, leadershipSnapshot, selectedMonth, currentWeek]
@@ -191,9 +191,8 @@ export default function StitchNorthStar() {
   }, [presentingOwner])
 
   useEffect(() => {
-    setMonthlyStarOverrides(readMonthlyStarPresentationOverrides(selectedMonth))
-    setGeneratedRowOverrides({})
-  }, [selectedMonth])
+    setGeneratedRowOverrides(readStitchAutoRowOverrides(selectedMonth, autoRowSourceVersions))
+  }, [selectedMonth, autoRowSourceVersions])
 
   useEffect(() => {
     if (presentingOwner && !selectedDeck) {
@@ -248,25 +247,14 @@ export default function StitchNorthStar() {
     if (row.source === 'monthly_star' && (field === 'plan_value' || field === 'actual_mtd' || field === 'forecast')) {
       const parsed = parseMetricNumber(String(value))
       if (!Number.isFinite(parsed)) throw new Error('Enter a valid number')
-      const overrideKey = field === 'plan_value' ? 'target_sales' : field === 'actual_mtd' ? 'mtd_actual' : 'forecast'
-      setMonthlyStarOverrides(previous => ({ ...previous, [overrideKey]: parsed }))
-      return true
-    }
-
-    if (row.source === 'monthly_star' && (field === 'status' || field === 'last_week_result')) {
-      const presentationOverride: MonthlyStarPresentationOverrides = field === 'status'
-        ? { status: value as NorthStarStatus }
-        : { last_week_result: String(value).trim() }
-      setMonthlyStarOverrides(previous => ({ ...previous, ...presentationOverride }))
-      writeMonthlyStarPresentationOverrides(selectedMonth, presentationOverride)
-      return true
     }
 
     if (row.source !== 'monthly_star' && row.source !== 'leadership_tool') return false
     if (field === 'pillar' || field === 'owner') return true
 
     const textValue = typeof value === 'string' ? value.trim() : value
-    const key = generatedRowSessionKey(row)
+    const key = stitchAutoRowOverrideKey(row)
+    const sourceVersion = autoRowSourceVersions[row.source]
     setGeneratedRowOverrides(previous => ({
       ...previous,
       [key]: {
@@ -274,6 +262,9 @@ export default function StitchNorthStar() {
         [field]: textValue,
       },
     }))
+    if (sourceVersion) {
+      writeStitchAutoRowOverride(selectedMonth, row.source, sourceVersion, key, field, textValue)
+    }
     return true
   }
 
@@ -1250,17 +1241,19 @@ function countStatuses(rows: NorthStarDisplayRow[]): Record<NorthStarStatus, num
   )
 }
 
-function applyGeneratedRowOverrides(row: NorthStarDisplayRow, overrides: GeneratedRowOverrideMap): NorthStarDisplayRow {
+function applyGeneratedRowOverrides(row: NorthStarDisplayRow, overrides: StitchAutoRowOverrideMap): NorthStarDisplayRow {
   if (row.source !== 'monthly_star' && row.source !== 'leadership_tool') return row
-  const rowOverrides = overrides[generatedRowSessionKey(row)]
+  const rowOverrides = overrides[stitchAutoRowOverrideKey(row)]
   if (!rowOverrides) return row
   return { ...row, ...rowOverrides } as NorthStarDisplayRow
 }
 
-function generatedRowSessionKey(row: NorthStarDisplayRow): string {
-  return `${row.source ?? 'persisted'}:${row.pillar}:${row.north_star}`
-}
-
 function parseMetricNumber(value: string): number {
   return Number(value.replace(/[$,\s]/g, ''))
+}
+
+function metricOverrideNumber(value: string | NorthStarStatus | undefined): number | undefined {
+  if (typeof value !== 'string') return undefined
+  const parsed = parseMetricNumber(value)
+  return Number.isFinite(parsed) ? parsed : undefined
 }

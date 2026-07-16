@@ -58,12 +58,14 @@ describe('Stitch North Star page contract', () => {
     expect(pageSource).toContain('min-w-[176px]')
   })
 
-  it('keeps Monthly Star metric overrides local while status and comments survive refresh', () => {
-    expect(pageSource).toContain('monthlyStarOverrides')
-    expect(pageSource).toContain('setMonthlyStarOverrides')
-    expect(pageSource).toContain('readMonthlyStarPresentationOverrides')
-    expect(pageSource).toContain('writeMonthlyStarPresentationOverrides')
-    expect(pageSource).toContain("field === 'status' || field === 'last_week_result'")
+  it('persists auto-populated slide overrides until source data changes', () => {
+    expect(pageSource).toContain('generatedRowOverrides')
+    expect(pageSource).toContain('setGeneratedRowOverrides')
+    expect(pageSource).toContain('monthlyStarOverrideSourceVersion')
+    expect(pageSource).toContain('leadershipToolOverrideSourceVersion')
+    expect(pageSource).toContain('readStitchAutoRowOverrides')
+    expect(pageSource).toContain('writeStitchAutoRowOverride')
+    expect(pageSource).toContain('stitchAutoRowOverrideKey')
     expect(pageSource).toContain('label={commentBoxLabel(row)}')
     expect(pageSource).toContain("return row.source === 'monthly_star' ? 'Comment' : 'Last week'")
     expect(pageSource).toContain('useLeadershipSnapshot')
