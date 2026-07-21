@@ -16,7 +16,8 @@ const from = requireArg(args.from, '--from')
 const to = requireArg(args.to, '--to')
 const maxPages = numberArg(args.maxPages, 20)
 const pageSize = numberArg(args.pageSize, 50)
-const dateParamPreset = args.dateParamPreset ?? 'createdOn'
+const dateParamPreset = args.dateParamPreset ?? 'shipDate'
+const saleDatePreset = args.saleDatePreset ?? 'shipDate'
 const url = nonEmpty(env.VITE_SUPABASE_URL)
 const key = nonEmpty(env.SUPABASE_SERVICE_ROLE_KEY) ?? nonEmpty(env.SUPABASE_SERVICE_KEY)
 
@@ -28,7 +29,7 @@ const state = loadState()
 const dates = eachDate(from, to)
 
 for (const date of dates) {
-  const stateKey = `${dateParamPreset}:${date}`
+  const stateKey = `${dateParamPreset}:${saleDatePreset}:${date}`
   if (state.completed?.[stateKey] && args.resume !== 'false') {
     console.log(`skip date=${date} status=completed`)
     continue
@@ -44,9 +45,11 @@ for (const date of dates) {
       dateFrom: date,
       dateTo: date,
       dateParamPreset,
+      saleDatePreset,
       maxPages,
       pageSize,
       startPage,
+      replaceDate: startPage === 1,
     })
 
     calls += 1

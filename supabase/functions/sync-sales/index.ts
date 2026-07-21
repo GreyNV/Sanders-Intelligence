@@ -13,6 +13,82 @@ const CURSOR_OVERLAP_MINUTES = 5
 const DEFAULT_DATE_PARAM_PRESET = 'shipDate'
 const DEFAULT_SALE_DATE_PRESET = 'shipDate'
 const DEFAULT_BUSINESS_TIME_ZONE = 'America/New_York'
+const ORDER_SOURCE_BY_ID: Record<string, string> = {
+  '0': 'Local_Store',
+  '1': 'eBayOrder',
+  '2': 'eBaySingleItem',
+  '3': 'Yahoo',
+  '4': 'Amazon',
+  '5': 'PriceGrabber',
+  '6': 'Website',
+  '7': 'Buy',
+  '12': 'NewEggMall',
+  '15': 'Magento',
+  '16': 'QuickBooks',
+  '17': 'RMS',
+  '18': 'Cart32',
+  '19': 'Sears',
+  '20': 'FBA',
+  '21': 'Wholesale',
+  '22': 'Overstock',
+  '23': 'NewEggdotcom',
+  '24': 'Etsy',
+  '25': 'Bonanza',
+  '26': 'PriceFalls',
+  '27': 'Wayfair',
+  '28': 'UnbeatableSale',
+  '29': 'VendorCentral',
+  '30': 'Hayneedle',
+  '31': 'SmartBargains',
+  '32': 'uBid',
+  '33': 'ATGStores',
+  '34': 'StacksAndStacks',
+  '35': 'Sharkstores',
+  '36': 'BestBuy',
+  '37': 'Kohls',
+  '38': 'Staples',
+  '39': 'OneStopPlus',
+  '40': 'Meijer',
+  '41': 'Sonsi',
+  '42': 'Walmart',
+  '43': 'HSN',
+  '44': 'NewEgg_Business',
+  '45': 'KMart',
+  '46': 'Wish',
+  '47': 'SPRichards',
+  '48': 'FingerHut',
+  '49': 'Groupon',
+  '50': 'Walmart_Marketplace',
+  '51': 'ShopHQ',
+  '52': 'PriceMinister',
+  '53': 'GS',
+  '54': 'DrugStore',
+  '55': 'MercadoLibre',
+  '56': 'JET',
+  '57': 'ElevenMain',
+  '58': 'SearsVendor',
+  '59': 'Choxi',
+  '60': 'TradeMe',
+  '61': 'Tanga',
+  '62': 'Target',
+  '63': 'GrouponMarketplace',
+  '64': 'Reverb',
+  '65': 'BedBathAndBeyond',
+  '66': 'Dropship_Central',
+  '67': 'DSW',
+  '68': 'Houzz',
+  '69': 'Gilt',
+  '70': 'BestBuyDS',
+  '71': 'TopHatter',
+  '72': 'HomeDepot',
+  '73': 'MassGenie',
+  '74': 'Cdiscount',
+  '75': 'GrouponGateway',
+  '76': 'SBN',
+  '77': 'GoogleExpress',
+  '78': 'Target_Plus',
+  '79': 'WFS',
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -33,7 +109,11 @@ Deno.serve(async (req) => {
     const { rows, totalResults, pagesFetched } = await fetchSalesRows(base, endpoint, token, options, syncState.startPage, syncState.queryCursor)
     const bridge = await loadSkuBridge(supabase)
     const rowsInWindow = filterRowsBySaleDate(rows, options)
-    const salesRows = aggregateSalesRows(rowsInWindow, bridge, endpoint, options)
+    let salesRows = aggregateSalesRows(rowsInWindow, bridge, endpoint, options)
+    const synced = salesRows.length
+    const revenue = sumField(salesRows, 'revenue')
+    const units = sumField(salesRows, 'units_sold')
+    const ordersCount = sumField(salesRows, 'orders_count')
 
     if (!options.dryRun && options.replaceDate && options.dateFrom && options.dateFrom === options.dateTo) {
       const { error } = await supabase
@@ -44,9 +124,13 @@ Deno.serve(async (req) => {
     }
 
     if (!options.dryRun && salesRows.length > 0) {
+      if (shouldMergeSalesRowsWithExisting(options)) {
+        salesRows = await mergeSalesRowsWithExisting(supabase, salesRows)
+      }
+
       const { error } = await supabase
         .from('sales_daily')
-        .upsert(salesRows, { onConflict: 'sale_date,channel,source_sku' })
+        .upsert(salesRows, { onConflict: 'sale_date,raw_company,raw_channel,source_sku' })
       if (error) throw error
     }
 
@@ -67,12 +151,12 @@ Deno.serve(async (req) => {
     return json({
       dryRun: options.dryRun,
       replaceDate: options.replaceDate,
-      synced: salesRows.length,
+      synced,
       sourceRows: rows.length,
       sourceRowsInWindow: rowsInWindow.length,
-      revenue: sumField(salesRows, 'revenue'),
-      units: sumField(salesRows, 'units_sold'),
-      ordersCount: sumField(salesRows, 'orders_count'),
+      revenue,
+      units,
+      ordersCount,
       endpoint,
       incrementalFrom: syncState.queryCursor,
       dateFrom: options.dateFrom,
@@ -246,7 +330,8 @@ async function fetchSalesRows(
 }
 
 async function enrichOrdersWithProfitAndLoss(base: string, token: string, orders: JsonRecord[]): Promise<JsonRecord[]> {
-  const orderIds = orders
+  const candidates = orders.filter(needsProfitAndLoss)
+  const orderIds = candidates
     .map(order => nullableText(first(order, ['ID', 'Id', 'OrderID', 'OrderId', 'orderID', 'orderId'])))
     .filter((value): value is string => Boolean(value))
   if (orderIds.length === 0) return orders
@@ -279,6 +364,22 @@ async function enrichOrdersWithProfitAndLoss(base: string, token: string, orders
     const pnl = orderId ? profitAndLoss.get(orderId) : null
     return pnl ? { ...order, ProfitAndLoss: pnl, ...profitAndLossFields(pnl) } : order
   })
+}
+
+function needsProfitAndLoss(order: JsonRecord): boolean {
+  const grandTotal = nullableNumber(first(order, ['GrandTotal', 'grandTotal']))
+  if (grandTotal != null && grandTotal > 0) return false
+
+  const detailGrandTotal = nullableNumber(first(order, ['DetailGrandTotal', 'detailGrandTotal']))
+  if (detailGrandTotal != null && detailGrandTotal > 0) return false
+
+  return !orderHasPositiveLineRevenue(order)
+}
+
+function orderHasPositiveLineRevenue(order: JsonRecord): boolean {
+  const items = extractRows(order)
+  if (items.length === 0) return hasPositiveLineRevenue(order)
+  return items.some(item => hasPositiveLineRevenue(item))
 }
 
 function profitAndLossFields(row: JsonRecord): JsonRecord {
@@ -431,6 +532,73 @@ async function loadSkuBridge(supabase: ReturnType<typeof createClient>): Promise
   return bridge
 }
 
+function shouldMergeSalesRowsWithExisting(options: SyncOptions): boolean {
+  return Boolean(
+    options.startPage &&
+    options.startPage > 1 &&
+    options.dateFrom &&
+    options.dateFrom === options.dateTo
+  )
+}
+
+async function mergeSalesRowsWithExisting(
+  supabase: ReturnType<typeof createClient>,
+  salesRows: JsonRecord[]
+): Promise<JsonRecord[]> {
+  const saleDates = Array.from(new Set(salesRows.map(row => nullableText(row.sale_date)).filter((value): value is string => Boolean(value))))
+  if (saleDates.length === 0) return salesRows
+
+  const existingRows: JsonRecord[] = []
+  let from = 0
+  const pageSize = 1000
+  while (true) {
+    const { data, error } = await supabase
+      .from('sales_daily')
+      .select('sale_date,raw_company,raw_channel,channel,source_sku,units_sold,revenue,orders_count,source_payload')
+      .in('sale_date', saleDates)
+      .range(from, from + pageSize - 1)
+    if (error) throw error
+
+    const page = (data ?? []) as JsonRecord[]
+    existingRows.push(...page)
+    if (page.length < pageSize) break
+    from += pageSize
+  }
+
+  const existingByKey = new Map(existingRows.map(row => [salesRowKey(row), row]))
+  return salesRows.map(row => {
+    const existing = existingByKey.get(salesRowKey(row))
+    if (!existing) return row
+
+    return {
+      ...row,
+      units_sold: Number(existing.units_sold ?? 0) + Number(row.units_sold ?? 0),
+      revenue: Number((Number(existing.revenue ?? 0) + Number(row.revenue ?? 0)).toFixed(2)),
+      orders_count: Number(existing.orders_count ?? 0) + Number(row.orders_count ?? 0),
+      source_payload: mergedSourcePayload(existing.source_payload, row.source_payload),
+    }
+  })
+}
+
+function salesRowKey(row: JsonRecord): string {
+  return [
+    nullableText(row.sale_date) ?? '',
+    nullableText(row.raw_company) ?? 'Unassigned',
+    nullableText(row.raw_channel) ?? nullableText(row.channel) ?? 'Unassigned',
+    nullableText(row.source_sku) ?? '',
+  ].join('|')
+}
+
+function mergedSourcePayload(existingPayload: unknown, nextPayload: unknown): JsonRecord {
+  const existing = isRecord(existingPayload) ? existingPayload : {}
+  const next = isRecord(nextPayload) ? nextPayload : {}
+  return {
+    ...next,
+    sample_count: Number(existing.sample_count ?? 0) + Number(next.sample_count ?? 0),
+    chunk_merged: true,
+  }
+}
+
 function aggregateSalesRows(rows: JsonRecord[], bridge: Map<string, string>, endpoint: string, options: SyncOptions): JsonRecord[] {
   const map = new Map<string, JsonRecord>()
   const orderRevenue = orderRevenueAllocations(rows)
@@ -438,17 +606,21 @@ function aggregateSalesRows(rows: JsonRecord[], bridge: Map<string, string>, end
     const saleDate = saleDateOnly(row, options)
     const sourceSku = nullableText(first(row, ['ProductID', 'ProductId', 'productId', 'SKU', 'sku', 'Sku']))
     if (!saleDate || !sourceSku) continue
-    const channel = nullableText(first(row, ['Channel', 'channel', 'CompanyName', 'companyName', 'Company', 'company'])) ?? 'Unassigned'
-    const key = `${saleDate}|${channel}|${sourceSku}`
+    const rawCompany = nullableText(first(row, ['CompanyName', 'companyName', 'Company', 'company'])) ?? 'Unassigned'
+    const rawChannel = sellerCloudChannel(row)
+    const channel = rawChannel
+    const key = `${saleDate}|${rawCompany}|${rawChannel}|${sourceSku}`
     const existing = map.get(key) ?? {
       sale_date: saleDate,
+      raw_company: rawCompany,
+      raw_channel: rawChannel,
       channel,
       source_sku: sourceSku,
       planning_sku: bridge.get(sourceSku.toLowerCase()) ?? null,
       units_sold: 0,
       revenue: 0,
       orders_count: 0,
-      source_payload: { endpoint, sample_count: 0 },
+      source_payload: { endpoint, sellercloud_company: rawCompany, sellercloud_channel: rawChannel, sample_count: 0 },
       synced_at: new Date().toISOString(),
     }
     existing.units_sold = Number(existing.units_sold) + (nullableNumber(first(row, ['Qty', 'qty', 'Quantity', 'quantity', 'QtySold', 'qtySold'])) ?? 0)
@@ -456,11 +628,28 @@ function aggregateSalesRows(rows: JsonRecord[], bridge: Map<string, string>, end
     existing.orders_count = Number(existing.orders_count) + 1
     existing.source_payload = {
       endpoint,
+      sellercloud_company: rawCompany,
+      sellercloud_channel: rawChannel,
       sample_count: Number((existing.source_payload as JsonRecord).sample_count ?? 0) + 1,
     }
     map.set(key, existing)
   }
   return Array.from(map.values())
+}
+
+function sellerCloudChannel(row: JsonRecord): string {
+  const raw = nullableText(first(row, [
+    'Channel',
+    'channel',
+    'OrderSource',
+    'orderSource',
+    'OrderSourceName',
+    'orderSourceName',
+    'Source',
+    'source',
+  ]))
+  if (!raw) return 'Unassigned'
+  return ORDER_SOURCE_BY_ID[raw] ?? raw
 }
 
 interface OrderRevenueGroup {
@@ -513,6 +702,7 @@ function revenueForRow(row: JsonRecord, orderRevenueGroups: Map<string, OrderRev
 function reportGrandTotal(row: JsonRecord): ReportOrderTotal | null {
   const grandTotal = nullableNumber(first(row, ['GrandTotal', 'grandTotal']))
   if (grandTotal != null && grandTotal > 0) return { amount: grandTotal, applyCurrencyRate: true }
+
   const detailGrandTotal = nullableNumber(first(row, ['DetailGrandTotal', 'detailGrandTotal']))
   if (detailGrandTotal != null && detailGrandTotal > 0) return { amount: detailGrandTotal, applyCurrencyRate: true }
 
@@ -530,7 +720,14 @@ function reportGrandTotal(row: JsonRecord): ReportOrderTotal | null {
 
   const detailSubTotal = nullableNumber(first(row, ['DetailSubTotal', 'detailSubTotal']))
   if (detailSubTotal != null && detailSubTotal > 0 && isAmazonEuOrder(row)) return { amount: detailSubTotal, applyCurrencyRate: true }
+  if ((grandTotal != null || detailGrandTotal != null) && !hasPositiveLineRevenue(row)) return { amount: 0, applyCurrencyRate: false }
   return null
+}
+
+function hasPositiveLineRevenue(row: JsonRecord): boolean {
+  return lineRevenueTotal(row) > 0 ||
+    lineRevenueBasis(row) > 0 ||
+    (nullableNumber(first(row, ['LineTaxTotal', 'lineTaxTotal'])) ?? 0) > 0
 }
 
 function sumPositiveFields(row: JsonRecord, keys: [string, string][]): number | null {

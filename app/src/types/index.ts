@@ -306,6 +306,8 @@ export interface MonthlyStar {
 export interface SalesDaily {
   id: string
   sale_date: string
+  raw_company: string | null
+  raw_channel: string | null
   channel: string | null
   source_sku: string
   planning_sku: string | null
@@ -314,6 +316,32 @@ export interface SalesDaily {
   orders_count: number
   source_payload: Record<string, unknown> | null
   synced_at: string
+  created_at: string
+}
+
+export interface SalesChannelMapping {
+  id: string
+  sellercloud_company: string
+  sellercloud_channel: string
+  normalized_company: string
+  normalized_channel: string
+  qb_channel: string
+  is_active: boolean
+  source_file: string | null
+  notes: string | null
+  created_by: string | null
+  updated_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SalesChannelGoal {
+  id: string
+  period_month: string
+  qb_channel: string
+  goal_amount: number
+  updated_by: string | null
+  updated_at: string
   created_at: string
 }
 

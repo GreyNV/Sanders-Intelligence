@@ -1,0 +1,526 @@
+{
+  "$schema_note": "Canonical sprint brief shape for Sanders Intelligence micro-sprints. Generated on 2026-07-20 for the Sales by Channel delivery sequence.",
+  "sprint_id": "2026-07-21",
+  "sprint_date": "2026-07-21",
+  "planned_on": "2026-07-20",
+  "cadence": "sales-by-channel delivery sprint (4 working days)",
+  "theme": "Deliver the C-Suite Sales by Channel MTD page with QB channel mapping, monthly channel goals, admin mapping cleanup, and production backfill verification.",
+  "project": {
+    "name": "Sanders intelligence app",
+    "asana_project_id": "1214535706843813",
+    "repo_root": "D:\\Sanders Intelligence",
+    "app_source": "D:\\Sanders Intelligence\\app\\src",
+    "stack": "React 18 + TypeScript + Vite, Tailwind, React Router v6, TanStack Query v5, Supabase, Recharts",
+    "dev_command": "cd app && npm run dev",
+    "test_command": "cd app && npm test"
+  },
+  "selection_rationale": "The newest Sales by Channel tasks are the right sprint focus because they build directly on completed board work for SellerCloud sales collection, Monthly Star sales progress, Sales Star UI cleanup, and Stitch North Star finance presentation. Older open tasks such as broad executive date filtering, notifications, Slack/email alerts, and Phase 3 purchasing/vendor expansions are not selected because they do not unblock the requested QB-channel MTD sales page. The first two days are data-model and aggregation work; the final two days are admin cleanup, C-Suite UI, QA, migration, and backfill verification.",
+  "instructions_for_implementer": "Work tasks in the 'order' field. For EACH task: read 'clarifying_questions' first and ask the user before writing code. Treat 'likely_files' as starting points for investigation, not the full surface. Preserve source-of-truth boundaries: SellerCloud raw Company and Channel must remain inspectable, QB channel should come from the mapping table, and unmapped combinations must be visible as Add mapping. Implement against 'requirements', validate against 'completion_criteria', and write or extend tests per 'test_coverage'. When done, update the matching Asana task's completion status and leave a comment citing file and line evidence.",
+  "tasks": [
+    {
+      "order": 1,
+      "asana_task_id": "1216643855816896",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1216643855816896",
+      "title": "SALES DATA: Persist raw SellerCloud Company + Channel for QB channel mapping",
+      "type": "feature",
+      "scope": "medium",
+      "estimated_hours": "3-4",
+      "due_date": "2026-07-21",
+      "outline": "Make the sales fact table preserve the raw SellerCloud Company and Channel separately so the requested QuickBooks channel mapping can be based on the real two-field source combination instead of the current collapsed channel field.",
+      "technical_description": "Add a Supabase migration that extends sales_daily with raw_company and raw_channel, or equivalent explicit source fields, and revises the uniqueness/upsert key so distinct Company + Channel combinations cannot overwrite each other. Update sync-sales aggregation and merge keys, then update the SalesDaily TypeScript interface while keeping existing Monthly Star reads compatible.",
+      "likely_files": [
+        "supabase/migrations/019_sellercloud_sales_and_sku_matching.sql:3-15 - current sales_daily table and unique key",
+        "supabase/functions/sync-sales/index.ts:42-58 - replace-date delete and upsert conflict target",
+        "supabase/functions/sync-sales/index.ts:507-542 - existing merge key and aggregateSalesRows source extraction",
+        "app/src/types/index.ts:306-318 - SalesDaily frontend shape",
+        "app/src/__tests__/edge-pagination-guards.test.ts:77-95 - existing sync-sales guard test neighborhood"
+      ],
+      "requirements": [
+        "Store raw SellerCloud Company separately from raw SellerCloud Channel for every new sales_daily row.",
+        "Revise the sales_daily uniqueness/upsert path so rows cannot collide when raw Company differs.",
+        "Keep legacy channel consumers working during the transition.",
+        "Update TypeScript types and static/edge guard tests for the new row shape."
+      ],
+      "completion_criteria": [
+        "sync-sales writes raw_company and raw_channel into sales_daily payloads.",
+        "The upsert conflict target and merge key include enough fields to prevent Company/Channel overwrites.",
+        "Existing Monthly Star sales queries still return current and prior-year rows.",
+        "Focused edge-pagination/sync-sales tests pass."
+      ],
+      "expected_outcomes": [
+        "Sales data becomes trustworthy enough to support QB channel reporting without losing the original SellerCloud source fields."
+      ],
+      "test_coverage": {
+        "unit": [
+          "app/src/__tests__/edge-pagination-guards.test.ts: assert sync-sales preserves raw Company and raw Channel and uses the revised merge/upsert key."
+        ],
+        "integration": [
+          "Run sync-sales in dry-run or fixture mode with two rows sharing sale_date/source_sku/channel but different Company values and confirm both combinations survive."
+        ],
+        "manual_qa": [
+          "Inspect a recent sales_daily row after sync/backfill and verify raw Company, raw Channel, and legacy channel are visible or derivable."
+        ]
+      },
+      "clarifying_questions": [
+        "Should the existing sales_daily.channel column remain a legacy SellerCloud display value, or should it become the mapped QB channel once mappings exist?",
+        "Use column names raw_company and raw_channel unless the user prefers sc_company and sc_channel?"
+      ],
+      "pre_implementation_instruction": "Ask the clarifying questions and wait for explicit direction before editing files."
+    },
+    {
+      "order": 2,
+      "asana_task_id": "1216644034484466",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1216644034484466",
+      "title": "SALES DATA: Add QB sales channel mapping tables, RLS, and seed import from attached mapping",
+      "type": "feature",
+      "scope": "medium",
+      "estimated_hours": "3-5",
+      "due_date": "2026-07-21",
+      "outline": "Create the persistent mapping layer that translates SellerCloud Company + Channel into the actual QuickBooks channel used by executives.",
+      "technical_description": "Add a sales_channel_mappings table with normalized SellerCloud Company, normalized SellerCloud Channel, QB channel, active flag, and audit columns. Use the active-user read/admin write RLS pattern already used by sales_daily. Build a repeatable seed/import path from the attached mapping file, but keep the table migration independent if the file is not present locally.",
+      "likely_files": [
+        "supabase/migrations/019_sellercloud_sales_and_sku_matching.sql:27-58 - active-user read and admin write RLS pattern",
+        "supabase/migrations/017_north_star.sql:35-68 - period/finance table and RLS style reference",
+        "app/src/pages/admin/UsersPage.tsx:14-89 - compact admin CRUD surface reference",
+        "app/src/hooks/useNorthStar.ts:254-269 - mutation invalidation pattern for persisted executive inputs"
+      ],
+      "requirements": [
+        "Create a mapping table keyed by normalized SellerCloud Company and normalized SellerCloud Channel.",
+        "Store the user-facing QB channel value from the mapping file.",
+        "Active authenticated users can read mappings; only admins can write.",
+        "Seed the initial mappings from the provided mapping file once the file is available."
+      ],
+      "completion_criteria": [
+        "Migration is rerunnable and does not break existing sales_daily reads.",
+        "RLS is enabled and grants/policies match the app role model.",
+        "A seed/import mechanism can load the attached mapping without manual SQL rewrites.",
+        "Unmapped Company/Channel pairs can be detected by later tasks."
+      ],
+      "expected_outcomes": [
+        "The app has a durable, auditable source of truth for translating SellerCloud sales into QB channels."
+      ],
+      "test_coverage": {
+        "unit": [
+          "New helper test for normalizing Company/Channel keys and preserving QB channel labels."
+        ],
+        "integration": [
+          "Migration smoke check: table exists, unique mapping key exists, read/write policies are present."
+        ],
+        "manual_qa": [
+          "Load the attached mapping file and spot-check at least three mapped combinations against the file."
+        ]
+      },
+      "clarifying_questions": [
+        "Where is the attached mapping file available in the workspace, and what are the exact column headers?",
+        "Should inactive/replaced mappings remain historically visible, or can edits overwrite the active row?"
+      ],
+      "pre_implementation_instruction": "Ask the clarifying questions and wait for explicit direction before editing files."
+    },
+    {
+      "order": 3,
+      "asana_task_id": "1216644034594654",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1216644034594654",
+      "title": "SALES DATA: Build mapped channel aggregation with Add mapping flag for unmapped combinations",
+      "type": "feature",
+      "scope": "medium",
+      "estimated_hours": "4-5",
+      "due_date": "2026-07-22",
+      "outline": "Build the reusable data layer that turns sales_daily rows into MTD totals by mapped QB channel and separates missing mappings into an Add mapping bucket.",
+      "technical_description": "Create a hook/helper pair, likely useSalesChannels and SalesByChannel.helpers, that fetches the selected month sales_daily rows with pagination, joins or client-maps against sales_channel_mappings, aggregates revenue by QB channel, and returns unmapped raw Company/Channel combinations for admin cleanup.",
+      "likely_files": [
+        "app/src/hooks/useNorthStar.ts:77-91 - existing month-scoped sales query shape",
+        "app/src/hooks/useNorthStar.ts:169-192 - paginated sales_daily range fetch",
+        "app/src/pages/csuite/NorthStar.helpers.ts:356-390 - existing live sales derivation",
+        "app/src/pages/csuite/NorthStar.helpers.ts:397-404 - current raw-channel revenue aggregation",
+        "app/src/__tests__/NorthStar.helpers.test.ts:293-323 - existing sales derivation test style"
+      ],
+      "requirements": [
+        "Aggregate current selected-month revenue by mapped QB channel.",
+        "Return Add mapping for any raw Company + raw Channel combination without an active mapping.",
+        "Return unmapped detail rows with raw Company, raw Channel, MTD revenue, and row count.",
+        "Preserve pagination over sales_daily so large months do not truncate at 1000 rows."
+      ],
+      "completion_criteria": [
+        "Mapped rows and Add mapping rows are deterministic for the same input.",
+        "An unmapped Company/Channel pair is never silently grouped into Unassigned.",
+        "The aggregation helper has fixture coverage for mapped, unmapped, duplicate, and blank source values.",
+        "The hook cache key includes selected month and mapping version inputs."
+      ],
+      "expected_outcomes": [
+        "The page and admin panel can both rely on one consistent calculation for QB channel MTD sales and mapping gaps."
+      ],
+      "test_coverage": {
+        "unit": [
+          "app/src/__tests__/SalesByChannel.helpers.test.ts: mapped channel aggregation and Add mapping fallback."
+        ],
+        "integration": [
+          "Hook-level mocked Supabase test for paginated sales_daily reads plus mapping reads."
+        ],
+        "manual_qa": [
+          "Use a sample mapped pair and one deliberately unmapped pair; verify the sales total lands under the expected channel or Add mapping."
+        ]
+      },
+      "clarifying_questions": [
+        "Should Add mapping be a single total bucket in the C-Suite page, with details only in admin, or should every unmapped pair show on the C-Suite page too?"
+      ],
+      "pre_implementation_instruction": "Ask the clarifying questions and wait for explicit direction before editing files."
+    },
+    {
+      "order": 4,
+      "asana_task_id": "1216643962129787",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1216643962129787",
+      "title": "SALES GOALS: Persist monthly QB channel goals and expose query/mutation hooks",
+      "type": "feature",
+      "scope": "medium",
+      "estimated_hours": "3-4",
+      "due_date": "2026-07-22",
+      "outline": "Let admins enter a month-specific goal for each QB channel so the sales page can calculate pace, required daily lift, and status per channel.",
+      "technical_description": "Add a period_month + qb_channel goal table with RLS, then add React Query hooks for reading all goals for a selected month and upserting a single channel goal. Reuse Monthly Star period_month persistence and mutation invalidation patterns.",
+      "likely_files": [
+        "supabase/migrations/017_north_star.sql:35-68 - monthly_star persistence and history reference",
+        "app/src/hooks/useNorthStar.ts:64-74 - period_month read pattern",
+        "app/src/hooks/useNorthStar.ts:254-269 - update/upsert mutation and invalidation pattern",
+        "app/src/types/index.ts:291-318 - nearby executive sales types"
+      ],
+      "requirements": [
+        "Persist one goal per period_month and QB channel.",
+        "Active users can read goals; admins can create and update them.",
+        "Hooks expose month-scoped goal reads and single-channel goal mutation.",
+        "Empty goals render as unset rather than zero-achieved or failed."
+      ],
+      "completion_criteria": [
+        "Changing months reads that month's stored goals.",
+        "Saving one channel goal invalidates and refreshes the selected month query.",
+        "A channel with no goal can still show MTD sales but has no on-track/needs-lift status until a goal is set.",
+        "Migration and hook tests cover month/channel uniqueness."
+      ],
+      "expected_outcomes": [
+        "Channel goals become a real planning input instead of a temporary form value."
+      ],
+      "test_coverage": {
+        "unit": [
+          "New hook/helper tests for month-keyed goal lookup and goal merge with channel rows."
+        ],
+        "integration": [
+          "Supabase mocked mutation test: one upsert updates only the selected period_month + QB channel."
+        ],
+        "manual_qa": [
+          "Enter a goal for one QB channel, navigate away/back to the month, and verify the goal persists."
+        ]
+      },
+      "clarifying_questions": [
+        "Should goals be whole-dollar monthly targets only, or should cents/decimals be accepted?",
+        "Should goals copy forward from the previous month by default, or start blank each month?"
+      ],
+      "pre_implementation_instruction": "Ask the clarifying questions and wait for explicit direction before editing files."
+    },
+    {
+      "order": 5,
+      "asana_task_id": "1216643821709346",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1216643821709346",
+      "title": "ADMIN: Add Sales Channel Mapping admin panel for unmapped Company/Channel pairs",
+      "type": "feature",
+      "scope": "medium",
+      "estimated_hours": "4-6",
+      "due_date": "2026-07-23",
+      "outline": "Give admins a practical place to fix missing Company/Channel mappings when the sales page reports Add mapping.",
+      "technical_description": "Add an admin-only mapping management surface, either as a standalone admin route or a section under an existing admin page. It should list active mappings and recent unmapped raw Company/Channel combinations, then allow admins to create or update the QB channel mapping and trigger query invalidation.",
+      "likely_files": [
+        "app/src/App.tsx:165-170 - admin route guard pattern",
+        "app/src/components/layout/Sidebar.tsx:40-42 - Admin navigation group",
+        "app/src/pages/admin/UsersPage.tsx:79-188 - compact admin table pattern",
+        "app/src/pages/admin/UsersPage.tsx:190-228 - modal create/edit pattern",
+        "app/src/hooks/useUsers.ts - existing admin mutation style reference"
+      ],
+      "requirements": [
+        "Admin can see current mapping rows and unmapped raw Company/Channel pairs.",
+        "Admin can add or update a QB channel mapping without leaving the app.",
+        "Non-admin users cannot access write controls.",
+        "After a mapping save, sales aggregation refreshes and the unmapped count changes."
+      ],
+      "completion_criteria": [
+        "Admin route or page section is reachable and role guarded.",
+        "Unmapped list shows raw Company, raw Channel, MTD revenue, and row count.",
+        "Create/update mapping succeeds and invalidates mapping + sales-channel queries.",
+        "Empty and error states are visible and compact."
+      ],
+      "expected_outcomes": [
+        "Mapping maintenance becomes a normal admin workflow instead of a database-only cleanup."
+      ],
+      "test_coverage": {
+        "unit": [
+          "Static test for admin route/sidebar wiring if a new route is added.",
+          "Helper test for converting an unmapped pair into an upsert payload."
+        ],
+        "integration": [
+          "Mocked mutation test that saving a mapping invalidates mapping and sales-channel queries."
+        ],
+        "manual_qa": [
+          "Open the admin mapping panel as admin, add a mapping for one Add mapping row, return to Sales by Channel, and verify it appears under the mapped QB channel."
+        ]
+      },
+      "clarifying_questions": [
+        "Should this live as /admin/sales-channel-mappings or inside /admin/uploads alongside data management?"
+      ],
+      "pre_implementation_instruction": "Ask the clarifying questions and wait for explicit direction before editing files."
+    },
+    {
+      "order": 6,
+      "asana_task_id": "1216643962214938",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1216643962214938",
+      "title": "SALES PAGE: Create C-Suite Sales by Channel MTD page using Stitch North Star visual patterns",
+      "type": "feature",
+      "scope": "large",
+      "estimated_hours": "5-7",
+      "due_date": "2026-07-23",
+      "outline": "Add the C-Suite page executives asked for: MTD sales by actual QB channel, with month navigation and a dense operational layout modeled after Stitch North Star.",
+      "technical_description": "Create app/src/pages/csuite/SalesByChannel.tsx and a helper module if needed. Reuse Stitch North Star selectedMonth state, month navigation controls, metric band density, compact panels, and loading/error handling. The page should consume the mapped aggregation and goals hooks rather than recomputing source logic inline.",
+      "likely_files": [
+        "app/src/pages/csuite/StitchNorthStar.tsx:88-170 - selectedMonth state, sales rows, and derived metrics",
+        "app/src/pages/csuite/StitchNorthStar.tsx:285-325 - month navigation and top metric band",
+        "app/src/pages/csuite/StitchNorthStar.tsx:327-430 - compact content and side-panel layout reference",
+        "app/src/pages/csuite/NorthStar.helpers.ts:321-342 - pace and on-track calculation reference"
+      ],
+      "requirements": [
+        "Show MTD sales summed by mapped QB channel for the selected month.",
+        "Provide previous/next month navigation and disable future month navigation.",
+        "Render loading, empty, and error states.",
+        "Use a compact executive design consistent with Stitch North Star."
+      ],
+      "completion_criteria": [
+        "A C-Suite user can inspect current-month and prior-month channel totals.",
+        "The page never uses raw SellerCloud channel as the final QB channel label unless explicitly mapped.",
+        "The Add mapping bucket is visible when unmapped rows exist.",
+        "Static tests pin the page's core data hooks and Stitch-like controls."
+      ],
+      "expected_outcomes": [
+        "Executives get a focused sales-by-channel page that behaves like the current North Star/Stitch surfaces."
+      ],
+      "test_coverage": {
+        "unit": [
+          "app/src/__tests__/SalesByChannel.static.test.ts: assert page uses mapped aggregation, goals, month navigation, and Add mapping states."
+        ],
+        "integration": [
+          "Mock selectedMonth changes and assert current/prior month query keys change."
+        ],
+        "manual_qa": [
+          "Visit /executive/sales as admin or csuite, move to the previous month, return to current month, and confirm totals and controls update."
+        ]
+      },
+      "clarifying_questions": [
+        "Should the page title be Sales by Channel, Channel Sales, or another executive-facing label?"
+      ],
+      "pre_implementation_instruction": "Ask the clarifying questions and wait for explicit direction before editing files."
+    },
+    {
+      "order": 7,
+      "asana_task_id": "1216644034311315",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1216644034311315",
+      "title": "SALES PAGE: Add goal input, daily lift calculation, and green/red channel status",
+      "type": "feature",
+      "scope": "medium",
+      "estimated_hours": "4-5",
+      "due_date": "2026-07-24",
+      "outline": "Make each QB channel actionable by letting admins set a goal and showing whether current pace is on track or needs daily lift.",
+      "technical_description": "Add goal inputs to channel rows or detail panels, wired to the goal hooks. Compute daily pace, projected month-end, remaining-to-goal, daily lift, and status using the Monthly Star convention from NorthStar.helpers. Use green status for On track and red for Needs lift. Treat Add mapping rows as mapping-cleanup items, not performance-status rows.",
+      "likely_files": [
+        "app/src/pages/csuite/NorthStar.helpers.ts:321-342 - computeMonthlyStarMetrics daily pace, daily needed, lift, onTrack",
+        "app/src/pages/csuite/NorthStar.tsx:47-58 - status color variant and row class reference",
+        "app/src/pages/csuite/StitchNorthStar.tsx:317-325 - Daily lift and Lift % metric display reference",
+        "app/src/pages/csuite/StitchNorthStar.tsx:1014-1138 - compact editable field component patterns"
+      ],
+      "requirements": [
+        "Admins can edit monthly channel goals directly from the sales page.",
+        "Csuite users can read goals and status without write controls.",
+        "Daily lift shows the extra per-day amount needed to achieve the goal.",
+        "Status is On track when projected month-end meets or exceeds goal; otherwise Needs lift.",
+        "Add mapping rows prompt mapping cleanup instead of receiving performance status."
+      ],
+      "completion_criteria": [
+        "Goal edits persist and update daily lift/status after save.",
+        "Green/red status colors match the requested status language.",
+        "Channels with no goal show MTD and pace but no false Needs lift warning.",
+        "Unit tests cover on-track, needs-lift, no-goal, and Add mapping cases."
+      ],
+      "expected_outcomes": [
+        "The page moves beyond reporting into a daily operating view for channel-level sales gaps."
+      ],
+      "test_coverage": {
+        "unit": [
+          "app/src/__tests__/SalesByChannel.helpers.test.ts: daily lift and status derivation for on-track, needs-lift, no-goal, and Add mapping states."
+        ],
+        "integration": [
+          "Mock goal save and assert the relevant month/channel row recalculates without a full page reload."
+        ],
+        "manual_qa": [
+          "Set a high goal for a channel and confirm Needs lift appears in red; lower the goal below projected close and confirm On track appears in green."
+        ]
+      },
+      "clarifying_questions": [
+        "Should status compare goal to projected month-end pace, or compare goal to MTD only at the current day of the month?",
+        "Should daily lift show total required per day or extra lift above current daily pace?"
+      ],
+      "pre_implementation_instruction": "Ask the clarifying questions and wait for explicit direction before editing files."
+    },
+    {
+      "order": 8,
+      "asana_task_id": "1216643961895887",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1216643961895887",
+      "title": "NAV: Wire Sales by Channel page into routes, sidebar, and role guards",
+      "type": "feature",
+      "scope": "small",
+      "estimated_hours": "1-2",
+      "due_date": "2026-07-24",
+      "outline": "Expose the new Sales by Channel page to admin and csuite users through the same route/sidebar pattern as other executive pages.",
+      "technical_description": "Add a lazy import in App.tsx, a /executive/sales route protected by RoleGuard allow admin/csuite, and a C-Suite sidebar entry with a lucide sales/chart icon. Pin the route contract with a static test based on the Stitch North Star route test.",
+      "likely_files": [
+        "app/src/App.tsx:16-23 - lazy page imports",
+        "app/src/App.tsx:144-155 - C-Suite route block",
+        "app/src/components/layout/Sidebar.tsx:30-34 - C-Suite nav entries",
+        "app/src/__tests__/StitchNorthStar.static.test.ts:10-17 - route/sidebar static test pattern"
+      ],
+      "requirements": [
+        "Route path is /executive/sales unless the user chooses another route.",
+        "Only admin and csuite roles can access the page.",
+        "Sidebar label is visible under C-Suite.",
+        "Static tests fail if route or nav wiring is removed."
+      ],
+      "completion_criteria": [
+        "Direct navigation to /executive/sales lazy-loads the page for allowed roles.",
+        "Purchasing-only users redirect through existing RoleGuard behavior.",
+        "The sidebar item appears for admin and csuite users.",
+        "Route/sidebar static tests pass."
+      ],
+      "expected_outcomes": [
+        "The new page is discoverable in the normal executive navigation instead of being a hidden route."
+      ],
+      "test_coverage": {
+        "unit": [
+          "app/src/__tests__/SalesByChannel.static.test.ts: assert App.tsx route and Sidebar.tsx nav entry."
+        ],
+        "integration": [
+          "Render route config with a mocked admin/csuite profile and confirm route access path."
+        ],
+        "manual_qa": [
+          "Sign in as admin or csuite and click Sales by Channel from the C-Suite sidebar."
+        ]
+      },
+      "clarifying_questions": [
+        "Confirm final route and sidebar label: /executive/sales and Sales by Channel?"
+      ],
+      "pre_implementation_instruction": "Ask the clarifying questions and wait for explicit direction before editing files."
+    },
+    {
+      "order": 9,
+      "asana_task_id": "1216643962230786",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1216643962230786",
+      "title": "QA: Add regression coverage for channel mapping, goals, page route, and sales sync keys",
+      "type": "feature",
+      "scope": "medium",
+      "estimated_hours": "3-5",
+      "due_date": "2026-07-24",
+      "outline": "Lock the feature down against the two highest-risk regressions: wrong channel mapping and SellerCloud sales rows overwriting each other.",
+      "technical_description": "Add helper tests for mapping/status math, static tests for route/page contracts, and edge guard tests around sync-sales row keys and raw Company/Channel persistence. Run focused sales/North Star tests before the full suite.",
+      "likely_files": [
+        "app/src/__tests__/NorthStar.helpers.test.ts:276-323 - existing Monthly Star metric and sales derivation tests",
+        "app/src/__tests__/StitchNorthStar.static.test.ts:5-17 - route/sidebar static test style",
+        "app/src/__tests__/edge-pagination-guards.test.ts:27-95 - edge and sync-sales guard tests",
+        "app/src/__tests__/StitchNorthStar.helpers.test.ts - generated finance helper test style reference"
+      ],
+      "requirements": [
+        "Cover Company + Channel mapping to QB channel and Add mapping fallback.",
+        "Cover monthly goal/status/daily lift math.",
+        "Cover route/sidebar/page contract for /executive/sales.",
+        "Cover sync-sales key changes so raw Company/Channel preservation cannot regress."
+      ],
+      "completion_criteria": [
+        "Focused tests for SalesByChannel, NorthStar/Stitch touchpoints, and edge sync guards pass.",
+        "Full npm test passes.",
+        "npm run build passes.",
+        "Tests assert behavior, not only string presence, where helper code exists."
+      ],
+      "expected_outcomes": [
+        "Future sales-sync or executive-page work can change safely without quietly corrupting channel totals."
+      ],
+      "test_coverage": {
+        "unit": [
+          "app/src/__tests__/SalesByChannel.helpers.test.ts",
+          "app/src/__tests__/edge-pagination-guards.test.ts",
+          "app/src/__tests__/SalesByChannel.static.test.ts"
+        ],
+        "integration": [
+          "Run npm test -- --run src/__tests__/SalesByChannel.helpers.test.ts src/__tests__/edge-pagination-guards.test.ts before the full suite."
+        ],
+        "manual_qa": [
+          "Verify current month and previous month totals, goal edit, Add mapping display, and admin mapping cleanup after automated tests pass."
+        ]
+      },
+      "clarifying_questions": [
+        "Do we have a sanitized mapping fixture that can be committed for tests, or should tests use a minimal synthetic fixture?"
+      ],
+      "pre_implementation_instruction": "Ask the clarifying questions and wait for explicit direction before editing files."
+    },
+    {
+      "order": 10,
+      "asana_task_id": "1216643855843501",
+      "asana_url": "https://app.asana.com/1/1207304979265271/project/1214535706843813/task/1216643855843501",
+      "title": "RELEASE: Apply sales-channel migrations, backfill mapped sales data, and verify month navigation",
+      "type": "feature",
+      "scope": "large",
+      "estimated_hours": "4-6",
+      "due_date": "2026-07-24",
+      "outline": "Close the sprint with live migration, mapping seed, backfill, current/prior-month verification, and production-ready test/build evidence.",
+      "technical_description": "Apply the new Supabase migrations, seed sales channel mappings from the attached file, rerun or backfill sync-sales so raw Company/Channel fields are populated where possible, and verify the app against current and prior months. Use connector-first migration verification if the local Supabase CLI is noisy.",
+      "likely_files": [
+        "supabase/migrations/019_sellercloud_sales_and_sku_matching.sql:3-58 - baseline sales_daily table and RLS",
+        "supabase/functions/sync-sales/index.ts:42-58 - replace-date and upsert behavior",
+        "app/src/__tests__/edge-pagination-guards.test.ts:89-95 - backfill guard coverage",
+        "app/scripts/backfill-sales-daily.mjs - existing sales backfill script",
+        "app/vercel.json - cron/deploy context for sync-sales"
+      ],
+      "requirements": [
+        "Apply all sales-channel migrations to the live Supabase project.",
+        "Seed the QB mapping table from the provided mapping file.",
+        "Backfill or resync enough sales_daily history to support month navigation for available months.",
+        "Verify mapped totals and Add mapping behavior for current and prior months.",
+        "Run focused tests, full tests, and build before marking sprint work complete."
+      ],
+      "completion_criteria": [
+        "Live database has raw Company/Channel fields, mapping table, goals table, RLS, and seed rows.",
+        "Current and prior month Sales by Channel views show mapped QB totals.",
+        "Unmapped source pairs appear as Add mapping and can be resolved through admin UI.",
+        "npm test and npm run build pass after migration/backfill code changes."
+      ],
+      "expected_outcomes": [
+        "The feature is not merely coded locally; it is populated with real mapping data and verified against live sales history."
+      ],
+      "test_coverage": {
+        "unit": [
+          "Focused SalesByChannel, edge-pagination, NorthStar, and Stitch tests from tasks 7-9."
+        ],
+        "integration": [
+          "Live Supabase verification query for mapping rows, goals table, sales_daily raw fields, and unmapped source-pair count."
+        ],
+        "manual_qa": [
+          "Smoke-test /executive/sales current month, prior month, goal edit, Add mapping, admin mapping save, and refreshed channel total."
+        ]
+      },
+      "clarifying_questions": [
+        "How many prior months should be backfilled for the first release if historical sales data exists?",
+        "Should release happen immediately after verification by pushing to origin/main, or stop at a reviewed branch?"
+      ],
+      "pre_implementation_instruction": "Ask the clarifying questions and wait for explicit direction before editing files."
+    }
+  ],
+  "sprint_close_checklist": [
+    "All sprint tasks marked completed in Asana with a comment citing file paths and line numbers.",
+    "Run focused tests: cd app && npm test -- --run src/__tests__/SalesByChannel.helpers.test.ts src/__tests__/SalesByChannel.static.test.ts src/__tests__/edge-pagination-guards.test.ts.",
+    "Run all tests: cd app && npm test.",
+    "Run production build: cd app && npm run build.",
+    "Run cd app && npm run dev and smoke-test /executive/sales and the admin mapping surface end-to-end.",
+    "Apply and verify Supabase migrations before release, including RLS policies and seeded mapping rows.",
+    "Backfill or resync sales_daily for the agreed historical month range.",
+    "Update AGENTS.md if a new sales-channel module or route becomes part of the durable code map.",
+    "Leave unrelated pre-existing dirty files out of the sprint branch unless they are required for this feature."
+  ]
+}

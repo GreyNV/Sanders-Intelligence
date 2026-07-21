@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Package, Truck, BarChart3,
   CheckSquare, Users, Upload, Building2, LogOut, Store,
   PanelLeftClose, PanelLeftOpen, CalendarDays, ShoppingCart, Newspaper, Target,
-  Monitor, Moon, Sun,
+  Monitor, Moon, Settings2, Sun,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -31,6 +31,7 @@ const NAV: NavItem[] = [
   { to: '/executive',              label: 'Executive Summary', icon: <BarChart3 size={16} />,  roles: ['admin', 'csuite'], group: 'C-Suite' },
   { to: '/executive/north-star',   label: 'North Star',        icon: <Target size={16} />,     roles: ['admin', 'csuite'], group: 'C-Suite' },
   { to: '/executive/stitch-north-star', label: 'Stitch North Star', icon: <Monitor size={16} />, roles: ['admin', 'csuite'], group: 'C-Suite' },
+  { to: '/executive/sales',        label: 'Sales by Channel',  icon: <BarChart3 size={16} />,  roles: ['admin', 'csuite'], group: 'C-Suite' },
   { to: '/executive/departments',  label: 'Departments',       icon: <Building2 size={16} />, roles: ['admin', 'csuite'], group: 'C-Suite' },
 
   // Shared
@@ -40,6 +41,7 @@ const NAV: NavItem[] = [
   // Admin
   { to: '/admin/users',   label: 'Users',   icon: <Users size={16} />,  roles: ['admin'], group: 'Admin' },
   { to: '/admin/uploads', label: 'Uploads', icon: <Upload size={16} />, roles: ['admin', 'purchasing'], group: 'Admin' },
+  { to: '/admin/sales-channel-mappings', label: 'Channel Mappings', icon: <Settings2 size={16} />, roles: ['admin'], group: 'Admin' },
 ]
 
 export default function Sidebar() {

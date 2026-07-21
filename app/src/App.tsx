@@ -17,10 +17,12 @@ const ExecutiveSummary = lazy(() => import('@/pages/csuite/ExecutiveSummary'))
 const DepartmentOverview = lazy(() => import('@/pages/csuite/DepartmentOverview'))
 const NorthStar = lazy(() => import('@/pages/csuite/NorthStar'))
 const StitchNorthStar = lazy(() => import('@/pages/csuite/StitchNorthStar'))
+const SalesByChannel = lazy(() => import('@/pages/csuite/SalesByChannel'))
 const TasksPage = lazy(() => import('@/pages/tasks/TasksPage'))
 const TodayView = lazy(() => import('@/pages/work/TodayView'))
 const UsersPage = lazy(() => import('@/pages/admin/UsersPage'))
 const UploadsPage = lazy(() => import('@/pages/admin/UploadsPage'))
+const SalesChannelMappingsPage = lazy(() => import('@/pages/admin/SalesChannelMappingsPage'))
 
 function RouteLoader() {
   return <div className="flex h-screen items-center justify-center"><LoadingSpinner size="lg" /></div>
@@ -153,6 +155,9 @@ export default function App() {
           <Route path="/executive/stitch-north-star" element={
             <RoleGuard allow={['admin', 'csuite']}><StitchNorthStar /></RoleGuard>
           } />
+          <Route path="/executive/sales" element={
+            <RoleGuard allow={['admin', 'csuite']}><SalesByChannel /></RoleGuard>
+          } />
 
           <Route path="/tasks" element={
             <RoleGuard allow={['admin', 'purchasing', 'csuite']}><TasksPage /></RoleGuard>
@@ -167,6 +172,9 @@ export default function App() {
           } />
           <Route path="/admin/uploads" element={
             <RoleGuard allow={['admin', 'purchasing']}><UploadsPage /></RoleGuard>
+          } />
+          <Route path="/admin/sales-channel-mappings" element={
+            <RoleGuard allow={['admin']}><SalesChannelMappingsPage /></RoleGuard>
           } />
         </Route>
 
