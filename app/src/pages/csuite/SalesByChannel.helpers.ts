@@ -1,6 +1,13 @@
 export const ADD_MAPPING_CHANNEL = 'Add mapping'
 
 export type SalesChannelStatus = 'on_track' | 'needs_lift' | 'no_goal' | 'add_mapping'
+export type SalesByChannelSortKey = 'channel' | 'mtd_revenue' | 'goal_amount' | 'projected_month_end' | 'daily_lift' | 'status'
+export type SalesByChannelSortDirection = 'asc' | 'desc'
+
+export interface SalesByChannelSortConfig {
+  key: SalesByChannelSortKey
+  direction: SalesByChannelSortDirection
+}
 
 export interface SalesByChannelSalesRow {
   sale_date: string
@@ -132,6 +139,16 @@ export function deriveSalesByChannel({
   }
 }
 
+export function sortSalesByChannelRows(rows: SalesByChannelRow[], sort: SalesByChannelSortConfig): SalesByChannelRow[] {
+  return [...rows].sort((a, b) => {
+    if (a.requires_mapping !== b.requires_mapping) return a.requires_mapping ? 1 : -1
+
+    const compared = compareBySortKey(a, b, sort)
+    if (compared !== 0) return compared
+    return a.channel.localeCompare(b.channel)
+  })
+}
+
 function activeMappingIndex(mappings: SalesChannelMappingInput[]): Map<string, SalesChannelMappingInput> {
   const index = new Map<string, SalesChannelMappingInput>()
   for (const mapping of mappings) {
@@ -231,6 +248,28 @@ function finalizeChannelRow(row: SalesByChannelRow, daysElapsed: number, daysRem
 function compareChannelRows(a: SalesByChannelRow, b: SalesByChannelRow): number {
   if (a.requires_mapping !== b.requires_mapping) return a.requires_mapping ? 1 : -1
   return a.channel.localeCompare(b.channel)
+}
+
+function compareBySortKey(a: SalesByChannelRow, b: SalesByChannelRow, sort: SalesByChannelSortConfig): number {
+  if (sort.key === 'channel') return directionalCompare(a.channel.localeCompare(b.channel), sort.direction)
+  if (sort.key === 'status') return directionalCompare(a.status.localeCompare(b.status), sort.direction)
+  return compareNullableNumbers(numericSortValue(a, sort.key), numericSortValue(b, sort.key), sort.direction)
+}
+
+function numericSortValue(row: SalesByChannelRow, key: SalesByChannelSortKey): number | null {
+  if (key === 'channel' || key === 'status') return null
+  return row[key]
+}
+
+function compareNullableNumbers(a: number | null, b: number | null, direction: SalesByChannelSortDirection): number {
+  if (a == null && b == null) return 0
+  if (a == null) return 1
+  if (b == null) return -1
+  return directionalCompare(a - b, direction)
+}
+
+function directionalCompare(value: number, direction: SalesByChannelSortDirection): number {
+  return direction === 'asc' ? value : -value
 }
 
 function safeDivide(value: number, denominator: number): number {

@@ -1,5 +1,5 @@
 import { FormEvent, useMemo, useState } from 'react'
-import { AlertTriangle, ChevronLeft, ChevronRight, Plus, RotateCcw, Save } from 'lucide-react'
+import { AlertTriangle, ChevronLeft, ChevronRight, Pencil, Plus, RotateCcw, Save, X } from 'lucide-react'
 import Badge from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { useSalesByChannel, useSalesChannelMappings, useUpsertSalesChannelMapping } from '@/hooks/useSalesChannels'
@@ -15,11 +15,22 @@ interface ManualMappingForm {
   notes: string
 }
 
+interface ExistingMappingForm extends ManualMappingForm {
+  source_file: string
+  is_active: boolean
+}
+
 const EMPTY_FORM: ManualMappingForm = {
   sellercloud_company: '',
   sellercloud_channel: '',
   qb_channel: '',
   notes: '',
+}
+
+const EMPTY_EXISTING_FORM: ExistingMappingForm = {
+  ...EMPTY_FORM,
+  source_file: 'admin',
+  is_active: true,
 }
 
 export default function SalesChannelMappingsPage() {
@@ -29,6 +40,8 @@ export default function SalesChannelMappingsPage() {
   const { data: mappings = [], isLoading: mappingsLoading, error: mappingsError } = useSalesChannelMappings()
   const upsertMapping = useUpsertSalesChannelMapping()
   const [manualForm, setManualForm] = useState<ManualMappingForm>(EMPTY_FORM)
+  const [editingMappingId, setEditingMappingId] = useState<string | null>(null)
+  const [existingForm, setExistingForm] = useState<ExistingMappingForm>(EMPTY_EXISTING_FORM)
   const [mappingDrafts, setMappingDrafts] = useState<Record<string, string>>({})
   const [message, setMessage] = useState<string | null>(null)
 
@@ -86,6 +99,38 @@ export default function SalesChannelMappingsPage() {
     })
     setMessage(`Saved ${manualForm.sellercloud_company} / ${manualForm.sellercloud_channel}.`)
     setManualForm(EMPTY_FORM)
+  }
+
+  function startExistingEdit(mapping: SalesChannelMapping) {
+    setEditingMappingId(mapping.id)
+    setExistingForm({
+      sellercloud_company: mapping.sellercloud_company,
+      sellercloud_channel: mapping.sellercloud_channel,
+      qb_channel: mapping.qb_channel,
+      source_file: mapping.source_file || 'admin',
+      notes: mapping.notes || '',
+      is_active: mapping.is_active,
+    })
+    setMessage(null)
+  }
+
+  function cancelExistingEdit() {
+    setEditingMappingId(null)
+    setExistingForm(EMPTY_EXISTING_FORM)
+  }
+
+  async function handleExistingSubmit(mapping: SalesChannelMapping) {
+    await upsertMapping.mutateAsync({
+      id: mapping.id,
+      sellercloud_company: existingForm.sellercloud_company,
+      sellercloud_channel: existingForm.sellercloud_channel,
+      qb_channel: existingForm.qb_channel,
+      is_active: existingForm.is_active,
+      source_file: existingForm.source_file || 'admin',
+      notes: existingForm.notes || null,
+    })
+    setMessage(`Updated ${existingForm.sellercloud_company} / ${existingForm.sellercloud_channel}.`)
+    cancelExistingEdit()
   }
 
   return (
@@ -275,11 +320,22 @@ export default function SalesChannelMappingsPage() {
                 <th className="px-4 py-3 text-left font-semibold">QB Channel</th>
                 <th className="px-4 py-3 text-left font-semibold">Source</th>
                 <th className="px-4 py-3 text-left font-semibold">Status</th>
+                <th className="px-4 py-3 text-right font-semibold">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {mappings.map(mapping => (
-                <MappingRow key={mapping.id} mapping={mapping} />
+                <MappingRow
+                  key={mapping.id}
+                  mapping={mapping}
+                  isEditing={editingMappingId === mapping.id}
+                  draft={existingForm}
+                  isSaving={upsertMapping.isPending}
+                  onStartEdit={startExistingEdit}
+                  onCancelEdit={cancelExistingEdit}
+                  onDraftChange={patch => setExistingForm(form => ({ ...form, ...patch }))}
+                  onSave={handleExistingSubmit}
+                />
               ))}
             </tbody>
           </table>
@@ -289,7 +345,110 @@ export default function SalesChannelMappingsPage() {
   )
 }
 
-function MappingRow({ mapping }: { mapping: SalesChannelMapping }) {
+function MappingRow({
+  mapping,
+  isEditing,
+  draft,
+  isSaving,
+  onStartEdit,
+  onCancelEdit,
+  onDraftChange,
+  onSave,
+}: {
+  mapping: SalesChannelMapping
+  isEditing: boolean
+  draft: ExistingMappingForm
+  isSaving: boolean
+  onStartEdit: (mapping: SalesChannelMapping) => void
+  onCancelEdit: () => void
+  onDraftChange: (patch: Partial<ExistingMappingForm>) => void
+  onSave: (mapping: SalesChannelMapping) => void
+}) {
+  if (isEditing) {
+    return (
+      <>
+        <tr className="border-l-4 border-accent bg-accent/5">
+          <td className="px-4 py-3">
+            <TableTextInput
+              ariaLabel="Edit SellerCloud company"
+              value={draft.sellercloud_company}
+              onChange={sellercloud_company => onDraftChange({ sellercloud_company })}
+            />
+          </td>
+          <td className="px-4 py-3">
+            <TableTextInput
+              ariaLabel="Edit SellerCloud channel"
+              value={draft.sellercloud_channel}
+              onChange={sellercloud_channel => onDraftChange({ sellercloud_channel })}
+            />
+          </td>
+          <td className="px-4 py-3">
+            <TableTextInput
+              ariaLabel="Edit QB channel"
+              value={draft.qb_channel}
+              onChange={qb_channel => onDraftChange({ qb_channel })}
+            />
+          </td>
+          <td className="px-4 py-3">
+            <TableTextInput
+              ariaLabel="Edit mapping source"
+              value={draft.source_file}
+              onChange={source_file => onDraftChange({ source_file })}
+            />
+          </td>
+          <td className="px-4 py-3">
+            <label className="inline-flex items-center gap-2 text-xs font-semibold text-text1">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-border text-accent"
+                checked={draft.is_active}
+                onChange={event => onDraftChange({ is_active: event.target.checked })}
+                aria-label="Active mapping"
+              />
+              Active mapping
+            </label>
+          </td>
+          <td className="px-4 py-3 text-right">
+            <div className="inline-flex items-center gap-1.5">
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-success transition hover:bg-success/10 disabled:opacity-50"
+                onClick={() => onSave(mapping)}
+                disabled={isSaving}
+                title="Save mapping"
+                aria-label="Save mapping"
+              >
+                <Save size={14} />
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-text2 transition hover:bg-surface2 hover:text-text1"
+                onClick={onCancelEdit}
+                title="Cancel edit"
+                aria-label="Cancel edit"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </td>
+        </tr>
+        <tr className="border-l-4 border-accent bg-accent/5">
+          <td colSpan={6} className="px-4 pb-4">
+            <label className="block">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-text2">Notes</span>
+              <textarea
+                className="input mt-1 min-h-[64px] w-full resize-y py-2 text-sm"
+                value={draft.notes}
+                onChange={event => onDraftChange({ notes: event.target.value })}
+                placeholder="Optional edit notes"
+              />
+            </label>
+          </td>
+        </tr>
+      </>
+    )
+  }
+
   return (
     <tr className="transition hover:bg-surface2/60">
       <td className="px-4 py-3 font-semibold text-text1">{mapping.sellercloud_company}</td>
@@ -299,7 +458,37 @@ function MappingRow({ mapping }: { mapping: SalesChannelMapping }) {
       <td className="px-4 py-3">
         <Badge variant={mapping.is_active ? 'ok' : 'neutral'}>{mapping.is_active ? 'Active' : 'Inactive'}</Badge>
       </td>
+      <td className="px-4 py-3 text-right">
+        <button
+          type="button"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-accent transition hover:bg-accent/10"
+          onClick={() => onStartEdit(mapping)}
+          title="Edit mapping"
+          aria-label="Edit mapping"
+        >
+          <Pencil size={14} />
+        </button>
+      </td>
     </tr>
+  )
+}
+
+function TableTextInput({
+  ariaLabel,
+  value,
+  onChange,
+}: {
+  ariaLabel: string
+  value: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <input
+      className="input h-8 w-full min-w-[150px] py-1 text-xs"
+      value={value}
+      onChange={event => onChange(event.target.value)}
+      aria-label={ariaLabel}
+    />
   )
 }
 

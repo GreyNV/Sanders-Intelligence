@@ -17,6 +17,7 @@ export interface UpdateSalesChannelGoalPayload {
 }
 
 export interface UpsertSalesChannelMappingPayload {
+  id?: string
   sellercloud_company: string
   sellercloud_channel: string
   qb_channel: string
@@ -116,11 +117,16 @@ export function useUpsertSalesChannelMapping() {
         updated_at: new Date().toISOString(),
       }
 
-      const { data, error } = await supabase
-        .from('sales_channel_mappings')
-        .upsert(row, { onConflict: 'normalized_company,normalized_channel' })
-        .select('*')
-        .single()
+      const query = payload.id
+        ? supabase
+            .from('sales_channel_mappings')
+            .update(row)
+            .eq('id', payload.id)
+        : supabase
+            .from('sales_channel_mappings')
+            .upsert(row, { onConflict: 'normalized_company,normalized_channel' })
+
+      const { data, error } = await query.select('*').single()
 
       if (error) throw error
       return data as SalesChannelMapping
