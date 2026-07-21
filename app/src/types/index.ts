@@ -345,6 +345,16 @@ export interface SalesChannelGoal {
   created_at: string
 }
 
+export interface SalesChannelGamePlan {
+  id: string
+  period_month: string
+  qb_channel: string
+  game_plan: string
+  updated_by: string | null
+  updated_at: string
+  created_at: string
+}
+
 export interface LeadershipCashflowWeek {
   week: number
   week_start_date: string

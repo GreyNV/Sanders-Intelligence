@@ -1,19 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
-import { monthlyStarSalesWindows } from '@/pages/csuite/NorthStar.helpers'
+import { monthlyStarSalesWindows, periodMonth as currentPeriodMonth } from '@/pages/csuite/NorthStar.helpers'
 import {
   deriveSalesByChannel,
   normalizeSalesChannelValue,
   type SalesByChannelResult,
   type SalesByChannelSalesRow,
 } from '@/pages/csuite/SalesByChannel.helpers'
-import type { SalesChannelGoal, SalesChannelMapping } from '@/types'
+import type { SalesChannelGamePlan, SalesChannelGoal, SalesChannelMapping } from '@/types'
 
 export interface UpdateSalesChannelGoalPayload {
   period_month: string
   qb_channel: string
   goal_amount: number
+}
+
+export interface UpdateSalesChannelGamePlanPayload {
+  period_month: string
+  qb_channel: string
+  game_plan: string
 }
 
 export interface UpsertSalesChannelMappingPayload {
@@ -31,11 +37,12 @@ export function useSalesByChannel(periodMonth: string) {
     queryKey: ['sales_by_channel', periodMonth],
     queryFn: async (): Promise<SalesByChannelResult> => {
       const windows = monthlyStarSalesWindows(periodMonth)
-      const [currentRows, previousYearRows, mappings, goals] = await Promise.all([
+      const [currentRows, previousYearRows, mappings, goals, gamePlans] = await Promise.all([
         fetchSalesDailyRange(windows.currentStart, windows.currentEndExclusive),
         fetchSalesDailyRange(windows.previousStart, windows.previousEndExclusive),
         fetchSalesChannelMappings(),
         fetchSalesChannelGoals(periodMonth),
+        fetchSalesChannelGamePlans(periodMonth),
       ])
 
       return deriveSalesByChannel({
@@ -44,6 +51,7 @@ export function useSalesByChannel(periodMonth: string) {
         previousYearRows,
         mappings,
         goals,
+        gamePlans,
         daysElapsed: Math.max(1, windows.daysElapsed),
         daysRemaining: windows.daysRemaining,
       })
@@ -85,6 +93,41 @@ export function useUpdateSalesChannelGoal() {
     onSuccess: (_data, payload) => {
       qc.invalidateQueries({ queryKey: ['sales_by_channel', payload.period_month] })
       qc.invalidateQueries({ queryKey: ['sales_channel_goals', payload.period_month] })
+    },
+  })
+}
+
+export function useUpdateSalesChannelGamePlan() {
+  const qc = useQueryClient()
+  const { profile } = useAuth()
+
+  return useMutation({
+    mutationFn: async (payload: UpdateSalesChannelGamePlanPayload): Promise<SalesChannelGamePlan> => {
+      if (!profile?.is_active) throw new Error('Active user required')
+      if (payload.period_month !== currentPeriodMonth()) {
+        throw new Error('Only the current month game plan can be edited')
+      }
+
+      const row = {
+        period_month: payload.period_month,
+        qb_channel: payload.qb_channel.trim(),
+        game_plan: payload.game_plan.trim(),
+        updated_by: profile.id,
+        updated_at: new Date().toISOString(),
+      }
+
+      const { data, error } = await supabase
+        .from('sales_channel_game_plans')
+        .upsert(row, { onConflict: 'period_month,qb_channel' })
+        .select('*')
+        .single()
+
+      if (error) throw error
+      return data as SalesChannelGamePlan
+    },
+    onSuccess: (_data, payload) => {
+      qc.invalidateQueries({ queryKey: ['sales_by_channel', payload.period_month] })
+      qc.invalidateQueries({ queryKey: ['sales_channel_game_plans', payload.period_month] })
     },
   })
 }
@@ -153,7 +196,7 @@ async function fetchSalesDailyRange(startInclusive: string, endExclusive: string
       .range(from, from + pageSize - 1)
 
     if (error) {
-      if ((error as { code?: string }).code === '42P01') return []
+      if (isMissingRelationError(error)) return []
       throw error
     }
     const page = (data ?? []) as SalesByChannelSalesRow[]
@@ -178,7 +221,7 @@ async function fetchSalesChannelMappings(): Promise<SalesChannelMapping[]> {
       .range(from, from + pageSize - 1)
 
     if (error) {
-      if ((error as { code?: string }).code === '42P01') return []
+      if (isMissingRelationError(error)) return []
       throw error
     }
     const page = (data ?? []) as SalesChannelMapping[]
@@ -198,8 +241,27 @@ async function fetchSalesChannelGoals(periodMonth: string): Promise<SalesChannel
     .order('qb_channel', { ascending: true })
 
   if (error) {
-    if ((error as { code?: string }).code === '42P01') return []
+    if (isMissingRelationError(error)) return []
     throw error
   }
   return (data ?? []) as SalesChannelGoal[]
+}
+
+async function fetchSalesChannelGamePlans(periodMonth: string): Promise<SalesChannelGamePlan[]> {
+  const { data, error } = await supabase
+    .from('sales_channel_game_plans')
+    .select('*')
+    .eq('period_month', periodMonth)
+    .order('qb_channel', { ascending: true })
+
+  if (error) {
+    if (isMissingRelationError(error)) return []
+    throw error
+  }
+  return (data ?? []) as SalesChannelGamePlan[]
+}
+
+function isMissingRelationError(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code
+  return code === '42P01' || code === 'PGRST205'
 }

@@ -4,7 +4,7 @@ import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRig
 import Badge from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/contexts/AuthContext'
-import { useSalesByChannel, useUpdateSalesChannelGoal } from '@/hooks/useSalesChannels'
+import { useSalesByChannel, useUpdateSalesChannelGamePlan, useUpdateSalesChannelGoal } from '@/hooks/useSalesChannels'
 import { cn, fmtCurrency, fmtNumber } from '@/lib/utils'
 import { addMonthsToPeriod, formatPeriodMonth, periodMonth } from './NorthStar.helpers'
 import {
@@ -37,6 +37,9 @@ export default function SalesByChannel() {
   const [sortConfig, setSortConfig] = useState<SalesByChannelSortConfig>({ key: 'channel', direction: 'asc' })
   const { data, isLoading, error } = useSalesByChannel(selectedMonth)
   const updateGoal = useUpdateSalesChannelGoal()
+  const updateGamePlan = useUpdateSalesChannelGamePlan()
+  const rows = data?.rows ?? []
+  const sortedRows = useMemo(() => sortSalesByChannelRows(rows, sortConfig), [rows, sortConfig])
 
   if (isLoading) return <PageLoader />
 
@@ -50,13 +53,12 @@ export default function SalesByChannel() {
     )
   }
 
-  const rows = data?.rows ?? []
-  const sortedRows = useMemo(() => sortSalesByChannelRows(rows, sortConfig), [rows, sortConfig])
   const mappedRows = rows.filter(row => !row.requires_mapping)
   const addMappingRow = rows.find(row => row.channel === ADD_MAPPING_CHANNEL)
   const totalMtd = sumRows(rows, 'mtd_revenue')
   const onTrackCount = mappedRows.filter(row => row.status === 'on_track').length
   const needsLiftCount = mappedRows.filter(row => row.status === 'needs_lift').length
+  const canEditGamePlans = selectedMonth === currentMonth
 
   function handleSort(key: SalesByChannelSortKey) {
     setSortConfig(current => ({
@@ -70,6 +72,14 @@ export default function SalesByChannel() {
       period_month: selectedMonth,
       qb_channel: channel,
       goal_amount: goalAmount,
+    })
+  }
+
+  async function handleGamePlanSave(channel: string, gamePlan: string) {
+    await updateGamePlan.mutateAsync({
+      period_month: selectedMonth,
+      qb_channel: channel,
+      game_plan: gamePlan,
     })
   }
 
@@ -143,21 +153,24 @@ export default function SalesByChannel() {
           </div>
 
           <div className="overflow-auto">
-            <table className="w-full min-w-[920px] border-collapse text-sm">
+            <table className="w-full min-w-[1360px] border-collapse text-sm">
               <thead className="bg-surface2 text-xs uppercase tracking-wider text-text2">
                 <tr>
                   <SortableHeader label="Channel" sortKey="channel" sortConfig={sortConfig} align="left" onSort={handleSort} active={sortConfig.key === 'channel'} />
                   <SortableHeader label="MTD" sortKey="mtd_revenue" sortConfig={sortConfig} align="right" onSort={handleSort} active={sortConfig.key === 'mtd_revenue'} />
                   <SortableHeader label="Goal" sortKey="goal_amount" sortConfig={sortConfig} align="right" onSort={handleSort} active={sortConfig.key === 'goal_amount'} />
+                  <SortableHeader label="Goal vs MTD" sortKey="goal_vs_actual_delta" sortConfig={sortConfig} align="right" onSort={handleSort} active={sortConfig.key === 'goal_vs_actual_delta'} />
                   <SortableHeader label="Projected" sortKey="projected_month_end" sortConfig={sortConfig} align="right" onSort={handleSort} active={sortConfig.key === 'projected_month_end'} />
+                  <SortableHeader label="Goal vs projected" sortKey="goal_vs_projected_delta" sortConfig={sortConfig} align="right" onSort={handleSort} active={sortConfig.key === 'goal_vs_projected_delta'} />
                   <SortableHeader label="Daily lift" sortKey="daily_lift" sortConfig={sortConfig} align="right" onSort={handleSort} active={sortConfig.key === 'daily_lift'} />
                   <SortableHeader label="Status" sortKey="status" sortConfig={sortConfig} align="left" onSort={handleSort} active={sortConfig.key === 'status'} />
+                  <th className="px-4 py-3 text-left font-semibold">Game plan</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-sm text-text2">
+                    <td colSpan={9} className="px-4 py-12 text-center text-sm text-text2">
                       No SellerCloud sales rows found for {formatPeriodMonth(selectedMonth)}.
                     </td>
                   </tr>
@@ -168,7 +181,10 @@ export default function SalesByChannel() {
                       row={row}
                       isAdmin={isAdmin}
                       isSaving={updateGoal.isPending}
+                      canEditGamePlan={selectedMonth === currentMonth && canEditGamePlans}
+                      isSavingGamePlan={updateGamePlan.isPending}
                       onGoalSave={handleGoalSave}
+                      onGamePlanSave={handleGamePlanSave}
                     />
                   ))
                 )}
@@ -225,15 +241,22 @@ function ChannelRow({
   row,
   isAdmin,
   isSaving,
+  canEditGamePlan,
+  isSavingGamePlan,
   onGoalSave,
+  onGamePlanSave,
 }: {
   row: SalesByChannelRow
   isAdmin: boolean
   isSaving: boolean
+  canEditGamePlan: boolean
+  isSavingGamePlan: boolean
   onGoalSave: (channel: string, goalAmount: number) => Promise<void>
+  onGamePlanSave: (channel: string, gamePlan: string) => Promise<void>
 }) {
   const [goalDraft, setGoalDraft] = useState(row.goal_amount == null ? '' : String(row.goal_amount))
   const canEditGoal = isAdmin && !row.requires_mapping
+  const canEditThisGamePlan = canEditGamePlan && !row.requires_mapping
   const rowTone = row.status === 'on_track'
     ? 'border-l-4 border-success bg-success/5'
     : row.status === 'needs_lift'
@@ -294,7 +317,13 @@ function ChannelRow({
           <span className="font-semibold tabular-nums text-text1">{fmtCurrency(row.goal_amount)}</span>
         )}
       </td>
+      <td className="px-4 py-3 text-right">
+        <DeltaCell value={row.goal_vs_actual_delta} />
+      </td>
       <td className="px-4 py-3 text-right tabular-nums text-text2">{fmtCurrency(row.projected_month_end)}</td>
+      <td className="px-4 py-3 text-right">
+        <DeltaCell value={row.goal_vs_projected_delta} />
+      </td>
       <td className="px-4 py-3 text-right">
         {row.daily_lift == null ? (
           <span className="text-text2">No goal</span>
@@ -311,7 +340,84 @@ function ChannelRow({
           <Badge variant={STATUS_VARIANT[row.status]}>{STATUS_COPY[row.status]}</Badge>
         </div>
       </td>
+      <td className="px-4 py-3 align-top">
+        <GamePlanCell
+          row={row}
+          canEdit={canEditThisGamePlan}
+          isSaving={isSavingGamePlan}
+          onSave={onGamePlanSave}
+        />
+      </td>
     </tr>
+  )
+}
+
+function DeltaCell({ value }: { value: number | null }) {
+  if (value == null) return <span className="text-text2">No goal</span>
+  return (
+    <span className={cn('font-semibold tabular-nums', value < 0 ? 'text-danger' : 'text-success')}>
+      {signedCurrency(value)}
+    </span>
+  )
+}
+
+function GamePlanCell({
+  row,
+  canEdit,
+  isSaving,
+  onSave,
+}: {
+  row: SalesByChannelRow
+  canEdit: boolean
+  isSaving: boolean
+  onSave: (channel: string, gamePlan: string) => Promise<void>
+}) {
+  const [draft, setDraft] = useState(row.game_plan)
+
+  useEffect(() => {
+    setDraft(row.game_plan)
+  }, [row.game_plan])
+
+  const isDirty = draft !== row.game_plan
+
+  async function saveGamePlan() {
+    if (!canEdit || !isDirty) return
+    await onSave(row.channel, draft)
+  }
+
+  if (row.requires_mapping) {
+    return <span className="text-xs text-warning">Map channel first</span>
+  }
+
+  if (!canEdit) {
+    return (
+      <div className="max-w-[260px] whitespace-pre-wrap text-xs leading-relaxed text-text2">
+        {row.game_plan.trim() || 'No plan saved'}
+      </div>
+    )
+  }
+
+  return (
+    <div className="w-[260px] space-y-2">
+      <textarea
+        className="input min-h-[84px] w-full resize-y py-2 text-xs leading-relaxed"
+        value={draft}
+        onChange={event => setDraft(event.target.value)}
+        placeholder="Add the channel plan..."
+        aria-label={`Game plan for ${row.channel}`}
+      />
+      <div className="flex justify-end">
+        <button
+          type="button"
+          className="btn-secondary h-8 px-3 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={saveGamePlan}
+          disabled={!isDirty || isSaving}
+        >
+          <Save size={13} />
+          Save
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -386,6 +492,12 @@ function MetricCell({
 
 function sumRows(rows: SalesByChannelRow[], key: 'mtd_revenue'): number {
   return Number(rows.reduce((sum, row) => sum + Number(row[key] ?? 0), 0).toFixed(2))
+}
+
+function signedCurrency(value: number): string {
+  if (value === 0) return fmtCurrency(0)
+  const sign = value > 0 ? '+' : '-'
+  return `${sign}${fmtCurrency(Math.abs(value))}`
 }
 
 function parseMoney(value: string): number {
