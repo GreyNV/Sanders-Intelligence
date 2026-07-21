@@ -1,13 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, ChevronLeft, ChevronRight, MapPinned, RotateCcw, Save, TrendingDown, TrendingUp } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, MapPinned, RotateCcw, Save, TrendingDown, TrendingUp } from 'lucide-react'
 import Badge from '@/components/ui/Badge'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSalesByChannel, useUpdateSalesChannelGoal } from '@/hooks/useSalesChannels'
 import { cn, fmtCurrency, fmtNumber } from '@/lib/utils'
 import { addMonthsToPeriod, formatPeriodMonth, periodMonth } from './NorthStar.helpers'
-import { ADD_MAPPING_CHANNEL, type SalesByChannelRow } from './SalesByChannel.helpers'
+import {
+  ADD_MAPPING_CHANNEL,
+  sortSalesByChannelRows,
+  type SalesByChannelRow,
+  type SalesByChannelSortConfig,
+  type SalesByChannelSortKey,
+} from './SalesByChannel.helpers'
 
 const STATUS_COPY: Record<SalesByChannelRow['status'], string> = {
   on_track: 'On track',
@@ -28,6 +34,7 @@ export default function SalesByChannel() {
   const isAdmin = profile?.role === 'admin'
   const currentMonth = useMemo(() => periodMonth(), [])
   const [selectedMonth, setSelectedMonth] = useState(currentMonth)
+  const [sortConfig, setSortConfig] = useState<SalesByChannelSortConfig>({ key: 'channel', direction: 'asc' })
   const { data, isLoading, error } = useSalesByChannel(selectedMonth)
   const updateGoal = useUpdateSalesChannelGoal()
 
@@ -44,14 +51,19 @@ export default function SalesByChannel() {
   }
 
   const rows = data?.rows ?? []
+  const sortedRows = useMemo(() => sortSalesByChannelRows(rows, sortConfig), [rows, sortConfig])
   const mappedRows = rows.filter(row => !row.requires_mapping)
   const addMappingRow = rows.find(row => row.channel === ADD_MAPPING_CHANNEL)
   const totalMtd = sumRows(rows, 'mtd_revenue')
-  const totalLyMtd = sumRows(rows, 'ly_mtd_revenue')
-  const activeGoalTotal = mappedRows.reduce((sum, row) => sum + Number(row.goal_amount ?? 0), 0)
-  const remainingToGoal = mappedRows.reduce((sum, row) => sum + Number(row.remaining_to_goal ?? 0), 0)
   const onTrackCount = mappedRows.filter(row => row.status === 'on_track').length
   const needsLiftCount = mappedRows.filter(row => row.status === 'needs_lift').length
+
+  function handleSort(key: SalesByChannelSortKey) {
+    setSortConfig(current => ({
+      key,
+      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc',
+    }))
+  }
 
   async function handleGoalSave(channel: string, goalAmount: number) {
     await updateGoal.mutateAsync({
@@ -110,9 +122,8 @@ export default function SalesByChannel() {
         </div>
       </div>
 
-      <div className="grid border border-border bg-surface md:grid-cols-2 xl:grid-cols-5">
-        <MetricCell label="MTD sales" value={fmtCurrency(totalMtd)} sub={`${signedCurrency(totalMtd - totalLyMtd)} vs LY`} tone={totalMtd >= totalLyMtd ? 'success' : 'danger'} />
-        <MetricCell label="Goal" value={fmtCurrency(activeGoalTotal)} sub={`${fmtCurrency(remainingToGoal)} remaining`} />
+      <div className="grid border border-border bg-surface md:grid-cols-2 xl:grid-cols-4">
+        <MetricCell label="MTD sales" value={fmtCurrency(totalMtd)} tone="success" />
         <MetricCell label="Mapped channels" value={fmtNumber(mappedRows.length)} sub={`${fmtNumber(onTrackCount)} on track`} tone="info" />
         <MetricCell label="Needs lift" value={fmtNumber(needsLiftCount)} sub="Channels behind pace" tone={needsLiftCount > 0 ? 'danger' : 'success'} />
         <MetricCell label="Unmapped sales" value={fmtCurrency(addMappingRow?.mtd_revenue ?? 0)} sub={`${fmtNumber(data?.unmappedSourcePairs.length ?? 0)} source pairs`} tone={(addMappingRow?.mtd_revenue ?? 0) > 0 ? 'warning' : 'success'} />
@@ -132,28 +143,26 @@ export default function SalesByChannel() {
           </div>
 
           <div className="overflow-auto">
-            <table className="w-full min-w-[1040px] border-collapse text-sm">
+            <table className="w-full min-w-[920px] border-collapse text-sm">
               <thead className="bg-surface2 text-xs uppercase tracking-wider text-text2">
                 <tr>
-                  <th className="px-4 py-3 text-left font-semibold">Channel</th>
-                  <th className="px-4 py-3 text-right font-semibold">MTD</th>
-                  <th className="px-4 py-3 text-right font-semibold">LY MTD</th>
-                  <th className="px-4 py-3 text-right font-semibold">YoY</th>
-                  <th className="px-4 py-3 text-right font-semibold">Goal</th>
-                  <th className="px-4 py-3 text-right font-semibold">Projected</th>
-                  <th className="px-4 py-3 text-right font-semibold">Daily lift</th>
-                  <th className="px-4 py-3 text-left font-semibold">Status</th>
+                  <SortableHeader label="Channel" sortKey="channel" sortConfig={sortConfig} align="left" onSort={handleSort} active={sortConfig.key === 'channel'} />
+                  <SortableHeader label="MTD" sortKey="mtd_revenue" sortConfig={sortConfig} align="right" onSort={handleSort} active={sortConfig.key === 'mtd_revenue'} />
+                  <SortableHeader label="Goal" sortKey="goal_amount" sortConfig={sortConfig} align="right" onSort={handleSort} active={sortConfig.key === 'goal_amount'} />
+                  <SortableHeader label="Projected" sortKey="projected_month_end" sortConfig={sortConfig} align="right" onSort={handleSort} active={sortConfig.key === 'projected_month_end'} />
+                  <SortableHeader label="Daily lift" sortKey="daily_lift" sortConfig={sortConfig} align="right" onSort={handleSort} active={sortConfig.key === 'daily_lift'} />
+                  <SortableHeader label="Status" sortKey="status" sortConfig={sortConfig} align="left" onSort={handleSort} active={sortConfig.key === 'status'} />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-12 text-center text-sm text-text2">
+                    <td colSpan={6} className="px-4 py-12 text-center text-sm text-text2">
                       No SellerCloud sales rows found for {formatPeriodMonth(selectedMonth)}.
                     </td>
                   </tr>
                 ) : (
-                  rows.map(row => (
+                  sortedRows.map(row => (
                     <ChannelRow
                       key={row.channel}
                       row={row}
@@ -255,10 +264,6 @@ function ChannelRow({
         </div>
       </td>
       <td className="px-4 py-3 text-right font-semibold tabular-nums text-text1">{fmtCurrency(row.mtd_revenue)}</td>
-      <td className="px-4 py-3 text-right tabular-nums text-text2">{fmtCurrency(row.ly_mtd_revenue)}</td>
-      <td className={cn('px-4 py-3 text-right font-semibold tabular-nums', row.yoy_delta >= 0 ? 'text-success' : 'text-danger')}>
-        {signedCurrency(row.yoy_delta)}
-      </td>
       <td className="px-4 py-3 text-right">
         {canEditGoal ? (
           <div className="ml-auto flex w-[170px] items-center gap-1.5">
@@ -310,6 +315,48 @@ function ChannelRow({
   )
 }
 
+function SortableHeader({
+  label,
+  sortKey,
+  sortConfig,
+  align,
+  active,
+  onSort,
+}: {
+  label: string
+  sortKey: SalesByChannelSortKey
+  sortConfig: SalesByChannelSortConfig
+  align: 'left' | 'right'
+  active: boolean
+  onSort: (key: SalesByChannelSortKey) => void
+}) {
+  const direction = active ? sortConfig.direction : undefined
+  const Icon = direction === 'asc' ? ArrowUp : direction === 'desc' ? ArrowDown : ArrowUpDown
+
+  return (
+    <th
+      className={cn('px-4 py-3 font-semibold', align === 'right' ? 'text-right' : 'text-left')}
+      aria-sort={active ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      <button
+        type="button"
+        className={cn(
+          'inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider transition hover:text-text1',
+          align === 'right' && 'ml-auto',
+          active ? 'text-text1' : 'text-text2',
+        )}
+        onClick={() => onSort(sortKey)}
+      >
+        {label}
+        <Icon size={13} aria-hidden="true" />
+        <span className="sr-only">
+          {active ? `Sorted ${direction === 'asc' ? 'ascending' : 'descending'}` : 'Click to sort'}
+        </span>
+      </button>
+    </th>
+  )
+}
+
 function MetricCell({
   label,
   value,
@@ -318,7 +365,7 @@ function MetricCell({
 }: {
   label: string
   value: string
-  sub: string
+  sub?: string
   tone?: 'default' | 'success' | 'danger' | 'warning' | 'info'
 }) {
   const toneClass = {
@@ -332,20 +379,13 @@ function MetricCell({
     <div className="border-b border-border px-4 py-3 md:border-r xl:border-b-0">
       <div className="text-[10px] font-semibold uppercase tracking-wider text-text2">{label}</div>
       <div className={cn('mt-1 text-lg font-bold tabular-nums', toneClass)}>{value}</div>
-      <div className="mt-0.5 text-[11px] text-text2">{sub}</div>
+      {sub && <div className="mt-0.5 text-[11px] text-text2">{sub}</div>}
     </div>
   )
 }
 
-function sumRows(rows: SalesByChannelRow[], key: 'mtd_revenue' | 'ly_mtd_revenue'): number {
+function sumRows(rows: SalesByChannelRow[], key: 'mtd_revenue'): number {
   return Number(rows.reduce((sum, row) => sum + Number(row[key] ?? 0), 0).toFixed(2))
-}
-
-function signedCurrency(value: number): string {
-  const formatted = fmtCurrency(Math.abs(value))
-  if (value > 0) return `+${formatted}`
-  if (value < 0) return `-${formatted}`
-  return formatted
 }
 
 function parseMoney(value: string): number {

@@ -4,6 +4,8 @@ import {
   deriveSalesByChannel,
   mappingKey,
   normalizeSalesChannelValue,
+  sortSalesByChannelRows,
+  type SalesByChannelRow,
 } from '../pages/csuite/SalesByChannel.helpers'
 
 describe('Sales by Channel helpers', () => {
@@ -99,4 +101,44 @@ describe('Sales by Channel helpers', () => {
     expect(normalizeSalesChannelValue(' Amazon   EU\tDirect ')).toBe('amazon eu direct')
     expect(mappingKey(' Amazon Canada ', ' FBA ')).toBe('amazon canada|fba')
   })
+
+  it('sorts remaining executive columns while keeping Add mapping rows last', () => {
+    const rows: SalesByChannelRow[] = [
+      salesRow({ channel: 'Bravo', mtd_revenue: 200, goal_amount: 300, projected_month_end: 400, daily_lift: 12, status: 'needs_lift' }),
+      salesRow({ channel: ADD_MAPPING_CHANNEL, mtd_revenue: 999, requires_mapping: true, status: 'add_mapping' }),
+      salesRow({ channel: 'Alpha', mtd_revenue: 500, goal_amount: 800, projected_month_end: 900, daily_lift: 0, status: 'on_track' }),
+      salesRow({ channel: 'Charlie', mtd_revenue: 100, goal_amount: null, projected_month_end: 150, daily_lift: null, status: 'no_goal' }),
+    ]
+
+    expect(sortSalesByChannelRows(rows, { key: 'channel', direction: 'asc' }).map(row => row.channel))
+      .toEqual(['Alpha', 'Bravo', 'Charlie', ADD_MAPPING_CHANNEL])
+    expect(sortSalesByChannelRows(rows, { key: 'mtd_revenue', direction: 'desc' }).map(row => row.channel))
+      .toEqual(['Alpha', 'Bravo', 'Charlie', ADD_MAPPING_CHANNEL])
+    expect(sortSalesByChannelRows(rows, { key: 'goal_amount', direction: 'asc' }).map(row => row.channel))
+      .toEqual(['Bravo', 'Alpha', 'Charlie', ADD_MAPPING_CHANNEL])
+    expect(sortSalesByChannelRows(rows, { key: 'projected_month_end', direction: 'desc' }).map(row => row.channel))
+      .toEqual(['Alpha', 'Bravo', 'Charlie', ADD_MAPPING_CHANNEL])
+    expect(sortSalesByChannelRows(rows, { key: 'daily_lift', direction: 'desc' }).map(row => row.channel))
+      .toEqual(['Bravo', 'Alpha', 'Charlie', ADD_MAPPING_CHANNEL])
+    expect(sortSalesByChannelRows(rows, { key: 'status', direction: 'asc' }).map(row => row.channel))
+      .toEqual(['Bravo', 'Charlie', 'Alpha', ADD_MAPPING_CHANNEL])
+  })
 })
+
+function salesRow(overrides: Partial<SalesByChannelRow>): SalesByChannelRow {
+  return {
+    channel: 'Channel',
+    mtd_revenue: 0,
+    ly_mtd_revenue: 0,
+    yoy_delta: 0,
+    goal_amount: null,
+    daily_pace: 0,
+    projected_month_end: 0,
+    remaining_to_goal: null,
+    daily_needed: null,
+    daily_lift: null,
+    status: 'no_goal',
+    requires_mapping: false,
+    ...overrides,
+  }
+}

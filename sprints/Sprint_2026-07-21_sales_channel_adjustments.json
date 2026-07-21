@@ -1,0 +1,105 @@
+{
+  "$schema_note": "Sprint amendment for the Sales by Channel post-release polish requested on 2026-07-21.",
+  "sprint_id": "2026-07-21-sales-channel-adjustments",
+  "parent_sprint_id": "2026-07-21",
+  "sprint_date": "2026-07-21",
+  "theme": "Polish the released Sales by Channel feature by adding admin mapping edits, removing marked LY/goal UI, and adding sortable channel headers.",
+  "project": {
+    "name": "Sanders intelligence app",
+    "asana_project_id": "1214535706843813",
+    "repo_root": "D:\\Sanders Intelligence",
+    "branch": "codex/sales-channel-adjustments",
+    "test_command": "cd app && npm test -- --run",
+    "build_command": "cd app && npm run build"
+  },
+  "source_inputs": [
+    "C:\\Users\\W11\\.codex\\attachments\\98c979ca-5369-4f14-a39b-265ea70bf9eb\\image-1.png",
+    "C:\\Users\\W11\\.codex\\attachments\\98c979ca-5369-4f14-a39b-265ea70bf9eb\\image-2.png"
+  ],
+  "tasks": [
+    {
+      "order": 1,
+      "asana_task_id": "1216763500366104",
+      "title": "ADJUSTMENT: Allow admins to edit existing sales channel mappings",
+      "requirements": [
+        "Existing mappings rows must expose an Edit action.",
+        "Edit mode must allow changing SellerCloud Company, SellerCloud Channel, QB Channel, Active status, and optional notes.",
+        "Save must use the admin-only Supabase mutation and refresh mapping and Sales by Channel query caches.",
+        "Cancel must exit edit mode without changing row values."
+      ],
+      "likely_files": [
+        "app/src/pages/admin/SalesChannelMappingsPage.tsx",
+        "app/src/hooks/useSalesChannels.ts",
+        "app/src/__tests__/SalesByChannel.static.test.ts"
+      ]
+    },
+    {
+      "order": 2,
+      "asana_task_id": "1216763500316588",
+      "title": "ADJUSTMENT: Remove marked Sales by Channel LY and top-goal UI sections",
+      "requirements": [
+        "Remove the LY comparison subtitle from the MTD Sales KPI.",
+        "Remove the top-level Goal KPI card.",
+        "Remove LY MTD and YoY columns from the Channel pace table.",
+        "Keep per-channel Goal input, Projected, Daily lift, and Status columns."
+      ],
+      "likely_files": [
+        "app/src/pages/csuite/SalesByChannel.tsx",
+        "app/src/__tests__/SalesByChannel.static.test.ts"
+      ]
+    },
+    {
+      "order": 3,
+      "asana_task_id": "1216763499505833",
+      "title": "ADJUSTMENT: Add click-to-sort headers for Sales by Channel remaining columns",
+      "requirements": [
+        "Remaining Channel pace headers must sort rows when clicked.",
+        "Headers must cover Channel, MTD, Goal, Projected, Daily lift, and Status.",
+        "Repeated header clicks must toggle ascending and descending direction.",
+        "Add mapping rows should remain below mapped channel rows."
+      ],
+      "likely_files": [
+        "app/src/pages/csuite/SalesByChannel.tsx",
+        "app/src/pages/csuite/SalesByChannel.helpers.ts",
+        "app/src/__tests__/SalesByChannel.helpers.test.ts"
+      ]
+    },
+    {
+      "order": 4,
+      "asana_task_id": "1216763551946388",
+      "title": "ADJUSTMENT: Document sprint amendment and verification for Sales by Channel polish",
+      "requirements": [
+        "Commit this amendment document with implementation evidence.",
+        "Update Asana tasks after verification.",
+        "Run focused tests, full tests, and production build before completion."
+      ],
+      "likely_files": [
+        "sprints/Sprint_2026-07-21_sales_channel_adjustments.json",
+        "docs/superpowers/plans/2026-07-21-sales-channel-adjustments.md"
+      ]
+    }
+  ],
+  "completion_gates": [
+    "Focused Sales by Channel tests pass.",
+    "Full Vitest suite passes.",
+    "Production build passes.",
+    "Asana adjustment tasks are updated with evidence."
+  ],
+  "verification": [
+    {
+      "command": "cd app && npm test -- --run src/__tests__/SalesByChannel.helpers.test.ts src/__tests__/SalesByChannel.static.test.ts",
+      "result": "pass",
+      "evidence": "2 test files passed, 9 tests passed"
+    },
+    {
+      "command": "cd app && npm test -- --run",
+      "result": "pass",
+      "evidence": "43 test files passed, 251 tests passed"
+    },
+    {
+      "command": "cd app && npm run build",
+      "result": "pass",
+      "evidence": "tsc and Vite production build completed"
+    }
+  ]
+}
