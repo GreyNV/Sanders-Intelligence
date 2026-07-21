@@ -53,6 +53,9 @@ describe('Sales by Channel helpers', () => {
       goals: [
         { period_month: '2026-07-01', qb_channel: 'Amazon CA', goal_amount: 3100 },
       ],
+      gamePlans: [
+        { period_month: '2026-07-01', qb_channel: 'Amazon CA', game_plan: 'Push prime promos' },
+      ],
     })
 
     expect(result.rows).toEqual([
@@ -61,6 +64,9 @@ describe('Sales by Channel helpers', () => {
         mtd_revenue: 1250,
         ly_mtd_revenue: 400,
         goal_amount: 3100,
+        goal_vs_actual_delta: -1850,
+        goal_vs_projected_delta: 4650,
+        game_plan: 'Push prime promos',
         daily_pace: 250,
         projected_month_end: 7750,
         status: 'on_track',
@@ -132,6 +138,9 @@ function salesRow(overrides: Partial<SalesByChannelRow>): SalesByChannelRow {
     ly_mtd_revenue: 0,
     yoy_delta: 0,
     goal_amount: null,
+    goal_vs_actual_delta: null,
+    goal_vs_projected_delta: null,
+    game_plan: '',
     daily_pace: 0,
     projected_month_end: 0,
     remaining_to_goal: null,

@@ -1,7 +1,15 @@
 export const ADD_MAPPING_CHANNEL = 'Add mapping'
 
 export type SalesChannelStatus = 'on_track' | 'needs_lift' | 'no_goal' | 'add_mapping'
-export type SalesByChannelSortKey = 'channel' | 'mtd_revenue' | 'goal_amount' | 'projected_month_end' | 'daily_lift' | 'status'
+export type SalesByChannelSortKey =
+  | 'channel'
+  | 'mtd_revenue'
+  | 'goal_amount'
+  | 'goal_vs_actual_delta'
+  | 'projected_month_end'
+  | 'goal_vs_projected_delta'
+  | 'daily_lift'
+  | 'status'
 export type SalesByChannelSortDirection = 'asc' | 'desc'
 
 export interface SalesByChannelSortConfig {
@@ -33,12 +41,21 @@ export interface SalesChannelGoalInput {
   goal_amount: number
 }
 
+export interface SalesChannelGamePlanInput {
+  period_month: string
+  qb_channel: string
+  game_plan: string
+}
+
 export interface SalesByChannelRow {
   channel: string
   mtd_revenue: number
   ly_mtd_revenue: number
   yoy_delta: number
   goal_amount: number | null
+  goal_vs_actual_delta: number | null
+  goal_vs_projected_delta: number | null
+  game_plan: string
   daily_pace: number
   projected_month_end: number
   remaining_to_goal: number | null
@@ -79,6 +96,7 @@ export function deriveSalesByChannel({
   previousYearRows,
   mappings,
   goals,
+  gamePlans = [],
   daysElapsed,
   daysRemaining,
 }: {
@@ -87,6 +105,7 @@ export function deriveSalesByChannel({
   previousYearRows: SalesByChannelSalesRow[]
   mappings: SalesChannelMappingInput[]
   goals: SalesChannelGoalInput[]
+  gamePlans?: SalesChannelGamePlanInput[]
   daysElapsed: number
   daysRemaining: number
 }): SalesByChannelResult {
@@ -96,6 +115,11 @@ export function deriveSalesByChannel({
       .filter(goal => goal.period_month === periodMonth)
       .map(goal => [normalizeSalesChannelValue(goal.qb_channel), Number(goal.goal_amount ?? 0)])
   )
+  const gamePlansByChannel = new Map(
+    gamePlans
+      .filter(plan => plan.period_month === periodMonth)
+      .map(plan => [normalizeSalesChannelValue(plan.qb_channel), plan.game_plan ?? ''])
+  )
   const byChannel = new Map<string, SalesByChannelRow>()
   const unmappedByKey = new Map<string, UnmappedSalesChannelPair>()
 
@@ -103,7 +127,7 @@ export function deriveSalesByChannel({
     const source = sourcePair(row)
     const mapping = mappingByKey.get(mappingKey(source.company, source.channel))
     const channel = mapping?.qb_channel || ADD_MAPPING_CHANNEL
-    const aggregate = ensureChannelRow(byChannel, channel, goalsByChannel, daysElapsed, daysRemaining)
+    const aggregate = ensureChannelRow(byChannel, channel, goalsByChannel, gamePlansByChannel, daysElapsed, daysRemaining)
     aggregate.mtd_revenue = roundCurrency(aggregate.mtd_revenue + Number(row.revenue || 0))
 
     if (!mapping) {
@@ -118,7 +142,7 @@ export function deriveSalesByChannel({
     const source = sourcePair(row)
     const mapping = mappingByKey.get(mappingKey(source.company, source.channel))
     const channel = mapping?.qb_channel || ADD_MAPPING_CHANNEL
-    const aggregate = ensureChannelRow(byChannel, channel, goalsByChannel, daysElapsed, daysRemaining)
+    const aggregate = ensureChannelRow(byChannel, channel, goalsByChannel, gamePlansByChannel, daysElapsed, daysRemaining)
     aggregate.ly_mtd_revenue = roundCurrency(aggregate.ly_mtd_revenue + Number(row.revenue || 0))
 
     if (!mapping) {
@@ -174,6 +198,7 @@ function ensureChannelRow(
   byChannel: Map<string, SalesByChannelRow>,
   channel: string,
   goalsByChannel: Map<string, number>,
+  gamePlansByChannel: Map<string, string>,
   daysElapsed: number,
   daysRemaining: number
 ): SalesByChannelRow {
@@ -181,12 +206,16 @@ function ensureChannelRow(
   if (existing) return existing
 
   const goal = channel === ADD_MAPPING_CHANNEL ? null : goalsByChannel.get(normalizeSalesChannelValue(channel)) ?? null
+  const normalizedChannel = normalizeSalesChannelValue(channel)
   const row: SalesByChannelRow = {
     channel,
     mtd_revenue: 0,
     ly_mtd_revenue: 0,
     yoy_delta: 0,
     goal_amount: goal,
+    goal_vs_actual_delta: goal == null ? null : roundCurrency(-goal),
+    goal_vs_projected_delta: goal == null ? null : roundCurrency(-goal),
+    game_plan: channel === ADD_MAPPING_CHANNEL ? '' : gamePlansByChannel.get(normalizedChannel) ?? '',
     daily_pace: 0,
     projected_month_end: 0,
     remaining_to_goal: goal,
@@ -228,12 +257,16 @@ function finalizeChannelRow(row: SalesByChannelRow, daysElapsed: number, daysRem
   const dailyPace = elapsed > 0 ? row.mtd_revenue / elapsed : 0
   const projectedMonthEnd = row.mtd_revenue + dailyPace * remaining
   const remainingToGoal = row.goal_amount == null ? null : Math.max(0, row.goal_amount - row.mtd_revenue)
+  const goalVsActualDelta = row.goal_amount == null ? null : row.mtd_revenue - row.goal_amount
+  const goalVsProjectedDelta = row.goal_amount == null ? null : projectedMonthEnd - row.goal_amount
   const dailyNeeded = remainingToGoal == null ? null : remaining > 0 ? remainingToGoal / remaining : remainingToGoal
   const dailyLift = dailyNeeded == null ? null : Math.max(0, dailyNeeded - dailyPace)
 
   return {
     ...row,
     yoy_delta: roundCurrency(row.mtd_revenue - row.ly_mtd_revenue),
+    goal_vs_actual_delta: goalVsActualDelta == null ? null : roundCurrency(goalVsActualDelta),
+    goal_vs_projected_delta: goalVsProjectedDelta == null ? null : roundCurrency(goalVsProjectedDelta),
     daily_pace: roundCurrency(dailyPace),
     projected_month_end: roundCurrency(projectedMonthEnd),
     remaining_to_goal: remainingToGoal == null ? null : roundCurrency(remainingToGoal),
