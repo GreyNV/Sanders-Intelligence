@@ -30,7 +30,7 @@ export type NorthStarProgressField = typeof NORTH_STAR_PROGRESS_FIELDS[number]
 export const STATUS_LABELS: Record<NorthStarStatus, string> = {
   on_plan: 'On track',
   at_risk: 'Off track with a plan',
-  off_plan: 'Blocked',
+  off_plan: 'Off Track',
 }
 
 export type NorthStarSortField = 'slot_index' | 'owner'

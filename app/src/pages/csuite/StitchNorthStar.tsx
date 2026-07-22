@@ -6,6 +6,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Code2,
   Edit3,
   Layers,
   Maximize2,
@@ -23,8 +24,9 @@ import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLeadershipSnapshot } from '@/hooks/useLeadershipSnapshot'
 import { useMonthlyStar, useMonthlyStarSales, useNorthStarRows, useUpdateNorthStarProgress, useUpdateNorthStarRow } from '@/hooks/useNorthStar'
+import { useStitchSlideHtmlBlocks, useUpsertStitchSlideHtmlBlock } from '@/hooks/useStitchSlideHtmlBlocks'
 import { cn, fmtCurrency, fmtNumber } from '@/lib/utils'
-import type { NorthStarStatus } from '@/types'
+import type { NorthStarStatus, StitchSlideHtmlBlock, StitchSlideHtmlViewMode } from '@/types'
 import {
   STATUS_LABELS,
   addMonthsToPeriod,
@@ -58,6 +60,7 @@ import {
   monthlyStarOverrideSourceVersion,
   readStitchAutoRowOverrides,
   scaledChartDomain,
+  stitchSlideHtmlKey,
   stitchAutoRowOverrideKey,
   writeStitchAutoRowOverride,
   type StitchAutoRowOverrideMap,
@@ -85,6 +88,8 @@ const STATUS_TEXT_CLASS: Record<NorthStarStatus, string> = {
 
 const COMPACT_FIELDS = new Set<NorthStarEditableField>(['pillar', 'owner', 'plan_value', 'actual_mtd', 'forecast'])
 
+type StitchHtmlSaveHandler = (row: NorthStarDisplayRow, viewMode: StitchSlideHtmlViewMode, htmlCode: string) => Promise<void>
+
 export default function StitchNorthStar() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
@@ -102,8 +107,10 @@ export default function StitchNorthStar() {
   const { data: monthlyStar = null, isLoading: monthlyLoading, error: monthlyError } = useMonthlyStar(selectedMonth)
   const { data: salesRows, isLoading: salesLoading, error: salesError } = useMonthlyStarSales(selectedMonth)
   const { data: leadershipSnapshot = null, isLoading: leadershipLoading, error: leadershipError } = useLeadershipSnapshot()
+  const { data: htmlBlocks = [], isLoading: htmlLoading, error: htmlError } = useStitchSlideHtmlBlocks(selectedMonth)
   const updateRow = useUpdateNorthStarRow()
   const updateProgress = useUpdateNorthStarProgress()
+  const upsertHtmlBlock = useUpsertStitchSlideHtmlBlock()
 
   const baseRows = useMemo(() => mergeNorthStarRows(savedRows, selectedMonth, currentWeek), [savedRows, selectedMonth, currentWeek])
   const salesWindows = useMemo(() => monthlyStarSalesWindows(selectedMonth), [selectedMonth])
@@ -177,6 +184,7 @@ export default function StitchNorthStar() {
   const ownerDecks = useMemo(() => buildOwnerSlideDeck(rows), [rows])
   const selectedDeck = ownerDecks.find(deck => deck.owner === presentingOwner) ?? null
   const statusCounts = useMemo(() => countStatuses(rows), [rows])
+  const htmlBlocksByKey = useMemo(() => new Map(htmlBlocks.map(block => [block.slide_key, block])), [htmlBlocks])
   const dailyLift = Math.max(0, displayedMonthlyMetrics.dailyNeeded - displayedMonthlyMetrics.dailyPace)
   const liftPct = displayedMonthlyMetrics.liftNeededPct === null ? 'n/a' : `${Math.max(0, displayedMonthlyMetrics.liftNeededPct).toFixed(1)}%`
 
@@ -200,9 +208,9 @@ export default function StitchNorthStar() {
     }
   }, [presentingOwner, selectedDeck])
 
-  if (rowsLoading || monthlyLoading || salesLoading || leadershipLoading) return <PageLoader />
+  if (rowsLoading || monthlyLoading || salesLoading || leadershipLoading || htmlLoading) return <PageLoader />
 
-  const error = rowsError ?? monthlyError ?? salesError ?? leadershipError
+  const error = rowsError ?? monthlyError ?? salesError ?? leadershipError ?? htmlError
   if (error) {
     return (
       <div className="card text-center py-16">
@@ -213,7 +221,7 @@ export default function StitchNorthStar() {
     )
   }
 
-  const isSaving = updateRow.isPending || updateProgress.isPending
+  const isSaving = updateRow.isPending || updateProgress.isPending || upsertHtmlBlock.isPending
 
   function canEditField(row: NorthStarDisplayRow, field: NorthStarEditableField): boolean {
     if (row.source === 'monthly_star') {
@@ -241,6 +249,15 @@ export default function StitchNorthStar() {
     }
 
     await updateRow.mutateAsync(buildNorthStarUpdatePayload(row, field, value))
+  }
+
+  async function handleHtmlBlockSave(row: NorthStarDisplayRow, viewMode: StitchSlideHtmlViewMode, htmlCode: string) {
+    await upsertHtmlBlock.mutateAsync({
+      period_month: selectedMonth,
+      slide_key: stitchSlideHtmlKey(row),
+      view_mode: viewMode,
+      html_code: htmlCode,
+    })
   }
 
   function handleGeneratedRowSessionSave(row: NorthStarDisplayRow, field: NorthStarEditableField, value: string | NorthStarStatus): boolean {
@@ -321,7 +338,7 @@ export default function StitchNorthStar() {
         <StitchMetric label="Daily lift" value={fmtCurrency(dailyLift)} sub="Extra per day needed" icon={<TrendingUp size={16} />} tone={displayedMonthlyMetrics.onTrack ? 'success' : 'warning'} />
         <StitchMetric label="Lift %" value={liftPct} sub="Required pace lift" icon={<Target size={16} />} tone={displayedMonthlyMetrics.onTrack ? 'success' : 'warning'} />
         <StitchMetric label="Pillars" value={fmtNumber(rows.length)} sub={`${fmtNumber(ownerDecks.length)} owner decks`} icon={<Layers size={16} />} />
-        <StitchMetric label="Blocked" value={fmtNumber(statusCounts.off_plan)} sub={`${fmtNumber(statusCounts.at_risk)} with plan`} icon={<AlertTriangle size={16} />} tone={statusCounts.off_plan > 0 ? 'danger' : 'success'} />
+        <StitchMetric label="Off Track" value={fmtNumber(statusCounts.off_plan)} sub={`${fmtNumber(statusCounts.at_risk)} with plan`} icon={<AlertTriangle size={16} />} tone={statusCounts.off_plan > 0 ? 'danger' : 'success'} />
       </section>
 
       <section className="rounded-xl border border-border bg-surface p-4">
@@ -366,8 +383,11 @@ export default function StitchNorthStar() {
                 key={`${row.slot_index}-${row.id ?? 'draft'}`}
                 row={row}
                 canEditField={canEditField}
+                htmlBlock={htmlBlocksByKey.get(stitchSlideHtmlKey(row)) ?? null}
+                canEditHtml={canEditProgress}
                 isSaving={isSaving}
                 onSave={handleCellSave}
+                onHtmlBlockSave={handleHtmlBlockSave}
               />
             ))
           )}
@@ -433,8 +453,11 @@ export default function StitchNorthStar() {
           deck={selectedDeck}
           activeSlide={Math.min(activeSlide, selectedDeck.rows.length - 1)}
           canEditField={canEditField}
+          htmlBlocksByKey={htmlBlocksByKey}
+          canEditHtml={canEditProgress}
           isSaving={isSaving}
           onSave={handleCellSave}
+          onHtmlBlockSave={handleHtmlBlockSave}
           onSlideChange={setActiveSlide}
           onClose={() => setPresentingOwner(null)}
         />
@@ -446,14 +469,22 @@ export default function StitchNorthStar() {
 function PillarWorkspaceCard({
   row,
   canEditField,
+  htmlBlock,
+  canEditHtml,
   isSaving,
   onSave,
+  onHtmlBlockSave,
 }: {
   row: NorthStarDisplayRow
   canEditField: (row: NorthStarDisplayRow, field: NorthStarEditableField) => boolean
+  htmlBlock: StitchSlideHtmlBlock | null
+  canEditHtml: boolean
   isSaving: boolean
   onSave: (row: NorthStarDisplayRow, field: NorthStarEditableField, value: string | NorthStarStatus) => Promise<void>
+  onHtmlBlockSave: StitchHtmlSaveHandler
 }) {
+  const isHtmlMode = htmlBlock?.view_mode === 'html'
+
   return (
     <article className={cn('overflow-hidden rounded-xl border bg-surface p-4', STATUS_ACCENT_CLASS[row.status])}>
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -491,6 +522,18 @@ function PillarWorkspaceCard({
         </div>
       </div>
 
+      {isHtmlMode ? (
+        <div className="mt-4">
+          <StitchHtmlModePanel
+            row={row}
+            htmlBlock={htmlBlock}
+            canEdit={canEditHtml}
+            isSaving={isSaving}
+            onSave={onHtmlBlockSave}
+          />
+        </div>
+      ) : (
+        <>
       <div className="mt-4 rounded-lg border border-border bg-bg/40 p-4">
         <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-text2">Metric</div>
         <EditableText
@@ -546,6 +589,17 @@ function PillarWorkspaceCard({
           tone="neutral"
         />
       </div>
+          <div className="mt-4">
+            <StitchHtmlModePanel
+              row={row}
+              htmlBlock={htmlBlock}
+              canEdit={canEditHtml}
+              isSaving={isSaving}
+              onSave={onHtmlBlockSave}
+            />
+          </div>
+        </>
+      )}
     </article>
   )
 }
@@ -554,21 +608,29 @@ function OwnerDeckModal({
   deck,
   activeSlide,
   canEditField,
+  htmlBlocksByKey,
+  canEditHtml,
   isSaving,
   onSave,
+  onHtmlBlockSave,
   onSlideChange,
   onClose,
 }: {
   deck: StitchOwnerDeck
   activeSlide: number
   canEditField: (row: NorthStarDisplayRow, field: NorthStarEditableField) => boolean
+  htmlBlocksByKey: Map<string, StitchSlideHtmlBlock>
+  canEditHtml: boolean
   isSaving: boolean
   onSave: (row: NorthStarDisplayRow, field: NorthStarEditableField, value: string | NorthStarStatus) => Promise<void>
+  onHtmlBlockSave: StitchHtmlSaveHandler
   onSlideChange: (slide: number) => void
   onClose: () => void
 }) {
   const row = deck.rows[activeSlide]
   if (!row) return null
+  const htmlBlock = htmlBlocksByKey.get(stitchSlideHtmlKey(row)) ?? null
+  const isHtmlMode = htmlBlock?.view_mode === 'html'
 
   function previous() {
     onSlideChange(activeSlide === 0 ? deck.rows.length - 1 : activeSlide - 1)
@@ -620,6 +682,18 @@ function OwnerDeckModal({
         </div>
 
         <div className="overflow-y-auto">
+          {isHtmlMode ? (
+            <div className="p-5 lg:p-8">
+              <StitchHtmlModePanel
+                row={row}
+                htmlBlock={htmlBlock}
+                canEdit={canEditHtml}
+                isSaving={isSaving}
+                onSave={onHtmlBlockSave}
+                presentation
+              />
+            </div>
+          ) : (
           <div className="grid gap-8 p-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:p-8">
             <div className="space-y-6">
               <div>
@@ -688,6 +762,15 @@ function OwnerDeckModal({
                 onSave={onSave}
                 tone="neutral"
               />
+
+              <StitchHtmlModePanel
+                row={row}
+                htmlBlock={htmlBlock}
+                canEdit={canEditHtml}
+                isSaving={isSaving}
+                onSave={onHtmlBlockSave}
+                presentation
+              />
             </div>
 
             <aside className="space-y-4">
@@ -726,8 +809,169 @@ function OwnerDeckModal({
               </div>
             </aside>
           </div>
+          )}
         </div>
       </section>
+    </div>
+  )
+}
+
+function StitchHtmlModePanel({
+  row,
+  htmlBlock,
+  canEdit,
+  isSaving,
+  onSave,
+  presentation = false,
+}: {
+  row: NorthStarDisplayRow
+  htmlBlock: StitchSlideHtmlBlock | null
+  canEdit: boolean
+  isSaving: boolean
+  onSave: StitchHtmlSaveHandler
+  presentation?: boolean
+}) {
+  const persistedMode = htmlBlock?.view_mode ?? 'fields'
+  const htmlCode = htmlBlock?.html_code ?? ''
+  const [draftMode, setDraftMode] = useState<StitchSlideHtmlViewMode>(persistedMode)
+  const [draft, setDraft] = useState(htmlCode)
+  const [editing, setEditing] = useState(false)
+
+  useEffect(() => {
+    setDraftMode(persistedMode)
+    setDraft(htmlCode)
+    setEditing(false)
+  }, [htmlCode, persistedMode])
+
+  async function chooseFields() {
+    if (!canEdit || isSaving) return
+    setDraftMode('fields')
+    setEditing(false)
+    if (persistedMode !== 'fields') {
+      await onSave(row, 'fields', htmlCode)
+    }
+  }
+
+  async function chooseHtml() {
+    if (!canEdit || isSaving) return
+    setDraftMode('html')
+    if (!htmlCode.trim()) {
+      setEditing(true)
+      return
+    }
+    if (persistedMode !== 'html') {
+      await onSave(row, 'html', htmlCode)
+    }
+  }
+
+  async function saveHtml() {
+    if (!canEdit || isSaving) return
+    await onSave(row, 'html', draft)
+    setEditing(false)
+  }
+
+  function cancelEdit() {
+    setDraft(htmlCode)
+    setDraftMode(persistedMode)
+    setEditing(false)
+  }
+
+  const activeMode = editing ? draftMode : persistedMode
+  const showEditor = activeMode === 'html' && (editing || !htmlCode.trim())
+  const showFrame = persistedMode === 'html' && !editing && htmlCode.trim().length > 0
+
+  return (
+    <section className="rounded-lg border border-border bg-bg/40 p-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-text2">
+          <Code2 size={13} />
+          Optional HTML code
+        </div>
+        <div className="inline-flex overflow-hidden rounded-lg border border-border bg-surface">
+          <button
+            type="button"
+            className={cn(
+              'h-8 px-3 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50',
+              activeMode === 'fields' ? 'bg-accent text-white' : 'text-text2 hover:bg-surface2 hover:text-text1'
+            )}
+            onClick={chooseFields}
+            disabled={!canEdit || isSaving}
+          >
+            Fields
+          </button>
+          <button
+            type="button"
+            className={cn(
+              'h-8 border-l border-border px-3 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50',
+              activeMode === 'html' ? 'bg-accent text-white' : 'text-text2 hover:bg-surface2 hover:text-text1'
+            )}
+            onClick={chooseHtml}
+            disabled={!canEdit || isSaving}
+          >
+            HTML
+          </button>
+        </div>
+      </div>
+
+      {showEditor && (
+        <div className="mt-3 space-y-2">
+          <label className="block text-[10px] font-semibold uppercase tracking-wider text-text2" htmlFor={`html-code-${stitchSlideHtmlKey(row)}`}>
+            Optional HTML code
+          </label>
+          <textarea
+            id={`html-code-${stitchSlideHtmlKey(row)}`}
+            className={cn('input w-full resize-y py-2 font-mono text-xs leading-relaxed', presentation ? 'min-h-[360px]' : 'min-h-[220px]')}
+            value={draft}
+            onChange={event => setDraft(event.target.value)}
+            aria-label={`Optional HTML code for ${row.pillar}`}
+            spellCheck={false}
+          />
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn-secondary h-8 px-3 text-xs" onClick={cancelEdit} disabled={isSaving}>
+              <X size={13} />
+              Cancel
+            </button>
+            <button type="button" className="btn-primary h-8 px-3 text-xs" onClick={saveHtml} disabled={isSaving}>
+              <Check size={13} />
+              Save HTML
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showFrame && (
+        <div className="mt-3 space-y-2">
+          <div className="flex justify-end">
+            <button type="button" className="btn-secondary h-8 px-3 text-xs" onClick={() => setEditing(true)} disabled={!canEdit || isSaving}>
+              <Edit3 size={13} />
+              Edit HTML
+            </button>
+          </div>
+          <StitchHtmlFrame row={row} htmlCode={htmlCode} presentation={presentation} />
+        </div>
+      )}
+    </section>
+  )
+}
+
+function StitchHtmlFrame({
+  row,
+  htmlCode,
+  presentation,
+}: {
+  row: NorthStarDisplayRow
+  htmlCode: string
+  presentation: boolean
+}) {
+  return (
+    <div className={cn('overflow-hidden rounded-lg border border-border bg-white', presentation ? 'h-[min(72vh,760px)]' : 'h-[460px]')}>
+      <iframe
+        title={`HTML view for ${row.pillar}`}
+        className="h-full w-full bg-white"
+        sandbox="allow-scripts"
+        referrerPolicy="no-referrer"
+        srcDoc={htmlCode}
+      />
     </div>
   )
 }

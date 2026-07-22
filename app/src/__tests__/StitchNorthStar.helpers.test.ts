@@ -15,6 +15,7 @@ import {
   readMonthlyStarPresentationOverrides,
   readStitchAutoRowOverrides,
   scaledChartDomain,
+  stitchSlideHtmlKey,
   stitchAutoRowOverrideKey,
   writeMonthlyStarPresentationOverrides,
   writeStitchAutoRowOverride,
@@ -47,6 +48,38 @@ describe('Stitch North Star helpers', () => {
     expect(decks.map(deck => deck.owner)).toContain('Sam')
     expect(decks.find(deck => deck.owner === 'Sam')?.rows.map(row => row.pillar)).toEqual(['Wholesale', 'Cloud9'])
     expect(decks.find(deck => deck.owner === 'Ryan')?.rows.map(row => row.pillar)).toEqual(['Finance / cash', 'Purchasing'])
+  })
+
+  it('builds stable month-scoped HTML slide keys for saved and generated rows', () => {
+    const [financeRow] = mergeNorthStarRows([], '2026-07-01', '2026-07-05')
+    const savedRow = { ...financeRow, id: 'row-123' }
+    const generatedFinanceRow = buildStitchFinanceMetricRow(
+      [financeRow],
+      {
+        period_month: '2026-07-01',
+        target_sales: 8500000,
+        mtd_actual: 843000,
+        ly_mtd_actual: 1462000,
+        days_elapsed: 8,
+        days_remaining: 23,
+        dragging_channel_notes: null,
+        channel_deltas: [],
+      },
+      computeMonthlyStarMetrics({
+        target_sales: 8500000,
+        mtd_actual: 843000,
+        ly_mtd_actual: 1462000,
+        days_elapsed: 8,
+        days_remaining: 23,
+        dragging_channel_notes: null,
+        channel_deltas: [],
+      }),
+      '2026-07-05'
+    )
+
+    expect(stitchSlideHtmlKey(savedRow)).toBe('row:row-123')
+    expect(stitchSlideHtmlKey(generatedFinanceRow)).toBe('auto:monthly_star:sales')
+    expect(stitchSlideHtmlKey(financeRow)).toContain('slot:1:finance / cash')
   })
 
   it('adds a generated finance metrics pillar from live Monthly Star data', () => {

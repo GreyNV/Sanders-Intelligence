@@ -26,7 +26,7 @@ describe('NorthStar helpers', () => {
     expect(STATUS_LABELS).toEqual({
       on_plan: 'On track',
       at_risk: 'Off track with a plan',
-      off_plan: 'Blocked',
+      off_plan: 'Off Track',
     })
   })
 
