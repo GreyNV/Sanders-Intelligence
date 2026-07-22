@@ -6,6 +6,7 @@ describe('Stitch North Star page contract', () => {
   const appSource = readFileSync(resolve(__dirname, '../App.tsx'), 'utf8')
   const sidebarSource = readFileSync(resolve(__dirname, '../components/layout/Sidebar.tsx'), 'utf8')
   const pageSource = readFileSync(resolve(__dirname, '../pages/csuite/StitchNorthStar.tsx'), 'utf8')
+  const htmlHookSource = readFileSync(resolve(__dirname, '../hooks/useStitchSlideHtmlBlocks.ts'), 'utf8')
 
   it('registers Stitch North Star as a C-Suite route and sidebar item', () => {
     expect(appSource).toContain("const StitchNorthStar = lazy(() => import('@/pages/csuite/StitchNorthStar'))")
@@ -70,5 +71,29 @@ describe('Stitch North Star page contract', () => {
     expect(pageSource).toContain("return row.source === 'monthly_star' ? 'Comment' : 'Last week'")
     expect(pageSource).toContain('useLeadershipSnapshot')
     expect(pageSource).not.toContain('useUpdateMonthlyStar')
+  })
+
+  it('renders per-card Fields/HTML view modes with raw sandboxed iframe srcdoc', () => {
+    expect(pageSource).toContain('useStitchSlideHtmlBlocks')
+    expect(pageSource).toContain('StitchHtmlModePanel')
+    expect(pageSource).toContain('Optional HTML code')
+    expect(pageSource).toContain('Fields')
+    expect(pageSource).toContain('HTML')
+    expect(pageSource).toContain('sandbox="allow-scripts"')
+    expect(pageSource).toContain('srcDoc={htmlCode}')
+    expect(pageSource).toContain('canEditHtml={canEditProgress}')
+    expect(pageSource).not.toContain('DOMParser')
+    expect(pageSource).not.toContain('dangerouslySetInnerHTML')
+  })
+
+  it('persists Stitch HTML blocks through a month-scoped Supabase hook', () => {
+    expect(htmlHookSource).toContain('useStitchSlideHtmlBlocks')
+    expect(htmlHookSource).toContain('useUpsertStitchSlideHtmlBlock')
+    expect(htmlHookSource).toContain("['stitch_slide_html_blocks', periodMonth]")
+    expect(htmlHookSource).toContain("from('stitch_slide_html_blocks')")
+    expect(htmlHookSource).toContain("onConflict: 'period_month,slide_key'")
+    expect(htmlHookSource).toContain("invalidateQueries({ queryKey: ['stitch_slide_html_blocks', payload.period_month] })")
+    expect(htmlHookSource).toContain("view_mode")
+    expect(htmlHookSource).toContain("html_code")
   })
 })

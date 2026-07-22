@@ -370,6 +370,19 @@ export interface LeadershipCashflowWeek {
   ending_cash_vs_floor: number
 }
 
+export type StitchSlideHtmlViewMode = 'fields' | 'html'
+
+export interface StitchSlideHtmlBlock {
+  id: string
+  period_month: string
+  slide_key: string
+  view_mode: StitchSlideHtmlViewMode
+  html_code: string
+  updated_by: string | null
+  updated_at: string
+  created_at: string
+}
+
 export interface LeadershipPayrollDepartment {
   department: string
   periods: Array<{

@@ -66,6 +66,12 @@ export function stitchAutoRowOverrideKey(row: Pick<NorthStarDisplayRow, 'source'
   return `${source}:${identity}`
 }
 
+export function stitchSlideHtmlKey(row: Pick<NorthStarDisplayRow, 'id' | 'source' | 'slot_index' | 'pillar' | 'north_star'> & { chart?: Pick<NorthStarSlideChart, 'kind'> | null }): string {
+  if (row.id) return `row:${row.id}`
+  if (row.source === 'monthly_star' || row.source === 'leadership_tool') return `auto:${stitchAutoRowOverrideKey(row)}`
+  return `slot:${row.slot_index}:${normalizeTabId(row.pillar)}:${normalizeTabId(row.north_star)}`
+}
+
 export function monthlyStarOverrideSourceVersion(
   periodMonth: string,
   monthlyStar: Pick<MonthlyStar, 'updated_at'> | null,
