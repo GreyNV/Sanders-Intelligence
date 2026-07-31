@@ -34,6 +34,12 @@ describe('Stitch North Star page contract', () => {
     expect(pageSource).toContain('FinanceSlideGraph')
     expect(pageSource).toContain('PayrollPieComparisonChart')
     expect(pageSource).toContain('PayrollPieLegend')
+    expect(pageSource).toContain('payrollPies')
+    expect(pageSource).toContain('PayrollPieStats')
+    expect(pageSource).toContain('Payroll / sales')
+    expect(pageSource).toContain('salesTotal={pie.salesTotal}')
+    expect(pageSource).toContain('of total sales')
+    expect(pageSource).toContain('chart.payrollPies?.some')
     expect(pageSource).toContain('buildPieColorMap')
     expect(pageSource).toContain('aria-label="Payroll pie color legend"')
     expect(pageSource).toContain('CashflowThresholdChart')
@@ -57,6 +63,17 @@ describe('Stitch North Star page contract', () => {
     expect(pageSource).toContain('truncate')
     expect(pageSource).toContain('shrink-0')
     expect(pageSource).toContain('min-w-[176px]')
+  })
+
+  it('keeps presentation slide content inside the viewport on normal desktop widths', () => {
+    expect(pageSource).toContain('max-w-[calc(100vw-1.5rem)]')
+    expect(pageSource).toContain('overflow-y-auto overflow-x-hidden')
+    expect(pageSource).toContain('2xl:grid-cols-[minmax(0,1fr)_340px]')
+    expect(pageSource).not.toContain('lg:grid-cols-[minmax(0,1fr)_360px]')
+    expect(pageSource).toContain('className="min-w-0 space-y-6"')
+    expect(pageSource).toContain('className="min-w-0 space-y-4"')
+    expect(pageSource).toContain('grid min-w-0 gap-3 rounded-lg border border-border bg-bg/45 p-3 sm:grid-cols-2 xl:grid-cols-4')
+    expect(pageSource).toContain('group/edit flex min-h-[28px] w-full min-w-0 items-start justify-between gap-2 overflow-hidden')
   })
 
   it('persists auto-populated slide overrides until source data changes', () => {

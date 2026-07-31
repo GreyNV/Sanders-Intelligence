@@ -104,6 +104,7 @@ export interface NorthStarSlideChart {
   valueFormat: 'currency' | 'percent' | 'number'
   points: NorthStarSlideChartPoint[]
   comparisonPoints?: NorthStarSlideChartComparisonPoint[]
+  payrollPies?: NorthStarPayrollPie[]
   threshold?: number
   benchmarkLabel?: string
 }
@@ -120,6 +121,16 @@ export interface NorthStarSlideChartComparisonPoint {
   label: string
   currentValue: number
   previousValue: number
+}
+
+export interface NorthStarPayrollPie {
+  title: string
+  periodMonth: string
+  projected: boolean
+  payrollTotal: number
+  salesTotal: number | null
+  payrollToSalesPct: number | null
+  points: Array<{ label: string; value: number }>
 }
 
 export interface MonthlyStarInput {

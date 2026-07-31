@@ -249,7 +249,7 @@ describe('Stitch North Star helpers', () => {
     expect(financeRows.map(row => row.north_star)).toEqual(['13-week cash runway', 'Payroll by department', 'PnL / 9% NOI'])
   })
 
-  it('uses current-month payroll actuals and projects the month from elapsed weeks', () => {
+  it('uses last-month payroll actuals and projects current-month payroll against projected sales', () => {
     const rows = mergeNorthStarRows([], '2026-07-01', '2026-07-05')
     const snapshot = baseLeadershipSnapshot({
       payroll: {
@@ -286,17 +286,191 @@ describe('Stitch North Star helpers', () => {
     const payroll = financeRows.find(row => row.north_star === 'Payroll by department')
 
     expect(payroll).toMatchObject({
-      actual_mtd: 'Admin: -17.0%',
-      forecast: 'Projected Grand Total $359,086',
-      last_week_result: 'July payroll actual is $215,452; projected from 3 of 5 weeks.',
+      actual_mtd: 'June payroll was 5.4% of sales vs 9.2% LY',
+      forecast: 'Projected July payroll is 143.7% of projected sales',
+      last_week_result: 'Projected July payroll is $359,086 on projected sales of $249,885.',
+      status: 'at_risk',
+    })
+    expect(payroll?.actual_mtd).not.toContain('Admin:')
+    expect(payroll?.forecast).not.toContain('Grand Total')
+    expect((payroll?.chart as any)?.payrollPies).toHaveLength(4)
+    expect((payroll?.chart as any)?.payrollPies[2]).toMatchObject({
+      title: 'Projected July this year',
+      payrollTotal: 359086.3,
+      salesTotal: 249884.68,
+    })
+    expect((payroll?.chart as any)?.payrollPies[2].payrollToSalesPct).toBeCloseTo(1.437, 3)
+  })
+
+  it('builds payroll slide pies from last-month actuals and current-month projections against leadership sales', () => {
+    const rows = mergeNorthStarRows([], '2026-07-01', '2026-07-05')
+    const snapshot = baseLeadershipSnapshot({
+      payroll: {
+        departments: [
+          {
+            department: 'Admin',
+            periods: [
+              { month: '2026-06-01', current_year: 40000, last_year: 30000, difference_pct: 0.333 },
+              { month: '2026-07-01', current_year: 20000, last_year: 35000, difference_pct: -0.429 },
+            ],
+          },
+          {
+            department: 'Finance',
+            periods: [
+              { month: '2026-06-01', current_year: 60000, last_year: 70000, difference_pct: -0.143 },
+              { month: '2026-07-01', current_year: 40000, last_year: 65000, difference_pct: -0.385 },
+            ],
+          },
+          {
+            department: 'Grand Total',
+            periods: [
+              { month: '2026-06-01', current_year: 100000, last_year: 100000, difference_pct: 0 },
+              { month: '2026-07-01', current_year: 60000, last_year: 100000, difference_pct: -0.4 },
+            ],
+          },
+        ],
+      },
+      pnl: {
+        accounts: [
+          {
+            account: 'Income',
+            periods: [
+              { month: '2026-06-01', current_year: 1000000, last_year: 800000, difference_pct: 0.25 },
+              { month: '2026-07-01', current_year: 300000, last_year: 900000, difference_pct: -0.667 },
+            ],
+          },
+          {
+            account: 'Grand Total',
+            periods: [
+              { month: '2026-06-01', current_year: 120000, last_year: 80000, difference_pct: 0.5 },
+              { month: '2026-07-01', current_year: 45000, last_year: 100000, difference_pct: -0.55 },
+            ],
+          },
+        ],
+      },
+    })
+
+    const financeRows = buildLeadershipFinanceRows(rows, snapshot, '2026-07-01', '2026-07-12')
+    const payroll = financeRows.find(row => row.north_star === 'Payroll by department')
+
+    expect(payroll).toMatchObject({
+      plan_value: 'Payroll as % of sales by department',
+      actual_mtd: 'June payroll was 10.0% of sales vs 12.5% LY',
+      forecast: 'Projected July payroll is 20.0% of projected sales',
+      last_week_result: 'Projected July payroll is $100,000 on projected sales of $500,000.',
+      status: 'at_risk',
+    })
+    expect((payroll?.chart as any)?.payrollPies).toEqual([
+      {
+        title: 'June this year',
+        periodMonth: '2026-06-01',
+        projected: false,
+        payrollTotal: 100000,
+        salesTotal: 1000000,
+        payrollToSalesPct: 0.1,
+        points: [
+          { label: 'Admin', value: 40000 },
+          { label: 'Finance', value: 60000 },
+        ],
+      },
+      {
+        title: 'June last year',
+        periodMonth: '2026-06-01',
+        projected: false,
+        payrollTotal: 100000,
+        salesTotal: 800000,
+        payrollToSalesPct: 0.125,
+        points: [
+          { label: 'Admin', value: 30000 },
+          { label: 'Finance', value: 70000 },
+        ],
+      },
+      {
+        title: 'Projected July this year',
+        periodMonth: '2026-07-01',
+        projected: true,
+        payrollTotal: 100000,
+        salesTotal: 500000,
+        payrollToSalesPct: 0.2,
+        points: [
+          { label: 'Admin', value: 33333.33 },
+          { label: 'Finance', value: 66666.67 },
+        ],
+      },
+      {
+        title: 'July last year',
+        periodMonth: '2026-07-01',
+        projected: false,
+        payrollTotal: 100000,
+        salesTotal: 900000,
+        payrollToSalesPct: 0.1111111111111111,
+        points: [
+          { label: 'Admin', value: 35000 },
+          { label: 'Finance', value: 65000 },
+        ],
+      },
+    ])
+  })
+
+  it('uses Monthly Star projected sales for the current-month payroll sales ratio', () => {
+    const rows = mergeNorthStarRows([], '2026-07-01', '2026-07-05')
+    const snapshot = baseLeadershipSnapshot({
+      payroll: {
+        departments: [
+          {
+            department: 'Admin',
+            periods: [
+              { month: '2026-06-01', current_year: 40000, last_year: 30000, difference_pct: 0.333 },
+              { month: '2026-07-01', current_year: 20000, last_year: 35000, difference_pct: -0.429 },
+            ],
+          },
+          {
+            department: 'Finance',
+            periods: [
+              { month: '2026-06-01', current_year: 60000, last_year: 70000, difference_pct: -0.143 },
+              { month: '2026-07-01', current_year: 40000, last_year: 65000, difference_pct: -0.385 },
+            ],
+          },
+          {
+            department: 'Grand Total',
+            periods: [
+              { month: '2026-06-01', current_year: 100000, last_year: 100000, difference_pct: 0 },
+              { month: '2026-07-01', current_year: 60000, last_year: 100000, difference_pct: -0.4 },
+            ],
+          },
+        ],
+      },
+      pnl: {
+        accounts: [
+          {
+            account: 'Income',
+            periods: [
+              { month: '2026-06-01', current_year: 1000000, last_year: 800000, difference_pct: 0.25 },
+              { month: '2026-07-01', current_year: 300000, last_year: 900000, difference_pct: -0.667 },
+            ],
+          },
+        ],
+      },
+    })
+
+    const financeRows = buildLeadershipFinanceRows(rows, snapshot, '2026-07-01', '2026-07-12', {
+      currentMonthProjectedSales: 1200000,
+    })
+    const payroll = financeRows.find(row => row.north_star === 'Payroll by department')
+    const currentMonthPie = (payroll?.chart as any)?.payrollPies[2]
+
+    expect(payroll).toMatchObject({
+      forecast: 'Projected July payroll is 8.3% of projected sales',
+      last_week_result: 'Projected July payroll is $100,000 on projected sales of $1,200,000.',
       status: 'on_plan',
     })
-    expect(payroll?.actual_mtd).not.toContain('111.4%')
-    expect(payroll?.forecast).not.toContain('$465,786')
-    expect(payroll?.chart?.comparisonPoints).toEqual([
-      { label: 'Admin', currentValue: 21215.36, previousValue: 25610.3 },
-      { label: 'Finance', currentValue: 9114.58, previousValue: 18243.2 },
-    ])
+    expect(currentMonthPie).toMatchObject({
+      title: 'Projected July this year',
+      payrollTotal: 100000,
+      salesTotal: 1200000,
+      payrollToSalesPct: 0.08333333333333333,
+    })
+    expect(currentMonthPie.salesTotal).not.toBe(500000)
   })
 
   it('uses last year same-month NOI as the PnL forecast', () => {

@@ -40,6 +40,10 @@ export interface StitchOwnerDeck {
   rows: NorthStarDisplayRow[]
 }
 
+export interface StitchPayrollSalesContext {
+  currentMonthProjectedSales?: number | null
+}
+
 export function readMonthlyStarPresentationOverrides(
   periodMonth: string,
   storage: StitchOverrideStorage | null = browserLocalStorage()
@@ -234,14 +238,15 @@ export function buildLeadershipFinanceRows(
   rows: NorthStarDisplayRow[],
   snapshot: Pick<LeadershipToolSnapshot, 'cashflow' | 'payroll' | 'pnl' | 'sales_simulation'> | null,
   periodMonth: string,
-  currentWeek: string
+  currentWeek: string,
+  payrollSalesContext: StitchPayrollSalesContext = {}
 ): NorthStarDisplayRow[] {
   if (!snapshot) return []
 
   const startSlot = nextNorthStarSlot(rows)
   return [
     buildCashRunwayRow(snapshot, periodMonth, currentWeek, startSlot),
-    buildPayrollRow(snapshot, periodMonth, currentWeek, startSlot + 1),
+    buildPayrollRow(snapshot, periodMonth, currentWeek, startSlot + 1, payrollSalesContext),
     buildPnlRow(snapshot, periodMonth, currentWeek, startSlot + 2),
   ]
 }
@@ -366,51 +371,134 @@ function buildCashRunwayRow(
 }
 
 function buildPayrollRow(
-  snapshot: Pick<LeadershipToolSnapshot, 'payroll'>,
+  snapshot: Pick<LeadershipToolSnapshot, 'payroll' | 'pnl'>,
   periodMonth: string,
   currentWeek: string,
-  slotIndex: number
+  slotIndex: number,
+  salesContext: StitchPayrollSalesContext
 ): NorthStarDisplayRow {
-  const targetMonth = periodMonth
   const weekProgress = monthWeekProgress(periodMonth, currentWeek)
+  const projectionFactor = weekProgress.totalWeeks / weekProgress.elapsedWeeks
+  const lastMonth = addMonthsToPeriod(periodMonth, -1)
+  const currentMonthLabel = formatShortMonth(periodMonth)
+  const lastMonthLabel = formatShortMonth(lastMonth)
   const departments = snapshot.payroll.departments.filter(department => department.department !== 'Grand Total')
-  const largestVariance = departments
-    .map(department => ({ department, period: findPeriodForMonth(department.periods, targetMonth) }))
-    .filter(hasPeriod)
-    .sort((a, b) => Math.abs(b.period.difference_pct ?? 0) - Math.abs(a.period.difference_pct ?? 0))[0]
-  const total = findPeriodForMonth(snapshot.payroll.departments.find(department => department.department === 'Grand Total')?.periods ?? [], targetMonth)
-  const variancePct = largestVariance?.period.difference_pct ?? null
-  const resultMonth = formatShortMonth(total?.month || largestVariance?.period.month || targetMonth)
-  const chartPoints = departments
-    .map(department => ({ department: department.department, period: findPeriodForMonth(department.periods, targetMonth) }))
-    .filter(hasPeriod)
-    .sort((a, b) => Math.abs(b.period.current_year) - Math.abs(a.period.current_year))
-    .map(item => ({ label: item.department, value: item.period.current_year }))
+  const totalDepartment = snapshot.payroll.departments.find(department => department.department === 'Grand Total') ?? null
+  const income = findPnlAccount(snapshot, 'Income')
+  const payrollPies = [
+    buildPayrollPie(departments, totalDepartment, income, lastMonth, 'current_year', `${lastMonthLabel} this year`),
+    buildPayrollPie(departments, totalDepartment, income, lastMonth, 'last_year', `${lastMonthLabel} last year`),
+    buildPayrollPie(
+      departments,
+      totalDepartment,
+      income,
+      periodMonth,
+      'current_year',
+      `Projected ${currentMonthLabel} this year`,
+      projectionFactor,
+      salesContext.currentMonthProjectedSales
+    ),
+    buildPayrollPie(departments, totalDepartment, income, periodMonth, 'last_year', `${currentMonthLabel} last year`),
+  ]
+  const lastMonthThisYear = payrollPies[0]
+  const lastMonthLastYear = payrollPies[1]
+  const currentMonthThisYear = payrollPies[2]
+  const currentMonthLastYear = payrollPies[3]
   const comparisonPoints = departments
-    .map(department => ({ department: department.department, period: findPeriodForMonth(department.periods, targetMonth) }))
+    .map(department => ({ department: department.department, period: findExactPeriod(department.periods, periodMonth) }))
     .filter(hasPeriod)
-    .map(item => ({ label: item.department, currentValue: item.period.current_year, previousValue: item.period.last_year }))
-  const projectedTotal = total ? (total.current_year / weekProgress.elapsedWeeks) * weekProgress.totalWeeks : null
+    .map(item => ({
+      label: item.department,
+      currentValue: roundChartNumber(item.period.current_year * projectionFactor),
+      previousValue: roundChartNumber(item.period.last_year),
+    }))
+  const isPayrollSalesRisk =
+    currentMonthThisYear.payrollToSalesPct !== null &&
+    currentMonthLastYear.payrollToSalesPct !== null &&
+    currentMonthThisYear.payrollToSalesPct > currentMonthLastYear.payrollToSalesPct
+  const actual = lastMonthThisYear.payrollToSalesPct !== null && lastMonthLastYear.payrollToSalesPct !== null
+    ? `${lastMonthLabel} payroll was ${formatPct(lastMonthThisYear.payrollToSalesPct)} of sales vs ${formatPct(lastMonthLastYear.payrollToSalesPct)} LY`
+    : `${lastMonthLabel} payroll/sales unavailable`
+  const forecast = currentMonthThisYear.payrollToSalesPct !== null
+    ? `Projected ${currentMonthLabel} payroll is ${formatPct(currentMonthThisYear.payrollToSalesPct)} of projected sales`
+    : `Projected ${currentMonthLabel} payroll/sales unavailable`
+  const constraint = currentMonthThisYear.payrollToSalesPct !== null && currentMonthLastYear.payrollToSalesPct !== null
+    ? isPayrollSalesRisk
+      ? `Projected ${currentMonthLabel} payroll/sales is above LY ${formatPct(currentMonthLastYear.payrollToSalesPct)}.`
+      : `Projected ${currentMonthLabel} payroll/sales is at or below LY ${formatPct(currentMonthLastYear.payrollToSalesPct)}.`
+    : 'Payroll or sales data is missing from the leadership tool.'
+  const move = currentMonthThisYear.payrollToSalesPct !== null
+    ? 'Use department mix and sales projection to adjust payroll before month end.'
+    : 'Upload the leadership tool to refresh payroll and sales.'
+  const result = currentMonthThisYear.salesTotal !== null
+    ? `Projected ${currentMonthLabel} payroll is ${fmtCurrency(currentMonthThisYear.payrollTotal)} on projected sales of ${fmtCurrency(currentMonthThisYear.salesTotal)}.`
+    : null
 
   return generatedLeadershipRow({
     periodMonth,
     currentWeek,
     slotIndex,
     northStar: 'Payroll by department',
-    plan: 'Payroll variance controlled by department',
-    actual: largestVariance ? `${largestVariance.department.department}: ${formatPct(variancePct)}` : 'No payroll rows',
-    forecast: projectedTotal !== null ? `Projected Grand Total ${fmtCurrency(projectedTotal)}` : 'Grand Total unavailable',
-    constraint: largestVariance ? `${largestVariance.department.department} is the largest payroll variance.` : 'Payroll data has not been uploaded.',
-    move: largestVariance ? `Review ${largestVariance.department.department} payroll drivers.` : 'Upload the leadership tool to refresh payroll.',
-    result: total ? `${resultMonth} payroll actual is ${fmtCurrency(total.current_year)}; projected from ${weekProgress.elapsedWeeks} of ${weekProgress.totalWeeks} weeks.` : null,
-    status: variancePct !== null && variancePct > 0.25 ? 'at_risk' : 'on_plan',
+    plan: 'Payroll as % of sales by department',
+    actual,
+    forecast,
+    constraint,
+    move,
+    result,
+    status: isPayrollSalesRisk ? 'at_risk' : 'on_plan',
     chart: {
       kind: 'payroll',
       valueFormat: 'currency',
-      points: chartPoints,
+      points: currentMonthThisYear.points,
       comparisonPoints,
+      payrollPies,
     },
   })
+}
+
+type LeadershipPeriodValueKey = 'current_year' | 'last_year'
+type LeadershipPayrollDepartmentRow = LeadershipToolSnapshot['payroll']['departments'][number]
+type LeadershipPnlAccountRow = LeadershipToolSnapshot['pnl']['accounts'][number]
+
+function buildPayrollPie(
+  departments: LeadershipPayrollDepartmentRow[],
+  totalDepartment: LeadershipPayrollDepartmentRow | null,
+  income: LeadershipPnlAccountRow | null,
+  periodMonth: string,
+  valueKey: LeadershipPeriodValueKey,
+  title: string,
+  projectionFactor = 1,
+  salesTotalOverride?: number | null
+): NonNullable<NorthStarSlideChart['payrollPies']>[number] {
+  const departmentPeriods = departments
+    .map(department => ({ department, period: findExactPeriod(department.periods, periodMonth) }))
+    .filter(hasPeriod)
+  const points = departmentPeriods
+    .map(item => ({
+      label: item.department.department,
+      value: roundChartNumber(item.period[valueKey] * projectionFactor),
+    }))
+  const totalPeriod = findExactPeriod(totalDepartment?.periods ?? [], periodMonth)
+  const payrollTotalSource = totalPeriod?.[valueKey] ?? departmentPeriods.reduce((sum, item) => sum + item.period[valueKey], 0)
+  const payrollTotal = roundChartNumber(payrollTotalSource * projectionFactor)
+  const salesPeriod = findExactPeriod(income?.periods ?? [], periodMonth)
+  const projectedSalesTotal = positiveChartNumber(salesTotalOverride)
+  const salesTotal = projectedSalesTotal ?? (salesPeriod ? roundChartNumber(salesPeriod[valueKey] * projectionFactor) : null)
+
+  return {
+    title,
+    periodMonth,
+    projected: projectionFactor !== 1,
+    payrollTotal,
+    salesTotal,
+    payrollToSalesPct: salesTotal !== null && salesTotal > 0 ? payrollTotal / salesTotal : null,
+    points,
+  }
+}
+
+function positiveChartNumber(value: number | null | undefined): number | null {
+  if (value === null || value === undefined || !Number.isFinite(value) || value <= 0) return null
+  return roundChartNumber(value)
 }
 
 function buildPnlRow(

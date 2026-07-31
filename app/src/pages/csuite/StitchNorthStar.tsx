@@ -161,8 +161,10 @@ export default function StitchNorthStar() {
     return buildStitchFinanceMetricRow(baseRows, displayedMonthlyInput, displayedMonthlyMetrics, currentWeek)
   }, [baseRows, displayedMonthlyInput, displayedMonthlyMetrics, currentWeek])
   const leadershipFinanceRows = useMemo(
-    () => buildLeadershipFinanceRows([...baseRows, financeMetricRow], leadershipSnapshot, selectedMonth, currentWeek),
-    [baseRows, financeMetricRow, leadershipSnapshot, selectedMonth, currentWeek]
+    () => buildLeadershipFinanceRows([...baseRows, financeMetricRow], leadershipSnapshot, selectedMonth, currentWeek, {
+      currentMonthProjectedSales: displayedMonthlyMetrics.projectedMonthEnd,
+    }),
+    [baseRows, financeMetricRow, leadershipSnapshot, selectedMonth, currentWeek, displayedMonthlyMetrics.projectedMonthEnd]
   )
   const rows = useMemo(
     () => sortNorthStarRows(
@@ -641,8 +643,8 @@ function OwnerDeckModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-bg/80 p-4 backdrop-blur-sm">
-      <section className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-bg/80 p-3 backdrop-blur-sm sm:p-4">
+      <section className="flex max-h-[92vh] w-full max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl sm:max-w-[calc(100vw-2rem)] xl:max-w-6xl 2xl:max-w-7xl">
         <div className="relative border-b border-border px-5 py-4 lg:px-8">
           <div className="absolute left-1/2 top-0 hidden -translate-x-1/2 rounded-b-lg border-x border-b border-border bg-surface2 px-5 py-1 text-[10px] font-bold uppercase tracking-widest text-text2 md:block">
             Presented by {deck.owner}
@@ -681,7 +683,7 @@ function OwnerDeckModal({
           </div>
         </div>
 
-        <div className="overflow-y-auto">
+        <div className="overflow-y-auto overflow-x-hidden">
           {isHtmlMode ? (
             <div className="p-5 lg:p-8">
               <StitchHtmlModePanel
@@ -694,8 +696,8 @@ function OwnerDeckModal({
               />
             </div>
           ) : (
-          <div className="grid gap-8 p-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:p-8">
-            <div className="space-y-6">
+          <div className="grid min-w-0 gap-6 p-5 lg:p-6 xl:p-8 2xl:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="min-w-0 space-y-6">
               <div>
                 <div className="mb-2 flex items-center gap-2">
                   <Badge variant={STATUS_VARIANT[row.status]}>{STATUS_LABELS[row.status]}</Badge>
@@ -773,7 +775,7 @@ function OwnerDeckModal({
               />
             </div>
 
-            <aside className="space-y-4">
+            <aside className="min-w-0 space-y-4">
               <div className="rounded-xl border border-border bg-surface2 p-4">
                 <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-text2">Metrics</div>
                 <div className="grid gap-3">
@@ -978,15 +980,17 @@ function StitchHtmlFrame({
 
 function FinanceSlideGraph({ row }: { row: NorthStarDisplayRow }) {
   const chart = row.chart
-  if (!chart?.points.length) return null
+  if (!chart) return null
+  const hasChartPoints = chart.points.length > 0 || chart.payrollPies?.some(pie => pie.points.length > 0)
+  if (!hasChartPoints) return null
 
   return (
-    <div className="rounded-xl border border-border bg-surface2 p-4">
+    <div className="min-w-0 rounded-xl border border-border bg-surface2 p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="text-xs font-semibold uppercase tracking-wider text-text2">Trend</div>
         {chart.benchmarkLabel && <div className="truncate text-xs font-semibold text-text2">{chart.benchmarkLabel}</div>}
       </div>
-      {chart.kind === 'payroll' && chart.comparisonPoints?.length ? (
+      {chart.kind === 'payroll' && (chart.payrollPies?.length || chart.comparisonPoints?.length) ? (
         <PayrollPieComparisonChart chart={chart} />
       ) : chart.kind === 'cash_runway' ? (
         <CashflowThresholdChart chart={chart} />
@@ -1092,12 +1096,36 @@ function CashflowThresholdChart({ chart }: { chart: NonNullable<NorthStarDisplay
 
 function PayrollPieComparisonChart({ chart }: { chart: NonNullable<NorthStarDisplayRow['chart']> }) {
   const points = chart.comparisonPoints ?? []
-  const colorByLabel = buildPieColorMap(points.map(point => point.label))
+  const payrollPies = chart.payrollPies ?? []
+  const labels = payrollPies.length
+    ? payrollPies.flatMap(pie => pie.points.map(point => point.label))
+    : points.map(point => point.label)
+  const colorByLabel = buildPieColorMap(labels)
+
+  if (payrollPies.length) {
+    return (
+      <div className="grid min-w-0 gap-3 rounded-lg border border-border bg-bg/45 p-3 sm:grid-cols-2 xl:grid-cols-4">
+        {payrollPies.map(pie => (
+          <PiePanel
+            key={`${pie.periodMonth}-${pie.title}`}
+            title={pie.title}
+            points={pie.points}
+            format={chart.valueFormat}
+            colorByLabel={colorByLabel}
+            salesTotal={pie.salesTotal}
+            stats={<PayrollPieStats pie={pie} />}
+          />
+        ))}
+        <PayrollPieLegend colorByLabel={colorByLabel} className="sm:col-span-2 xl:col-span-4" />
+      </div>
+    )
+  }
+
   return (
     <div className="grid gap-3 rounded-lg border border-border bg-bg/45 p-3 sm:grid-cols-2">
       <PiePanel title="Last year" points={points.map(point => ({ label: point.label, value: point.previousValue }))} format={chart.valueFormat} colorByLabel={colorByLabel} />
       <PiePanel title="This year" points={points.map(point => ({ label: point.label, value: point.currentValue }))} format={chart.valueFormat} colorByLabel={colorByLabel} />
-      <PayrollPieLegend colorByLabel={colorByLabel} />
+      <PayrollPieLegend colorByLabel={colorByLabel} className="sm:col-span-2" />
     </div>
   )
 }
@@ -1107,34 +1135,60 @@ function PiePanel({
   points,
   format,
   colorByLabel,
+  salesTotal,
+  stats,
 }: {
   title: string
   points: Array<{ label: string; value: number }>
   format: 'currency' | 'percent' | 'number'
   colorByLabel: Map<string, string>
+  salesTotal?: number | null
+  stats?: React.ReactNode
 }) {
   const slices = pieSlices(points)
   return (
-    <div>
-      <div className="mb-2 text-center text-[10px] font-semibold uppercase tracking-wider text-text2">{title}</div>
-      <svg viewBox="0 0 120 120" className="mx-auto h-32 w-32" role="img" aria-label={`${title} payroll mix`}>
-        {slices.length === 0 ? (
-          <circle cx="60" cy="60" r="42" className="fill-surface stroke-border" />
-        ) : (
-          slices.map(slice => (
-            <path key={`${title}-${slice.label}`} d={slice.path} fill={colorByLabel.get(slice.label) ?? PIE_COLORS[0]} className="stroke-bg stroke-[1.5]">
-              <title>{`${slice.label}: ${formatGraphValue(slice.value, format)} (${slice.percent.toFixed(1)}%)`}</title>
-            </path>
-          ))
-        )}
-      </svg>
+    <div className="grid min-h-[232px] min-w-0 grid-rows-[2.5rem_7rem_auto] overflow-hidden">
+      <div className="flex items-start justify-center px-1 text-center text-[10px] font-semibold uppercase tracking-wider text-text2">{title}</div>
+      <div className="flex h-28 items-center justify-center">
+        <svg viewBox="0 0 120 120" className="h-28 w-28" role="img" aria-label={`${title} payroll mix`}>
+          {slices.length === 0 ? (
+            <circle cx="60" cy="60" r="42" className="fill-surface stroke-border" />
+          ) : (
+            slices.map(slice => (
+              <path key={`${title}-${slice.label}`} d={slice.path} fill={colorByLabel.get(slice.label) ?? PIE_COLORS[0]} className="stroke-bg stroke-[1.5]">
+                <title>{pieSliceTitle(slice, format, salesTotal)}</title>
+              </path>
+            ))
+          )}
+        </svg>
+      </div>
+      {stats}
     </div>
   )
 }
 
-function PayrollPieLegend({ colorByLabel }: { colorByLabel: Map<string, string> }) {
+function PayrollPieStats({ pie }: { pie: NonNullable<NonNullable<NorthStarDisplayRow['chart']>['payrollPies']>[number] }) {
   return (
-    <div className="sm:col-span-2">
+    <dl className="mt-2 min-w-0 space-y-1 text-[10px] font-semibold text-text2">
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <dt className="truncate">Payroll</dt>
+        <dd className="shrink-0 tabular-nums text-text1">{fmtCurrency(pie.payrollTotal)}</dd>
+      </div>
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <dt className="truncate">Sales</dt>
+        <dd className="shrink-0 tabular-nums text-text1">{pie.salesTotal !== null ? fmtCurrency(pie.salesTotal) : 'n/a'}</dd>
+      </div>
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <dt className="truncate">Payroll / sales</dt>
+        <dd className="shrink-0 tabular-nums text-text1">{formatNullablePercent(pie.payrollToSalesPct)}</dd>
+      </div>
+    </dl>
+  )
+}
+
+function PayrollPieLegend({ colorByLabel, className }: { colorByLabel: Map<string, string>; className?: string }) {
+  return (
+    <div className={className}>
       <div className="grid max-h-24 grid-cols-2 gap-x-3 gap-y-1 overflow-y-auto pr-1 sm:grid-cols-3" aria-label="Payroll pie color legend">
         {Array.from(colorByLabel.entries()).map(([label, color]) => (
           <div key={label} className="flex min-w-0 items-center gap-2 text-[10px] font-semibold text-text2">
@@ -1205,8 +1259,21 @@ function formatGraphValue(value: number, format: 'currency' | 'percent' | 'numbe
   return fmtNumber(value)
 }
 
+function formatNullablePercent(value: number | null): string {
+  return value === null || !Number.isFinite(value) ? 'n/a' : `${(value * 100).toFixed(1)}%`
+}
+
+function pieSliceTitle(
+  slice: { label: string; value: number; percent: number },
+  format: 'currency' | 'percent' | 'number',
+  salesTotal?: number | null
+): string {
+  const salesShare = salesTotal && salesTotal > 0 ? `; ${((slice.value / salesTotal) * 100).toFixed(1)}% of total sales` : ''
+  return `${slice.label}: ${formatGraphValue(slice.value, format)} (${slice.percent.toFixed(1)}% of payroll${salesShare})`
+}
+
 function actualMetricLabel(row: NorthStarDisplayRow): string {
-  return row.north_star === 'PnL / 9% NOI' ? 'Last month' : 'Actual'
+  return row.north_star === 'PnL / 9% NOI' || row.north_star === 'Payroll by department' ? 'Last month' : 'Actual'
 }
 
 function commentBoxLabel(row: NorthStarDisplayRow): string {
@@ -1263,7 +1330,7 @@ function ValueTile({
   onSave: (row: NorthStarDisplayRow, field: NorthStarEditableField, value: string | NorthStarStatus) => Promise<void>
 }) {
   return (
-    <div className="rounded-lg border border-border bg-surface2 px-3 py-2">
+    <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-surface2 px-3 py-2">
       <div className="text-[10px] font-semibold uppercase tracking-wider text-text2">{label}</div>
       <EditableText
         row={row}
@@ -1454,7 +1521,7 @@ function EditableText({
   return (
     <button
       type="button"
-      className="group/edit flex min-h-[28px] w-full min-w-0 items-start justify-between gap-2 rounded-lg text-left transition hover:bg-surface2/70"
+      className="group/edit flex min-h-[28px] w-full min-w-0 items-start justify-between gap-2 overflow-hidden rounded-lg text-left transition hover:bg-surface2/70"
       onClick={() => setEditing(true)}
       title="Edit"
     >
@@ -1468,7 +1535,7 @@ function EditableText({
 
 function ReadOnlyText({ value, placeholder, className, compact }: { value: string; placeholder: string; className?: string; compact?: boolean }) {
   const textClass = compact
-    ? 'block max-w-full truncate whitespace-nowrap leading-snug'
+    ? 'block min-w-0 max-w-full truncate whitespace-nowrap leading-snug'
     : 'block whitespace-pre-wrap break-words leading-relaxed'
 
   if (!value.trim()) return <span className={cn('text-text2/70', textClass, className)}>{placeholder}</span>
