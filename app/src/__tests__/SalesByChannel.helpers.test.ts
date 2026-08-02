@@ -108,6 +108,64 @@ describe('Sales by Channel helpers', () => {
     expect(mappingKey(' Amazon Canada ', ' FBA ')).toBe('amazon canada|fba')
   })
 
+  it('shows active mapped QB channels even when current and prior-year sales are blank', () => {
+    const result = deriveSalesByChannel({
+      periodMonth: '2026-08-01',
+      daysElapsed: 1,
+      daysRemaining: 30,
+      rows: [],
+      previousYearRows: [],
+      mappings: [
+        {
+          sellercloud_company: 'Amazon US',
+          sellercloud_channel: 'FBA',
+          normalized_company: 'amazon us',
+          normalized_channel: 'fba',
+          qb_channel: 'AMAZON US',
+          is_active: true,
+        },
+        {
+          sellercloud_company: 'Amazon US',
+          sellercloud_channel: 'Storage Bud',
+          normalized_company: 'amazon us',
+          normalized_channel: 'storage bud',
+          qb_channel: 'AMAZON Storage Bud',
+          is_active: true,
+        },
+        {
+          sellercloud_company: 'Legacy',
+          sellercloud_channel: 'Marketplace',
+          normalized_company: 'legacy',
+          normalized_channel: 'marketplace',
+          qb_channel: 'Legacy Other',
+          is_active: false,
+        },
+      ],
+      goals: [],
+      gamePlans: [],
+    })
+
+    expect(result.rows).toEqual([
+      expect.objectContaining({
+        channel: 'AMAZON Storage Bud',
+        mtd_revenue: 0,
+        ly_mtd_revenue: 0,
+        goal_amount: null,
+        status: 'no_goal',
+        requires_mapping: false,
+      }),
+      expect.objectContaining({
+        channel: 'AMAZON US',
+        mtd_revenue: 0,
+        ly_mtd_revenue: 0,
+        goal_amount: null,
+        status: 'no_goal',
+        requires_mapping: false,
+      }),
+    ])
+    expect(result.unmappedSourcePairs).toEqual([])
+  })
+
   it('sorts remaining executive columns while keeping Add mapping rows last', () => {
     const rows: SalesByChannelRow[] = [
       salesRow({ channel: 'Bravo', mtd_revenue: 200, goal_amount: 300, projected_month_end: 400, daily_lift: 12, status: 'needs_lift' }),

@@ -123,10 +123,12 @@ export function deriveSalesByChannel({
   const byChannel = new Map<string, SalesByChannelRow>()
   const unmappedByKey = new Map<string, UnmappedSalesChannelPair>()
 
+  seedMappedChannelRows(byChannel, mappings, goalsByChannel, gamePlansByChannel, daysElapsed, daysRemaining)
+
   for (const row of rows) {
     const source = sourcePair(row)
     const mapping = mappingByKey.get(mappingKey(source.company, source.channel))
-    const channel = mapping?.qb_channel || ADD_MAPPING_CHANNEL
+    const channel = mappedQbChannel(mapping) || ADD_MAPPING_CHANNEL
     const aggregate = ensureChannelRow(byChannel, channel, goalsByChannel, gamePlansByChannel, daysElapsed, daysRemaining)
     aggregate.mtd_revenue = roundCurrency(aggregate.mtd_revenue + Number(row.revenue || 0))
 
@@ -141,7 +143,7 @@ export function deriveSalesByChannel({
   for (const row of previousYearRows) {
     const source = sourcePair(row)
     const mapping = mappingByKey.get(mappingKey(source.company, source.channel))
-    const channel = mapping?.qb_channel || ADD_MAPPING_CHANNEL
+    const channel = mappedQbChannel(mapping) || ADD_MAPPING_CHANNEL
     const aggregate = ensureChannelRow(byChannel, channel, goalsByChannel, gamePlansByChannel, daysElapsed, daysRemaining)
     aggregate.ly_mtd_revenue = roundCurrency(aggregate.ly_mtd_revenue + Number(row.revenue || 0))
 
@@ -182,6 +184,33 @@ function activeMappingIndex(mappings: SalesChannelMappingInput[]): Map<string, S
     index.set(mappingKey(company, channel), mapping)
   }
   return index
+}
+
+function seedMappedChannelRows(
+  byChannel: Map<string, SalesByChannelRow>,
+  mappings: SalesChannelMappingInput[],
+  goalsByChannel: Map<string, number>,
+  gamePlansByChannel: Map<string, string>,
+  daysElapsed: number,
+  daysRemaining: number
+) {
+  const seededChannels = new Set<string>()
+  for (const mapping of mappings) {
+    if (!mapping.is_active) continue
+    const channel = mappedQbChannel(mapping)
+    if (!channel) continue
+
+    const normalizedChannel = normalizeSalesChannelValue(channel)
+    if (seededChannels.has(normalizedChannel)) continue
+    seededChannels.add(normalizedChannel)
+
+    ensureChannelRow(byChannel, channel, goalsByChannel, gamePlansByChannel, daysElapsed, daysRemaining)
+  }
+}
+
+function mappedQbChannel(mapping: SalesChannelMappingInput | undefined): string | null {
+  if (!mapping) return null
+  return cleanSourceValue(mapping.qb_channel) || null
 }
 
 function sourcePair(row: SalesByChannelSalesRow): { company: string; channel: string } {
