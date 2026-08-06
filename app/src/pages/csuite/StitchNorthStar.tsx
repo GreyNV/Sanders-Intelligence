@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import {
   AlertTriangle,
@@ -779,8 +779,8 @@ function OwnerDeckModal({
               <div className="rounded-xl border border-border bg-surface2 p-4">
                 <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-text2">Metrics</div>
                 <div className="grid gap-3">
-                  <ValueTile label={actualMetricLabel(row)} row={row} field="actual_mtd" value={row.actual_mtd ?? ''} canEdit={canEditField(row, 'actual_mtd')} isSaving={isSaving} onSave={onSave} />
-                  <ValueTile label="Forecast" row={row} field="forecast" value={row.forecast ?? ''} canEdit={canEditField(row, 'forecast')} isSaving={isSaving} onSave={onSave} />
+                  <ValueTile label={actualMetricLabel(row)} row={row} field="actual_mtd" value={row.actual_mtd ?? ''} canEdit={canEditField(row, 'actual_mtd')} isSaving={isSaving} onSave={onSave} expandToContent />
+                  <ValueTile label="Forecast" row={row} field="forecast" value={row.forecast ?? ''} canEdit={canEditField(row, 'forecast')} isSaving={isSaving} onSave={onSave} expandToContent />
                 </div>
                 <div className="mt-3">
                   <StatusSelect row={row} canEdit={canEditField(row, 'status')} isSaving={isSaving} onSave={onSave} />
@@ -1320,6 +1320,8 @@ function ValueTile({
   canEdit,
   isSaving,
   onSave,
+  multiline = false,
+  expandToContent = false,
 }: {
   label: string
   row: NorthStarDisplayRow
@@ -1328,6 +1330,8 @@ function ValueTile({
   canEdit: boolean
   isSaving: boolean
   onSave: (row: NorthStarDisplayRow, field: NorthStarEditableField, value: string | NorthStarStatus) => Promise<void>
+  multiline?: boolean
+  expandToContent?: boolean
 }) {
   return (
     <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-surface2 px-3 py-2">
@@ -1339,6 +1343,8 @@ function ValueTile({
         canEdit={canEdit}
         isSaving={isSaving}
         onSave={onSave}
+        multiline={multiline || expandToContent}
+        expandToContent={expandToContent}
         displayClassName="mt-1 text-lg font-bold tabular-nums text-text1"
         placeholder="Not set"
       />
@@ -1432,6 +1438,7 @@ function EditableText({
   isSaving,
   onSave,
   multiline = false,
+  expandToContent = false,
   displayClassName,
   placeholder,
 }: {
@@ -1442,16 +1449,26 @@ function EditableText({
   isSaving: boolean
   onSave: (row: NorthStarDisplayRow, field: NorthStarEditableField, value: string | NorthStarStatus) => Promise<void>
   multiline?: boolean
+  expandToContent?: boolean
   displayClassName?: string
   placeholder: string
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   const isCompact = COMPACT_FIELDS.has(field)
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const shouldUseMultiline = multiline || expandToContent
 
   useEffect(() => {
     setDraft(value)
   }, [value])
+
+  useEffect(() => {
+    if (!editing || !expandToContent || !shouldUseMultiline || !textareaRef.current) return
+    const textarea = textareaRef.current
+    textarea.style.height = 'auto'
+    textarea.style.height = `${textarea.scrollHeight}px`
+  }, [draft, editing, expandToContent, shouldUseMultiline])
 
   async function save() {
     await onSave(row, field, draft)
@@ -1469,27 +1486,28 @@ function EditableText({
       cancel()
       return
     }
-    if (!multiline && event.key === 'Enter') {
+    if (!shouldUseMultiline && event.key === 'Enter') {
       event.preventDefault()
       save()
       return
     }
-    if (multiline && event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    if (shouldUseMultiline && event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault()
       save()
     }
   }
 
   if (!canEdit) {
-    return <ReadOnlyText value={value} placeholder={placeholder} className={displayClassName} compact={isCompact} />
+    return <ReadOnlyText value={value} placeholder={placeholder} className={displayClassName} compact={isCompact && !expandToContent} />
   }
 
   if (editing) {
     return (
       <div className="space-y-2">
-        {multiline ? (
+        {shouldUseMultiline ? (
           <textarea
-            className="input min-h-[92px] w-full resize-y py-2 text-sm leading-relaxed"
+            ref={textareaRef}
+            className={cn('input min-h-[92px] w-full resize-y py-2 text-sm leading-relaxed', expandToContent && 'overflow-hidden')}
             value={draft}
             onChange={event => setDraft(event.target.value)}
             onKeyDown={handleKeyDown}
@@ -1525,7 +1543,7 @@ function EditableText({
       onClick={() => setEditing(true)}
       title="Edit"
     >
-      <ReadOnlyText value={value} placeholder={placeholder} className={displayClassName} compact={isCompact} />
+      <ReadOnlyText value={value} placeholder={placeholder} className={displayClassName} compact={isCompact && !expandToContent} />
       <span className="mt-1 shrink-0 text-text2 opacity-0 transition group-hover/edit:opacity-100">
         <Edit3 size={12} />
       </span>

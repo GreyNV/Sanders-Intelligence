@@ -76,6 +76,16 @@ describe('Stitch North Star page contract', () => {
     expect(pageSource).toContain('group/edit flex min-h-[28px] w-full min-w-0 items-start justify-between gap-2 overflow-hidden')
   })
 
+  it('lets presentation Metrics actual and forecast values expand to fit long text', () => {
+    expect(pageSource).toContain('function ValueTile({')
+    expect(pageSource).toContain('expandToContent = false')
+    expect(pageSource).toContain('compact={isCompact && !expandToContent}')
+    expect(pageSource).toContain('multiline={multiline || expandToContent}')
+    expect(pageSource).toContain('label={actualMetricLabel(row)} row={row} field="actual_mtd"')
+    expect(pageSource).toContain('field="actual_mtd" value={row.actual_mtd ?? \'\'} canEdit={canEditField(row, \'actual_mtd\')} isSaving={isSaving} onSave={onSave} expandToContent')
+    expect(pageSource).toContain('field="forecast" value={row.forecast ?? \'\'} canEdit={canEditField(row, \'forecast\')} isSaving={isSaving} onSave={onSave} expandToContent')
+  })
+
   it('persists auto-populated slide overrides until source data changes', () => {
     expect(pageSource).toContain('generatedRowOverrides')
     expect(pageSource).toContain('setGeneratedRowOverrides')
