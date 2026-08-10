@@ -185,6 +185,7 @@ export default function StitchNorthStar() {
   }, [rows, selectedPillar, search])
   const ownerDecks = useMemo(() => buildOwnerSlideDeck(rows), [rows])
   const selectedDeck = ownerDecks.find(deck => deck.owner === presentingOwner) ?? null
+  const selectedDeckIndex = selectedDeck ? ownerDecks.findIndex(deck => deck.owner === selectedDeck.owner) : -1
   const statusCounts = useMemo(() => countStatuses(rows), [rows])
   const htmlBlocksByKey = useMemo(() => new Map(htmlBlocks.map(block => [block.slide_key, block])), [htmlBlocks])
   const dailyLift = Math.max(0, displayedMonthlyMetrics.dailyNeeded - displayedMonthlyMetrics.dailyPace)
@@ -260,6 +261,13 @@ export default function StitchNorthStar() {
       view_mode: viewMode,
       html_code: htmlCode,
     })
+  }
+
+  function movePresenter(direction: -1 | 1) {
+    if (ownerDecks.length === 0 || selectedDeckIndex < 0) return
+    const nextIndex = (selectedDeckIndex + direction + ownerDecks.length) % ownerDecks.length
+    setPresentingOwner(ownerDecks[nextIndex].owner)
+    setActiveSlide(0)
   }
 
   function handleGeneratedRowSessionSave(row: NorthStarDisplayRow, field: NorthStarEditableField, value: string | NorthStarStatus): boolean {
@@ -454,6 +462,8 @@ export default function StitchNorthStar() {
         <OwnerDeckModal
           deck={selectedDeck}
           activeSlide={Math.min(activeSlide, selectedDeck.rows.length - 1)}
+          presenterIndex={selectedDeckIndex}
+          presenterCount={ownerDecks.length}
           canEditField={canEditField}
           htmlBlocksByKey={htmlBlocksByKey}
           canEditHtml={canEditProgress}
@@ -461,6 +471,7 @@ export default function StitchNorthStar() {
           onSave={handleCellSave}
           onHtmlBlockSave={handleHtmlBlockSave}
           onSlideChange={setActiveSlide}
+          onPresenterChange={movePresenter}
           onClose={() => setPresentingOwner(null)}
         />
       )}
@@ -609,6 +620,8 @@ function PillarWorkspaceCard({
 function OwnerDeckModal({
   deck,
   activeSlide,
+  presenterIndex,
+  presenterCount,
   canEditField,
   htmlBlocksByKey,
   canEditHtml,
@@ -616,10 +629,13 @@ function OwnerDeckModal({
   onSave,
   onHtmlBlockSave,
   onSlideChange,
+  onPresenterChange,
   onClose,
 }: {
   deck: StitchOwnerDeck
   activeSlide: number
+  presenterIndex: number
+  presenterCount: number
   canEditField: (row: NorthStarDisplayRow, field: NorthStarEditableField) => boolean
   htmlBlocksByKey: Map<string, StitchSlideHtmlBlock>
   canEditHtml: boolean
@@ -627,12 +643,14 @@ function OwnerDeckModal({
   onSave: (row: NorthStarDisplayRow, field: NorthStarEditableField, value: string | NorthStarStatus) => Promise<void>
   onHtmlBlockSave: StitchHtmlSaveHandler
   onSlideChange: (slide: number) => void
+  onPresenterChange: (direction: -1 | 1) => void
   onClose: () => void
 }) {
   const row = deck.rows[activeSlide]
   if (!row) return null
   const htmlBlock = htmlBlocksByKey.get(stitchSlideHtmlKey(row)) ?? null
   const isHtmlMode = htmlBlock?.view_mode === 'html'
+  const presenterPosition = presenterIndex >= 0 ? presenterIndex + 1 : 1
 
   function previous() {
     onSlideChange(activeSlide === 0 ? deck.rows.length - 1 : activeSlide - 1)
@@ -643,18 +661,20 @@ function OwnerDeckModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-bg/80 p-3 backdrop-blur-sm sm:p-4">
-      <section className="flex max-h-[92vh] w-full max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl sm:max-w-[calc(100vw-2rem)] xl:max-w-6xl 2xl:max-w-7xl">
+    <div className="fixed inset-0 z-50 flex bg-bg">
+      <section className="flex h-screen max-h-screen w-screen max-w-none flex-col overflow-hidden border-0 bg-surface shadow-2xl">
         <div className="relative border-b border-border px-5 py-4 lg:px-8">
           <div className="absolute left-1/2 top-0 hidden -translate-x-1/2 rounded-b-lg border-x border-b border-border bg-surface2 px-5 py-1 text-[10px] font-bold uppercase tracking-widest text-text2 md:block">
             Presented by {deck.owner}
           </div>
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0 pt-2">
               <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text2">
                 <span>{formatPeriodMonth(row.period_month)}</span>
                 <span className="h-1 w-1 rounded-full bg-border" />
                 <span>Slide {activeSlide + 1} of {deck.rows.length}</span>
+                <span className="h-1 w-1 rounded-full bg-border" />
+                <span>Presenter {presenterPosition} of {presenterCount}</span>
               </div>
               <EditableText
                 row={row}
@@ -663,11 +683,37 @@ function OwnerDeckModal({
                 canEdit={canEditField(row, 'pillar')}
                 isSaving={isSaving}
                 onSave={onSave}
-                displayClassName="text-2xl font-bold text-text1"
+                displayClassName="text-3xl font-bold text-text1"
                 placeholder="Untitled pillar"
               />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <div className="inline-flex overflow-hidden rounded-lg border border-border bg-surface2">
+                <button
+                  type="button"
+                  className="inline-flex h-10 items-center gap-2 px-3 text-xs font-semibold uppercase tracking-wider text-text2 transition hover:bg-surface hover:text-text1 disabled:cursor-not-allowed disabled:opacity-40"
+                  onClick={() => onPresenterChange(-1)}
+                  disabled={presenterCount <= 1}
+                  aria-label="Previous presenter"
+                  title="Previous presenter"
+                >
+                  <Users size={15} />
+                  <ChevronLeft size={16} />
+                  <span>Presenter</span>
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-10 items-center gap-2 border-l border-border px-3 text-xs font-semibold uppercase tracking-wider text-text2 transition hover:bg-surface hover:text-text1 disabled:cursor-not-allowed disabled:opacity-40"
+                  onClick={() => onPresenterChange(1)}
+                  disabled={presenterCount <= 1}
+                  aria-label="Next presenter"
+                  title="Next presenter"
+                >
+                  <span>Presenter</span>
+                  <ChevronRight size={16} />
+                  <Users size={15} />
+                </button>
+              </div>
               <div className="inline-flex overflow-hidden rounded-lg border border-border bg-surface2">
                 <button type="button" className="inline-flex h-10 w-10 items-center justify-center text-text2 transition hover:bg-surface hover:text-text1" onClick={previous} aria-label="Previous slide">
                   <ChevronLeft size={18} />
@@ -683,7 +729,7 @@ function OwnerDeckModal({
           </div>
         </div>
 
-        <div className="overflow-y-auto overflow-x-hidden">
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
           {isHtmlMode ? (
             <div className="p-5 lg:p-8">
               <StitchHtmlModePanel
@@ -696,8 +742,8 @@ function OwnerDeckModal({
               />
             </div>
           ) : (
-          <div className="grid min-w-0 gap-6 p-5 lg:p-6 xl:p-8 2xl:grid-cols-[minmax(0,1fr)_340px]">
-            <div className="min-w-0 space-y-6">
+          <div className="grid min-h-full min-w-0 gap-8 p-6 lg:p-8 2xl:grid-cols-[minmax(0,1fr)_400px]">
+            <div className="min-w-0 space-y-7">
               <div>
                 <div className="mb-2 flex items-center gap-2">
                   <Badge variant={STATUS_VARIANT[row.status]}>{STATUS_LABELS[row.status]}</Badge>
@@ -711,7 +757,7 @@ function OwnerDeckModal({
                   isSaving={isSaving}
                   onSave={onSave}
                   multiline
-                  displayClassName="text-xl font-semibold leading-snug text-text1"
+                  displayClassName="text-2xl font-semibold leading-snug text-text1"
                   placeholder="Not set"
                 />
               </div>
@@ -775,7 +821,7 @@ function OwnerDeckModal({
               />
             </div>
 
-            <aside className="min-w-0 space-y-4">
+            <aside className="min-w-0 space-y-5">
               <div className="rounded-xl border border-border bg-surface2 p-4">
                 <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-text2">Metrics</div>
                 <div className="grid gap-3">

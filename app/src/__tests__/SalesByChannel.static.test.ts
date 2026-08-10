@@ -58,6 +58,17 @@ describe('Sales by Channel data contract', () => {
     expect(pageSource).toContain('/admin/sales-channel-mappings')
   })
 
+  it('keeps the channel pace table full-width with sticky table headers and in-pane horizontal scrolling', () => {
+    expect(existsSync(pagePath)).toBe(true)
+    const pageSource = readFileSync(pagePath, 'utf8')
+
+    expect(pageSource).toContain('className="mt-6 space-y-5"')
+    expect(pageSource).toContain('max-h-[calc(100vh-260px)] overflow-auto overscroll-contain')
+    expect(pageSource).toContain('<table className="w-full min-w-[1520px] border-collapse text-base">')
+    expect(pageSource).toContain('<thead className="sticky top-0 z-20 bg-surface2 text-xs uppercase tracking-wider text-text2 shadow-sm">')
+    expect(pageSource).not.toContain('xl:grid-cols-[minmax(0,1fr)_340px]')
+  })
+
   it('builds the admin mapping panel around unmapped pairs and mapping upserts', () => {
     expect(existsSync(adminPagePath)).toBe(true)
     const pageSource = readFileSync(adminPagePath, 'utf8')

@@ -139,7 +139,7 @@ export default function SalesByChannel() {
         <MetricCell label="Unmapped sales" value={fmtCurrency(addMappingRow?.mtd_revenue ?? 0)} sub={`${fmtNumber(data?.unmappedSourcePairs.length ?? 0)} source pairs`} tone={(addMappingRow?.mtd_revenue ?? 0) > 0 ? 'warning' : 'success'} />
       </div>
 
-      <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="mt-6 space-y-5">
         <div className="card overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
             <div>
@@ -152,9 +152,9 @@ export default function SalesByChannel() {
             </div>
           </div>
 
-          <div className="overflow-auto">
-            <table className="w-full min-w-[1360px] border-collapse text-sm">
-              <thead className="bg-surface2 text-xs uppercase tracking-wider text-text2">
+          <div className="max-h-[calc(100vh-260px)] overflow-auto overscroll-contain">
+            <table className="w-full min-w-[1520px] border-collapse text-base">
+              <thead className="sticky top-0 z-20 bg-surface2 text-xs uppercase tracking-wider text-text2 shadow-sm">
                 <tr>
                   <SortableHeader label="Channel" sortKey="channel" sortConfig={sortConfig} align="left" onSort={handleSort} active={sortConfig.key === 'channel'} />
                   <SortableHeader label="MTD" sortKey="mtd_revenue" sortConfig={sortConfig} align="right" onSort={handleSort} active={sortConfig.key === 'mtd_revenue'} />
@@ -198,7 +198,7 @@ export default function SalesByChannel() {
             <div className="text-sm font-semibold text-text1">Mapping queue</div>
             <div className="mt-1 text-xs text-text2">Source pairs without an active QB mapping.</div>
           </div>
-          <div className="max-h-[560px] overflow-auto">
+          <div className="max-h-[360px] overflow-auto">
             {(data?.unmappedSourcePairs.length ?? 0) === 0 ? (
               <div className="px-5 py-8 text-sm text-text2">All current source pairs are mapped.</div>
             ) : (
