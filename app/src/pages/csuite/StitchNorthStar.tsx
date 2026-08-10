@@ -1027,7 +1027,7 @@ function StitchHtmlFrame({
 function FinanceSlideGraph({ row }: { row: NorthStarDisplayRow }) {
   const chart = row.chart
   if (!chart) return null
-  const hasChartPoints = chart.points.length > 0 || chart.payrollPies?.some(pie => pie.points.length > 0)
+  const hasChartPoints = chart.points.length > 0 || chart.payrollPies?.some(pie => pie.points.length > 0) || Boolean(chart.pnlForecast?.months.length)
   if (!hasChartPoints) return null
 
   return (
@@ -1036,13 +1036,123 @@ function FinanceSlideGraph({ row }: { row: NorthStarDisplayRow }) {
         <div className="text-xs font-semibold uppercase tracking-wider text-text2">Trend</div>
         {chart.benchmarkLabel && <div className="truncate text-xs font-semibold text-text2">{chart.benchmarkLabel}</div>}
       </div>
-      {chart.kind === 'payroll' && (chart.payrollPies?.length || chart.comparisonPoints?.length) ? (
+      {chart.kind === 'pnl' && chart.pnlForecast ? (
+        <PnlForecastPanel forecast={chart.pnlForecast} />
+      ) : chart.kind === 'payroll' && (chart.payrollPies?.length || chart.comparisonPoints?.length) ? (
         <PayrollPieComparisonChart chart={chart} />
       ) : chart.kind === 'cash_runway' ? (
         <CashflowThresholdChart chart={chart} />
       ) : (
         <RangeColumnChart chart={chart} />
       )}
+    </div>
+  )
+}
+
+function PnlForecastPanel({
+  forecast,
+}: {
+  forecast: NonNullable<NonNullable<NorthStarDisplayRow['chart']>['pnlForecast']>
+}) {
+  const gapTone = forecast.totalSalesGap > 0 ? 'danger' : 'success'
+  const belowTargetText = `${fmtNumber(forecast.belowTargetCount)} below target`
+
+  return (
+    <div className="min-w-0 space-y-3 rounded-lg border border-border bg-bg/45 p-3">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <PnlForecastMetric
+          label="Expense run-rate"
+          value={`${fmtCurrency(forecast.monthlyExpenseRunRate)} / mo`}
+          sub={`${fmtCurrency(forecast.annualExpenseRunRate)} annualized`}
+        />
+        <PnlForecastMetric
+          label="Sales needed"
+          value={fmtCurrency(forecast.requiredMonthlySales)}
+          sub={`${formatNullablePercent(forecast.benchmarkPct)} NOI target`}
+          tone="warning"
+        />
+        <PnlForecastMetric
+          label="Forecasted sales"
+          value={fmtCurrency(forecast.forecastSalesTotal)}
+          sub={`${formatNullablePercent(forecast.budgetFulfillmentPct)} budget fulfillment`}
+          tone="info"
+        />
+        <PnlForecastMetric
+          label="NOI gap"
+          value={fmtCurrency(forecast.totalSalesGap)}
+          sub={`${formatNullablePercent(forecast.forecastNoiPct)} 12-month NOI; ${belowTargetText}`}
+          tone={gapTone}
+        />
+      </div>
+
+      <div className="grid min-w-0 grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6 2xl:grid-cols-12" aria-label="NOI forecast monthly path">
+        {forecast.months.map(month => {
+          const isOnPlan = month.status === 'on_plan'
+          return (
+            <div
+              key={month.month}
+              className={cn(
+                'min-w-0 rounded-lg border p-2',
+                isOnPlan ? 'border-success/25 bg-success/10' : 'border-danger/30 bg-danger/10'
+              )}
+              title={[
+                `${month.label} budget source: ${formatPeriodMonth(month.budgetSourceMonth)}`,
+                `Required sales: ${fmtCurrency(month.requiredSales)}`,
+                `Sales gap: ${fmtCurrency(month.salesGap)}`,
+              ].join('\n')}
+            >
+              <div className="mb-2 flex min-w-0 items-center justify-between gap-2">
+                <div className="truncate text-[10px] font-bold uppercase tracking-wider text-text1">{month.label}</div>
+                <div className={cn('shrink-0 text-[10px] font-bold', isOnPlan ? 'text-success' : 'text-danger')}>
+                  {isOnPlan ? 'Green' : 'Red'}
+                </div>
+              </div>
+              <dl className="space-y-1 text-[10px] font-semibold text-text2">
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <dt className="truncate">Sales</dt>
+                  <dd className="shrink-0 tabular-nums text-text1">{fmtCurrency(month.forecastedSales)}</dd>
+                </div>
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <dt className="truncate">Expenses</dt>
+                  <dd className="shrink-0 tabular-nums text-text1">{fmtCurrency(month.expenses)}</dd>
+                </div>
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <dt className="truncate">NOI</dt>
+                  <dd className={cn('shrink-0 tabular-nums', isOnPlan ? 'text-success' : 'text-danger')}>{formatNullablePercent(month.noiPct)}</dd>
+                </div>
+              </dl>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function PnlForecastMetric({
+  label,
+  value,
+  sub,
+  tone = 'neutral',
+}: {
+  label: string
+  value: string
+  sub: string
+  tone?: 'neutral' | 'success' | 'warning' | 'danger' | 'info'
+}) {
+  const toneClass = {
+    neutral: 'text-text1',
+    success: 'text-success',
+    warning: 'text-warning',
+    danger: 'text-danger',
+    info: 'text-accent',
+  }[tone]
+
+  return (
+    <div className="min-w-0 rounded-lg border border-border bg-surface2 px-3 py-2">
+      <div className="truncate text-[10px] font-bold uppercase tracking-wider text-text2">{label}</div>
+      <div className={cn('mt-1 truncate text-sm font-bold tabular-nums', toneClass)} title={value}>{value}</div>
+      <div className="mt-1 truncate text-[10px] font-semibold text-text2" title={sub}>{sub}</div>
     </div>
   )
 }

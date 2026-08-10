@@ -411,6 +411,13 @@ export interface LeadershipSalesSimulation {
   sales_needed_for_benchmark: number | null
 }
 
+export interface LeadershipBudget {
+  sales: Array<{
+    month: string
+    budgeted_sales: number
+  }>
+}
+
 export interface LeadershipToolSnapshot {
   id: string
   snapshot_key: 'current'
@@ -428,6 +435,7 @@ export interface LeadershipToolSnapshot {
   pnl: {
     accounts: LeadershipPnlAccount[]
   }
+  budget: LeadershipBudget
   sales_simulation: LeadershipSalesSimulation
   source_meta: Record<string, unknown>
 }

@@ -50,6 +50,20 @@ describe('Stitch North Star page contract', () => {
     expect(pageSource).toContain('label="Plan"')
   })
 
+  it('renders the PnL slide through a responsive NOI forecast panel', () => {
+    expect(pageSource).toContain('PnlForecastPanel')
+    expect(pageSource).toContain('chart.pnlForecast')
+    expect(pageSource).toContain('Expense run-rate')
+    expect(pageSource).toContain('Sales needed')
+    expect(pageSource).toContain('Forecasted sales')
+    expect(pageSource).toContain('NOI gap')
+    expect(pageSource).toContain('Sales')
+    expect(pageSource).toContain('Expenses')
+    expect(pageSource).toContain('NOI')
+    expect(pageSource).toContain('grid grid-cols-2 gap-3 lg:grid-cols-4')
+    expect(pageSource).toContain('grid min-w-0 grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6 2xl:grid-cols-12')
+  })
+
   it('merges live Monthly Star finance metrics into the same table and deck rows', () => {
     expect(pageSource).toContain('buildStitchFinanceMetricRow')
     expect(pageSource).toContain('buildLeadershipFinanceRows')

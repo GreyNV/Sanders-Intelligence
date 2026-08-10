@@ -535,6 +535,125 @@ describe('Stitch North Star helpers', () => {
     expect(pnl?.chart?.points.find(point => point.label === 'Forecast')?.value).toBeCloseTo(0.0269, 4)
   })
 
+  it('builds a 12-month budget-adjusted NOI forecast from BgtData and full-month expenses', () => {
+    const rows = mergeNorthStarRows([], '2026-08-01', '2026-08-06')
+    const snapshot = baseLeadershipSnapshot({
+      pnl: {
+        accounts: [
+          {
+            account: 'Income',
+            periods: [
+              { month: '2026-03-01', current_year: 700000, last_year: 0, difference_pct: null },
+              { month: '2026-04-01', current_year: 800000, last_year: 0, difference_pct: null },
+              { month: '2026-05-01', current_year: 900000, last_year: 0, difference_pct: null },
+              { month: '2026-06-01', current_year: 1000000, last_year: 0, difference_pct: null },
+              { month: '2026-07-01', current_year: 900000, last_year: 0, difference_pct: null },
+            ],
+          },
+          {
+            account: 'COGS',
+            periods: [
+              { month: '2026-03-01', current_year: -450000, last_year: 0, difference_pct: null },
+              { month: '2026-04-01', current_year: -400000, last_year: 0, difference_pct: null },
+              { month: '2026-05-01', current_year: -450000, last_year: 0, difference_pct: null },
+              { month: '2026-06-01', current_year: -500000, last_year: 0, difference_pct: null },
+              { month: '2026-07-01', current_year: -9999999, last_year: 0, difference_pct: null },
+            ],
+          },
+          {
+            account: 'Other Expense',
+            periods: [
+              { month: '2026-03-01', current_year: -9999999, last_year: 0, difference_pct: null },
+              { month: '2026-04-01', current_year: -9999999, last_year: 0, difference_pct: null },
+              { month: '2026-05-01', current_year: -9999999, last_year: 0, difference_pct: null },
+              { month: '2026-06-01', current_year: -9999999, last_year: 0, difference_pct: null },
+            ],
+          },
+          {
+            account: 'Expense',
+            periods: [
+              { month: '2026-03-01', current_year: -250000, last_year: 0, difference_pct: null },
+              { month: '2026-04-01', current_year: -300000, last_year: 0, difference_pct: null },
+              { month: '2026-05-01', current_year: -280000, last_year: 0, difference_pct: null },
+              { month: '2026-06-01', current_year: -300000, last_year: 0, difference_pct: null },
+              { month: '2026-07-01', current_year: -9999999, last_year: 0, difference_pct: null },
+            ],
+          },
+          {
+            account: 'Other Income',
+            periods: [
+              { month: '2026-03-01', current_year: 9999999, last_year: 0, difference_pct: null },
+              { month: '2026-04-01', current_year: 9999999, last_year: 0, difference_pct: null },
+              { month: '2026-05-01', current_year: 9999999, last_year: 0, difference_pct: null },
+              { month: '2026-06-01', current_year: 9999999, last_year: 0, difference_pct: null },
+            ],
+          },
+          {
+            account: 'Grand Total',
+            periods: [
+              { month: '2026-07-01', current_year: 81000, last_year: 0, difference_pct: null },
+            ],
+          },
+        ],
+      },
+      budget: {
+        sales: [
+          { month: '2026-01-01', budgeted_sales: 1100000 },
+          { month: '2026-02-01', budgeted_sales: 1000000 },
+          { month: '2026-03-01', budgeted_sales: 1000000 },
+          { month: '2026-04-01', budgeted_sales: 1000000 },
+          { month: '2026-05-01', budgeted_sales: 1000000 },
+          { month: '2026-06-01', budgeted_sales: 1000000 },
+          { month: '2026-07-01', budgeted_sales: 1000000 },
+          { month: '2026-08-01', budgeted_sales: 1200000 },
+          { month: '2026-09-01', budgeted_sales: 1000000 },
+          { month: '2026-10-01', budgeted_sales: 1000000 },
+          { month: '2026-11-01', budgeted_sales: 1000000 },
+          { month: '2026-12-01', budgeted_sales: 780000 },
+        ],
+      },
+    })
+
+    const pnl = buildLeadershipFinanceRows(rows, snapshot, '2026-08-01', '2026-08-06')
+      .find(row => row.north_star === 'PnL / 9% NOI')
+    const forecast = pnl?.chart?.pnlForecast
+
+    expect(forecast?.expenseBaseMonths).toEqual(['2026-03-01', '2026-04-01', '2026-05-01', '2026-06-01'])
+    expect(forecast?.monthlyExpenseRunRate).toBeCloseTo(732500, 2)
+    expect(forecast?.annualExpenseRunRate).toBeCloseTo(8790000, 2)
+    expect(forecast?.requiredMonthlySales).toBeCloseTo(804945.05, 2)
+    expect(forecast?.budgetFulfillmentPct).toBeCloseTo(0.86, 4)
+    expect(forecast?.months).toHaveLength(12)
+    expect(forecast?.months[0]).toMatchObject({
+      month: '2026-08-01',
+      budgetSourceMonth: '2026-08-01',
+      budgetedSales: 1200000,
+      forecastedSales: 1032000,
+      status: 'on_plan',
+    })
+    expect(forecast?.months[0].noiPct).toBeCloseTo(0.2902, 4)
+    expect(forecast?.months[4]).toMatchObject({
+      month: '2026-12-01',
+      budgetSourceMonth: '2026-12-01',
+      budgetedSales: 780000,
+      forecastedSales: 670800,
+      status: 'at_risk',
+    })
+    expect(forecast?.months[5]).toMatchObject({
+      month: '2027-01-01',
+      budgetSourceMonth: '2026-01-01',
+      budgetedSales: 1100000,
+      forecastedSales: 946000,
+      status: 'on_plan',
+    })
+    expect(pnl).toMatchObject({
+      actual_mtd: 'July NOI was 9.0%',
+      forecast: '12-month forecast NOI is 15.4%',
+      constraint_now: '1 of 12 months are below the 9.0% NOI target; total sales gap is $134,145.',
+      status: 'at_risk',
+    })
+  })
+
   it('adds graph payloads for Ryan finance presentation slides', () => {
     const rows = mergeNorthStarRows([], '2026-07-01', '2026-07-05')
     const monthlyInput = {
@@ -610,6 +729,9 @@ function baseLeadershipSnapshot(overrides: Partial<Parameters<typeof buildLeader
           ],
         },
       ],
+    },
+    budget: {
+      sales: [],
     },
     sales_simulation: {
       noi_benchmark_pct: 0.09,

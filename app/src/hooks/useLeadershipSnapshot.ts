@@ -43,6 +43,7 @@ export function useReplaceLeadershipSnapshot() {
           cashflow: parsed.cashflow,
           payroll: parsed.payroll,
           pnl: parsed.pnl,
+          budget: parsed.budget,
           sales_simulation: parsed.sales_simulation,
           source_meta: parsed.source_meta,
         }, { onConflict: 'snapshot_key' })

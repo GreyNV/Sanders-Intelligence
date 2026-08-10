@@ -7,6 +7,7 @@ export interface ParsedLeadershipTool {
   cashflow: LeadershipToolSnapshot['cashflow']
   payroll: LeadershipToolSnapshot['payroll']
   pnl: LeadershipToolSnapshot['pnl']
+  budget: LeadershipToolSnapshot['budget']
   sales_simulation: LeadershipToolSnapshot['sales_simulation']
   source_meta: Record<string, unknown>
 }
@@ -28,11 +29,13 @@ export function parseLeadershipWorkbookSheets(sheets: Record<string, SheetMatrix
   const cashflow = parseCashflow(requiredSheet(sheets, 'Summary_13wks'))
   const payroll = parsePayroll(requiredSheet(sheets, 'Payroll'))
   const pnl = parsePnl(requiredSheet(sheets, 'PnL'))
+  const budget = parseBudget(sheets.BgtData ?? [])
 
   return {
     cashflow,
     payroll,
     pnl,
+    budget,
     sales_simulation: buildSalesSimulation(pnl),
     source_meta: {
       parsed_at: new Date().toISOString(),
@@ -106,6 +109,23 @@ function parsePnl(sheet: SheetMatrix): LeadershipToolSnapshot['pnl'] {
   return { accounts }
 }
 
+function parseBudget(sheet: SheetMatrix): LeadershipToolSnapshot['budget'] {
+  const header = sheet[0] ?? []
+  const monthIndex = findHeaderIndex(header, ['Month', 'Date', 'Period', 'Period Month'])
+  const salesIndex = findHeaderIndex(header, ['Budget Sales', 'Budgeted Sales', 'Sales', 'Income'])
+
+  if (monthIndex < 0 || salesIndex < 0) return { sales: [] }
+
+  const sales = sheet.slice(1)
+    .map(row => ({
+      month: toIsoMonth(row[monthIndex]),
+      budgeted_sales: toNumber(row[salesIndex]) ?? 0,
+    }))
+    .filter(row => row.month.length > 0 && row.budgeted_sales > 0)
+
+  return { sales }
+}
+
 function parseGroupedPeriods(row: unknown[], monthRow: unknown[], startIndex: number) {
   const periods: Array<{ month: string; current_year: number; last_year: number; difference_pct: number | null }> = []
 
@@ -123,6 +143,11 @@ function parseGroupedPeriods(row: unknown[], monthRow: unknown[], startIndex: nu
   }
 
   return periods
+}
+
+function findHeaderIndex(row: unknown[], labels: string[]): number {
+  const normalizedLabels = new Set(labels.map(normalizeLabel))
+  return row.findIndex(value => normalizedLabels.has(normalizeLabel(String(value ?? ''))))
 }
 
 function buildSalesSimulation(pnl: LeadershipToolSnapshot['pnl']): LeadershipToolSnapshot['sales_simulation'] {
@@ -147,6 +172,10 @@ function findLabeledNumber(sheet: SheetMatrix, label: string): number | null {
 
 function labelAt(row: unknown[], index: number): string {
   return String(row[index] ?? '').trim()
+}
+
+function normalizeLabel(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ')
 }
 
 function toNumber(value: unknown): number | null {

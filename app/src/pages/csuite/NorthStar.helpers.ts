@@ -105,6 +105,7 @@ export interface NorthStarSlideChart {
   points: NorthStarSlideChartPoint[]
   comparisonPoints?: NorthStarSlideChartComparisonPoint[]
   payrollPies?: NorthStarPayrollPie[]
+  pnlForecast?: NorthStarPnlForecast
   threshold?: number
   benchmarkLabel?: string
 }
@@ -131,6 +132,36 @@ export interface NorthStarPayrollPie {
   salesTotal: number | null
   payrollToSalesPct: number | null
   points: Array<{ label: string; value: number }>
+}
+
+export interface NorthStarPnlForecast {
+  benchmarkPct: number
+  latestActualMonth: string
+  expenseBaseMonths: string[]
+  monthlyExpenseRunRate: number
+  annualExpenseRunRate: number
+  requiredMonthlySales: number
+  budgetFulfillmentPct: number
+  forecastSalesTotal: number
+  forecastNoiTotal: number
+  forecastNoiPct: number | null
+  totalSalesGap: number
+  belowTargetCount: number
+  months: NorthStarPnlForecastMonth[]
+}
+
+export interface NorthStarPnlForecastMonth {
+  month: string
+  label: string
+  budgetSourceMonth: string
+  budgetedSales: number
+  forecastedSales: number
+  expenses: number
+  requiredSales: number
+  noi: number
+  noiPct: number | null
+  salesGap: number
+  status: 'on_plan' | 'at_risk'
 }
 
 export interface MonthlyStarInput {

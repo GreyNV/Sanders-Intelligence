@@ -106,4 +106,36 @@ describe('leadership tool parser', () => {
     expect(parsed.sales_simulation.latest_noi_pct).toBeCloseTo(0.1198, 4)
     expect(parsed.sales_simulation.sales_needed_for_benchmark).toBe(0)
   })
+
+  it('parses BgtData monthly budgeted sales from row-one headers', () => {
+    const sheets = {
+      Summary_13wks: [],
+      Payroll: [],
+      PnL: [],
+      BgtData: [
+        ['Period Month', 'Budgeted Sales', 'Notes'],
+        ['2026-06-01', 8500000, 'closed month'],
+        [new Date('2026-07-01T00:00:00Z'), 9000000, 'latest month'],
+      ],
+    }
+
+    const parsed = parseLeadershipWorkbookSheets(sheets)
+
+    expect(parsed.budget.sales).toEqual([
+      { month: '2026-06-01', budgeted_sales: 8500000 },
+      { month: '2026-07-01', budgeted_sales: 9000000 },
+    ])
+  })
+
+  it('returns an empty budget sales list when BgtData is missing', () => {
+    const sheets = {
+      Summary_13wks: [],
+      Payroll: [],
+      PnL: [],
+    }
+
+    const parsed = parseLeadershipWorkbookSheets(sheets)
+
+    expect(parsed.budget.sales).toEqual([])
+  })
 })
