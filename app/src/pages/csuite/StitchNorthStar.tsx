@@ -1108,14 +1108,14 @@ function PnlForecastPanel({
       )}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <PnlForecastMetric
-          label="Expense run-rate"
+          label="OpEx run-rate"
           value={`${fmtCurrency(forecast.monthlyExpenseRunRate)} / mo`}
-          sub={`${fmtCurrency(forecast.annualExpenseRunRate)} annualized`}
+          sub={`${formatNullablePercent(forecast.cogsPct)} COGS on sales`}
         />
         <PnlForecastMetric
           label="Sales needed"
           value={fmtCurrency(forecast.requiredMonthlySales)}
-          sub={`${formatNullablePercent(forecast.benchmarkPct)} NOI target`}
+          sub={`${formatNullablePercent(forecast.benchmarkPct)} NOI after COGS`}
           tone="warning"
         />
         <PnlForecastMetric
@@ -1161,7 +1161,7 @@ function PnlForecastPanel({
                   <dd className="shrink-0 tabular-nums text-text1">{formatNullableCurrency(month.forecastedSales)}</dd>
                 </div>
                 <div className="flex min-w-0 items-center justify-between gap-2">
-                  <dt className="truncate">Expenses</dt>
+                  <dt className="truncate">COGS + OpEx</dt>
                   <dd className="shrink-0 tabular-nums text-text1">{forecast.dataStatus === 'missing_expenses' ? 'n/a' : fmtCurrency(month.expenses)}</dd>
                 </div>
                 <div className="flex min-w-0 items-center justify-between gap-2">

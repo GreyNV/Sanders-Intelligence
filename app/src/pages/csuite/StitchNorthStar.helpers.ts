@@ -628,22 +628,31 @@ function buildPnlForecastPath(
   const latestActualMonth = latestActualIncomeMonth(income?.periods ?? []) ?? periodMonth
   const budgetRows = snapshot.budget?.sales ?? []
   const expenseBaseMonths = previousMonths(latestActualMonth, 4)
-  const expenseValues = expenseBaseMonths.map(month => {
+  const baseMonthStats = expenseBaseMonths.map(month => {
+    const incomeValue = findExactPeriod(income?.periods ?? [], month)?.current_year ?? null
     const cogsValue = findExactPeriod(cogs?.periods ?? [], month)?.current_year ?? null
     const expenseValue = findExactPeriod(expense?.periods ?? [], month)?.current_year ?? null
-    if (cogsValue === null && expenseValue === null) return null
-    return (cogsValue ?? 0) + (expenseValue ?? 0)
-  }).filter((value): value is number => value !== null)
-  const populatedExpenseBaseMonths = expenseBaseMonths.filter(month => {
-    const cogsValue = findExactPeriod(cogs?.periods ?? [], month)?.current_year ?? null
-    const expenseValue = findExactPeriod(expense?.periods ?? [], month)?.current_year ?? null
-    return cogsValue !== null || expenseValue !== null
+    return { month, incomeValue, cogsValue, expenseValue }
   })
-  const monthlyExpenseRunRate = expenseValues.length
-    ? Math.abs(expenseValues.reduce((sum, value) => sum + value, 0)) / expenseValues.length
+  const operatingExpenseValues = baseMonthStats.flatMap(({ incomeValue, expenseValue }) =>
+    incomeValue !== null && incomeValue > 0 && expenseValue !== null ? [expenseValue] : []
+  )
+  const cogsMarginMonths = baseMonthStats
+    .filter(({ incomeValue, cogsValue }) => incomeValue !== null && incomeValue > 0 && cogsValue !== null)
+  const populatedExpenseBaseMonths = baseMonthStats
+    .filter(({ incomeValue, cogsValue, expenseValue }) => incomeValue !== null && incomeValue > 0 && (cogsValue !== null || expenseValue !== null))
+    .map(({ month }) => month)
+  const monthlyExpenseRunRate = operatingExpenseValues.length
+    ? Math.abs(operatingExpenseValues.reduce((sum, value) => sum + value, 0)) / operatingExpenseValues.length
     : 0
-  const requiredMonthlySales = monthlyExpenseRunRate > 0 && Number.isFinite(monthlyExpenseRunRate)
-    ? monthlyExpenseRunRate / (1 - benchmarkPct)
+  const cogsTotals = cogsMarginMonths.reduce((totals, { incomeValue, cogsValue }) => ({
+    income: totals.income + (incomeValue ?? 0),
+    cogs: totals.cogs + Math.abs(cogsValue ?? 0),
+  }), { income: 0, cogs: 0 })
+  const cogsPct = cogsTotals.income > 0 ? cogsTotals.cogs / cogsTotals.income : null
+  const grossMarginPct = cogsPct !== null ? 1 - cogsPct : null
+  const requiredMonthlySales = monthlyExpenseRunRate > 0 && Number.isFinite(monthlyExpenseRunRate) && grossMarginPct !== null && grossMarginPct > benchmarkPct
+    ? monthlyExpenseRunRate / (grossMarginPct - benchmarkPct)
     : 0
   const forecastStart = addMonthsToPeriod(latestActualMonth, 1)
   const forecastMonths = Array.from({ length: 12 }, (_, index) => addMonthsToPeriod(forecastStart, index))
@@ -655,14 +664,16 @@ function buildPnlForecastPath(
     expenseBaseMonths: populatedExpenseBaseMonths,
     monthlyExpenseRunRate: roundChartNumber(monthlyExpenseRunRate),
     annualExpenseRunRate: roundChartNumber(monthlyExpenseRunRate * 12),
+    cogsPct,
+    grossMarginPct,
     requiredMonthlySales: roundChartNumber(requiredMonthlySales),
   }
 
-  if (monthlyExpenseRunRate <= 0 || !Number.isFinite(monthlyExpenseRunRate)) {
+  if (monthlyExpenseRunRate <= 0 || !Number.isFinite(monthlyExpenseRunRate) || grossMarginPct === null || !Number.isFinite(grossMarginPct) || grossMarginPct <= benchmarkPct) {
     return buildUnavailablePnlForecast({
       ...base,
       dataStatus: 'missing_expenses',
-      warning: 'COGS + Expense data is missing for the full-month expense base.',
+      warning: 'COGS margin and OpEx data are missing or below the NOI target for the full-month expense base.',
       months: forecastMonths,
     })
   }
@@ -694,7 +705,10 @@ function buildPnlForecastPath(
       return buildUnavailablePnlForecastMonth(month, roundChartNumber(monthlyExpenseRunRate), roundChartNumber(requiredMonthlySales))
     }
     const forecastedSales = roundChartNumber(budgetedSales * budgetFulfillment)
-    const noi = roundChartNumber(forecastedSales - monthlyExpenseRunRate)
+    const forecastedCogs = roundChartNumber(forecastedSales * (cogsPct ?? 0))
+    const operatingExpenses = roundChartNumber(monthlyExpenseRunRate)
+    const totalExpenses = roundChartNumber(forecastedCogs + operatingExpenses)
+    const noi = roundChartNumber(forecastedSales - totalExpenses)
     const noiPct = forecastedSales > 0 ? noi / forecastedSales : null
     const salesGap = Math.max(0, requiredMonthlySales - forecastedSales)
     const status: 'on_plan' | 'at_risk' = noiPct !== null && noiPct >= benchmarkPct ? 'on_plan' : 'at_risk'
@@ -705,7 +719,9 @@ function buildPnlForecastPath(
       budgetSourceMonth: budgetSource?.month ?? month,
       budgetedSales,
       forecastedSales,
-      expenses: roundChartNumber(monthlyExpenseRunRate),
+      forecastedCogs,
+      operatingExpenses,
+      expenses: totalExpenses,
       requiredSales: roundChartNumber(requiredMonthlySales),
       noi,
       noiPct,
@@ -742,6 +758,8 @@ function buildPnlForecastPath(
     expenseBaseMonths: populatedExpenseBaseMonths,
     monthlyExpenseRunRate: roundChartNumber(monthlyExpenseRunRate),
     annualExpenseRunRate: roundChartNumber(monthlyExpenseRunRate * 12),
+    cogsPct,
+    grossMarginPct,
     requiredMonthlySales: roundChartNumber(requiredMonthlySales),
     budgetFulfillmentPct: budgetFulfillment,
     forecastSalesTotal: roundChartNumber(forecastSalesTotal),
@@ -763,6 +781,8 @@ function buildUnavailablePnlForecast({
   expenseBaseMonths,
   monthlyExpenseRunRate,
   annualExpenseRunRate,
+  cogsPct,
+  grossMarginPct,
   requiredMonthlySales,
 }: {
   dataStatus: NonNullable<NorthStarSlideChart['pnlForecast']>['dataStatus']
@@ -774,6 +794,8 @@ function buildUnavailablePnlForecast({
   expenseBaseMonths: string[]
   monthlyExpenseRunRate: number
   annualExpenseRunRate: number
+  cogsPct: number | null
+  grossMarginPct: number | null
   requiredMonthlySales: number
 }): NonNullable<NorthStarSlideChart['pnlForecast']> {
   return {
@@ -785,6 +807,8 @@ function buildUnavailablePnlForecast({
     expenseBaseMonths,
     monthlyExpenseRunRate,
     annualExpenseRunRate,
+    cogsPct,
+    grossMarginPct,
     requiredMonthlySales,
     budgetFulfillmentPct: null,
     forecastSalesTotal: null,
@@ -803,6 +827,8 @@ function buildUnavailablePnlForecastMonth(month: string, expenses: number, requi
     budgetSourceMonth: null,
     budgetedSales: null,
     forecastedSales: null,
+    forecastedCogs: null,
+    operatingExpenses: expenses,
     expenses,
     requiredSales,
     noi: null,
@@ -872,7 +898,7 @@ function pnlActualText(snapshot: Pick<LeadershipToolSnapshot, 'pnl'>, month: str
 
 function pnlForecastSummary(forecast: NonNullable<NorthStarSlideChart['pnlForecast']>): string {
   if (forecast.dataStatus === 'ready') return `12-month forecast NOI is ${formatPct(forecast.forecastNoiPct)}`
-  if (forecast.dataStatus === 'missing_expenses') return '12-month forecast needs COGS + Expense data'
+  if (forecast.dataStatus === 'missing_expenses') return '12-month forecast needs COGS margin + OpEx data'
   if (forecast.dataStatus === 'missing_budget_actuals') return '12-month forecast needs actual/budget overlap'
   return '12-month forecast needs BgtData sales budget'
 }
@@ -884,8 +910,8 @@ function pnlForecastConstraintText(forecast: NonNullable<NorthStarSlideChart['pn
 }
 
 function pnlForecastResultText(forecast: NonNullable<NorthStarSlideChart['pnlForecast']>): string {
-  const expenseBase = `Expense base uses ${formatMonthRange(forecast.expenseBaseMonths)}`
-  if (forecast.dataStatus === 'ready') return `${expenseBase}; budget fulfillment is ${formatPct(forecast.budgetFulfillmentPct)}.`
+  const expenseBase = `COGS/OpEx base uses ${formatMonthRange(forecast.expenseBaseMonths)}`
+  if (forecast.dataStatus === 'ready') return `${expenseBase}; gross margin is ${formatPct(forecast.grossMarginPct)}; budget fulfillment is ${formatPct(forecast.budgetFulfillmentPct)}.`
   return `${expenseBase}; budget fulfillment is unavailable until BgtData is parsed.`
 }
 

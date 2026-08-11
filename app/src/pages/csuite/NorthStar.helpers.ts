@@ -143,6 +143,8 @@ export interface NorthStarPnlForecast {
   expenseBaseMonths: string[]
   monthlyExpenseRunRate: number
   annualExpenseRunRate: number
+  cogsPct: number | null
+  grossMarginPct: number | null
   requiredMonthlySales: number
   budgetFulfillmentPct: number | null
   forecastSalesTotal: number | null
@@ -159,6 +161,8 @@ export interface NorthStarPnlForecastMonth {
   budgetSourceMonth: string | null
   budgetedSales: number | null
   forecastedSales: number | null
+  forecastedCogs: number | null
+  operatingExpenses: number
   expenses: number
   requiredSales: number
   noi: number | null
