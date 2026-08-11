@@ -14,7 +14,7 @@ export interface ParsedLeadershipTool {
 
 export async function parseLeadershipToolFile(file: File): Promise<ParsedLeadershipTool> {
   const buffer = await file.arrayBuffer()
-  const workbook = XLSX.read(buffer, { type: 'array', cellDates: true })
+  const workbook = XLSX.read(buffer, { type: 'array', cellDates: false })
   const sheets = Object.fromEntries(
     workbook.SheetNames.map(name => [
       name,
@@ -111,10 +111,24 @@ function parsePnl(sheet: SheetMatrix): LeadershipToolSnapshot['pnl'] {
 
 function parseBudget(sheet: SheetMatrix): LeadershipToolSnapshot['budget'] {
   const header = sheet[0] ?? []
-  const monthIndex = findHeaderIndex(header, ['Month', 'Date', 'Period', 'Period Month'])
-  const salesIndex = findHeaderIndex(header, ['Budget Sales', 'Budgeted Sales', 'Sales', 'Income'])
+  const monthIndex = findPreferredHeaderIndex(header, ['Period Month', 'Month', 'Date', 'Period'])
+  const salesIndex = findPreferredHeaderIndex(header, ['Budgeted Sales', 'Budget Sales', 'Sales', 'Income'])
+  const accountIndex = findPreferredHeaderIndex(header, ['Account'])
+  const sectionIndex = findPreferredHeaderIndex(header, ['Section'])
+  const budgetAmountIndex = findPreferredHeaderIndex(header, ['Budget Amount', 'Budget'])
 
-  if (monthIndex < 0 || salesIndex < 0) return { sales: [] }
+  if (monthIndex < 0) return { sales: [] }
+
+  if (accountIndex >= 0 && budgetAmountIndex >= 0) {
+    return parseTransactionBudget(sheet.slice(1), {
+      monthIndex,
+      accountIndex,
+      sectionIndex,
+      amountIndex: budgetAmountIndex,
+    })
+  }
+
+  if (salesIndex < 0) return { sales: [] }
 
   const sales = sheet.slice(1)
     .map(row => ({
@@ -124,6 +138,35 @@ function parseBudget(sheet: SheetMatrix): LeadershipToolSnapshot['budget'] {
     .filter(row => row.month.length > 0 && row.budgeted_sales > 0)
 
   return { sales }
+}
+
+function parseTransactionBudget(
+  rows: SheetMatrix,
+  indexes: {
+    monthIndex: number
+    accountIndex: number
+    sectionIndex: number
+    amountIndex: number
+  }
+): LeadershipToolSnapshot['budget'] {
+  const salesByMonth = new Map<string, number>()
+
+  for (const row of rows) {
+    const month = toIsoMonth(row[indexes.monthIndex])
+    const account = normalizeLabel(String(row[indexes.accountIndex] ?? ''))
+    const section = indexes.sectionIndex >= 0 ? normalizeLabel(String(row[indexes.sectionIndex] ?? '')) : ''
+    const amount = toNumber(row[indexes.amountIndex])
+
+    if (!month || account !== 'sales' || (section && section !== 'income') || amount === null) continue
+    salesByMonth.set(month, (salesByMonth.get(month) ?? 0) + amount)
+  }
+
+  return {
+    sales: [...salesByMonth.entries()]
+      .map(([month, budgeted_sales]) => ({ month, budgeted_sales }))
+      .filter(row => row.budgeted_sales > 0)
+      .sort((left, right) => left.month.localeCompare(right.month)),
+  }
 }
 
 function parseGroupedPeriods(row: unknown[], monthRow: unknown[], startIndex: number) {
@@ -148,6 +191,14 @@ function parseGroupedPeriods(row: unknown[], monthRow: unknown[], startIndex: nu
 function findHeaderIndex(row: unknown[], labels: string[]): number {
   const normalizedLabels = new Set(labels.map(normalizeLabel))
   return row.findIndex(value => normalizedLabels.has(normalizeLabel(String(value ?? ''))))
+}
+
+function findPreferredHeaderIndex(row: unknown[], labels: string[]): number {
+  for (const label of labels) {
+    const index = findHeaderIndex(row, [label])
+    if (index >= 0) return index
+  }
+  return -1
 }
 
 function buildSalesSimulation(pnl: LeadershipToolSnapshot['pnl']): LeadershipToolSnapshot['sales_simulation'] {

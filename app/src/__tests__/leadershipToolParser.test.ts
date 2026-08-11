@@ -127,6 +127,30 @@ describe('leadership tool parser', () => {
     ])
   })
 
+  it('aggregates transaction-style BgtData Sales rows by month', () => {
+    const sheets = {
+      Summary_13wks: [],
+      Payroll: [],
+      PnL: [],
+      BgtData: [
+        ['Class', 'Account', 'Month', 'Budget', 'Landing Class', 'Section', 'Budget Amount'],
+        ['Amazon CA', 'Returns', 46023, -2917.95, 'Amazon CA', 'Income', -2917.95],
+        ['Amazon CA', 'Sales', 46023, 18463.54, 'Amazon CA', 'Income', 18463.54],
+        ['Amazon US', 'Sales', 46023, 1200000, 'Amazon US', 'Income', 1200000],
+        ['Amazon CA', 'Total Income', 46023, 15545.59, 'Amazon CA', 'Total Income', -15545.59],
+        ['Admin', 'Expense', 46023, -50000, 'No Income Account', 'Expense', 50000],
+        ['Amazon CA', 'Sales', 46054, 12738.4, 'Amazon CA', 'Income', 12738.4],
+      ],
+    }
+
+    const parsed = parseLeadershipWorkbookSheets(sheets)
+
+    expect(parsed.budget.sales).toEqual([
+      { month: '2026-01-01', budgeted_sales: 1218463.54 },
+      { month: '2026-02-01', budgeted_sales: 12738.4 },
+    ])
+  })
+
   it('returns an empty budget sales list when BgtData is missing', () => {
     const sheets = {
       Summary_13wks: [],
