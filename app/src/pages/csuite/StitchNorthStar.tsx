@@ -1095,11 +1095,17 @@ function PnlForecastPanel({
 }: {
   forecast: NonNullable<NonNullable<NorthStarDisplayRow['chart']>['pnlForecast']>
 }) {
-  const gapTone = forecast.totalSalesGap > 0 ? 'danger' : 'success'
-  const belowTargetText = `${fmtNumber(forecast.belowTargetCount)} below target`
+  const isReady = forecast.dataStatus === 'ready'
+  const gapTone = !isReady ? 'warning' : (forecast.totalSalesGap ?? 0) > 0 ? 'danger' : 'success'
+  const belowTargetText = isReady ? `${fmtNumber(forecast.belowTargetCount)} below target` : 'budget needed'
 
   return (
     <div className="min-w-0 space-y-3 rounded-lg border border-border bg-bg/45 p-3">
+      {forecast.warning && (
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs font-semibold leading-relaxed text-warning">
+          {forecast.warning}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <PnlForecastMetric
           label="Expense run-rate"
@@ -1114,13 +1120,13 @@ function PnlForecastPanel({
         />
         <PnlForecastMetric
           label="Forecasted sales"
-          value={fmtCurrency(forecast.forecastSalesTotal)}
+          value={formatNullableCurrency(forecast.forecastSalesTotal)}
           sub={`${formatNullablePercent(forecast.budgetFulfillmentPct)} budget fulfillment`}
           tone="info"
         />
         <PnlForecastMetric
           label="NOI gap"
-          value={fmtCurrency(forecast.totalSalesGap)}
+          value={formatNullableCurrency(forecast.totalSalesGap)}
           sub={`${formatNullablePercent(forecast.forecastNoiPct)} 12-month NOI; ${belowTargetText}`}
           tone={gapTone}
         />
@@ -1128,38 +1134,39 @@ function PnlForecastPanel({
 
       <div className="grid min-w-0 grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6 2xl:grid-cols-12" aria-label="NOI forecast monthly path">
         {forecast.months.map(month => {
-          const isOnPlan = month.status === 'on_plan'
+          const isOnPlan = isReady && month.status === 'on_plan'
+          const isAtRisk = isReady && month.status === 'at_risk'
           return (
             <div
               key={month.month}
               className={cn(
                 'min-w-0 rounded-lg border p-2',
-                isOnPlan ? 'border-success/25 bg-success/10' : 'border-danger/30 bg-danger/10'
+                isOnPlan ? 'border-success/25 bg-success/10' : isAtRisk ? 'border-danger/30 bg-danger/10' : 'border-warning/30 bg-warning/10'
               )}
               title={[
-                `${month.label} budget source: ${formatPeriodMonth(month.budgetSourceMonth)}`,
+                `${month.label} budget source: ${month.budgetSourceMonth ? formatPeriodMonth(month.budgetSourceMonth) : 'n/a'}`,
                 `Required sales: ${fmtCurrency(month.requiredSales)}`,
-                `Sales gap: ${fmtCurrency(month.salesGap)}`,
+                `Sales gap: ${formatNullableCurrency(month.salesGap)}`,
               ].join('\n')}
             >
               <div className="mb-2 flex min-w-0 items-center justify-between gap-2">
                 <div className="truncate text-[10px] font-bold uppercase tracking-wider text-text1">{month.label}</div>
-                <div className={cn('shrink-0 text-[10px] font-bold', isOnPlan ? 'text-success' : 'text-danger')}>
-                  {isOnPlan ? 'Green' : 'Red'}
+                <div className={cn('shrink-0 text-[10px] font-bold', isOnPlan ? 'text-success' : isAtRisk ? 'text-danger' : 'text-warning')}>
+                  {isReady ? (isOnPlan ? 'Green' : 'Red') : 'Need data'}
                 </div>
               </div>
               <dl className="space-y-1 text-[10px] font-semibold text-text2">
                 <div className="flex min-w-0 items-center justify-between gap-2">
                   <dt className="truncate">Sales</dt>
-                  <dd className="shrink-0 tabular-nums text-text1">{fmtCurrency(month.forecastedSales)}</dd>
+                  <dd className="shrink-0 tabular-nums text-text1">{formatNullableCurrency(month.forecastedSales)}</dd>
                 </div>
                 <div className="flex min-w-0 items-center justify-between gap-2">
                   <dt className="truncate">Expenses</dt>
-                  <dd className="shrink-0 tabular-nums text-text1">{fmtCurrency(month.expenses)}</dd>
+                  <dd className="shrink-0 tabular-nums text-text1">{forecast.dataStatus === 'missing_expenses' ? 'n/a' : fmtCurrency(month.expenses)}</dd>
                 </div>
                 <div className="flex min-w-0 items-center justify-between gap-2">
                   <dt className="truncate">NOI</dt>
-                  <dd className={cn('shrink-0 tabular-nums', isOnPlan ? 'text-success' : 'text-danger')}>{formatNullablePercent(month.noiPct)}</dd>
+                  <dd className={cn('shrink-0 tabular-nums', isOnPlan ? 'text-success' : isAtRisk ? 'text-danger' : 'text-warning')}>{formatNullablePercent(month.noiPct)}</dd>
                 </div>
               </dl>
             </div>
@@ -1458,6 +1465,10 @@ function formatGraphValue(value: number, format: 'currency' | 'percent' | 'numbe
 
 function formatNullablePercent(value: number | null): string {
   return value === null || !Number.isFinite(value) ? 'n/a' : `${(value * 100).toFixed(1)}%`
+}
+
+function formatNullableCurrency(value: number | null): string {
+  return value === null || !Number.isFinite(value) ? 'n/a' : fmtCurrency(value)
 }
 
 function pieSliceTitle(

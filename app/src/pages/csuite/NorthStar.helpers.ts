@@ -135,17 +135,20 @@ export interface NorthStarPayrollPie {
 }
 
 export interface NorthStarPnlForecast {
+  dataStatus: 'ready' | 'missing_budget' | 'missing_budget_actuals' | 'missing_expenses'
+  warning: string | null
   benchmarkPct: number
   latestActualMonth: string
+  latestFullMonth: string | null
   expenseBaseMonths: string[]
   monthlyExpenseRunRate: number
   annualExpenseRunRate: number
   requiredMonthlySales: number
-  budgetFulfillmentPct: number
-  forecastSalesTotal: number
-  forecastNoiTotal: number
+  budgetFulfillmentPct: number | null
+  forecastSalesTotal: number | null
+  forecastNoiTotal: number | null
   forecastNoiPct: number | null
-  totalSalesGap: number
+  totalSalesGap: number | null
   belowTargetCount: number
   months: NorthStarPnlForecastMonth[]
 }
@@ -153,14 +156,14 @@ export interface NorthStarPnlForecast {
 export interface NorthStarPnlForecastMonth {
   month: string
   label: string
-  budgetSourceMonth: string
-  budgetedSales: number
-  forecastedSales: number
+  budgetSourceMonth: string | null
+  budgetedSales: number | null
+  forecastedSales: number | null
   expenses: number
   requiredSales: number
-  noi: number
+  noi: number | null
   noiPct: number | null
-  salesGap: number
+  salesGap: number | null
   status: 'on_plan' | 'at_risk'
 }
 

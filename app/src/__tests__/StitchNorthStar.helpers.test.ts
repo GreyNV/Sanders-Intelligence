@@ -490,7 +490,7 @@ describe('Stitch North Star helpers', () => {
     expect(currentMonthPie.salesTotal).not.toBe(500000)
   })
 
-  it('uses last year same-month NOI as the PnL forecast', () => {
+  it('keeps the PnL slide on the 12-month forecast panel when BgtData has not been re-uploaded', () => {
     const rows = mergeNorthStarRows([], '2026-07-01', '2026-07-05')
     const snapshot = baseLeadershipSnapshot({
       pnl: {
@@ -539,17 +539,23 @@ describe('Stitch North Star helpers', () => {
     const pnl = financeRows.find(row => row.north_star === 'PnL / 9% NOI')
 
     expect(pnl).toMatchObject({
-      actual_mtd: '10.0% NOI',
-      forecast: '$261,911 forecast NOI',
-      last_week_result: 'June NOI was $100,000 on income of $1,000,000.',
-      constraint_now: "Last year's same-month NOI was 2.7%, below the 9.0% benchmark.",
+      actual_mtd: 'June NOI was 10.0%',
+      forecast: '12-month forecast needs BgtData sales budget',
+      constraint_now: 'BgtData sales budget is missing from the current Leadership snapshot; re-upload the Leadership Tool now that budget parsing is live.',
       status: 'at_risk',
     })
-    expect(pnl?.forecast).not.toContain('to benchmark')
-    expect(pnl?.forecast).not.toContain('end-of-month NOI')
-    expect(pnl?.actual_mtd).not.toBe('-10.9% NOI')
-    expect(pnl?.chart?.points.map(point => point.label)).toEqual(['Last month', 'Forecast', 'Benchmark'])
-    expect(pnl?.chart?.points.find(point => point.label === 'Forecast')?.value).toBeCloseTo(0.0269, 4)
+    expect(pnl?.chart?.kind).toBe('pnl')
+    expect(pnl?.chart?.pnlForecast?.dataStatus).toBe('missing_budget')
+    expect(pnl?.chart?.pnlForecast?.months).toHaveLength(12)
+    expect(pnl?.chart?.points.map(point => point.label)).not.toEqual(['Last month', 'Forecast', 'Benchmark'])
+    expect(pnl?.chart?.points.map(point => point.label).slice(0, 5)).toEqual(['August', 'September', 'October', 'November', 'December'])
+    expect(pnl?.chart?.pnlForecast?.months[0]).toMatchObject({
+      month: '2026-08-01',
+      budgetedSales: null,
+      forecastedSales: null,
+      noiPct: null,
+      status: 'at_risk',
+    })
   })
 
   it('builds a 12-month budget-adjusted NOI forecast from BgtData and full-month expenses', () => {
@@ -608,6 +614,7 @@ describe('Stitch North Star helpers', () => {
           {
             account: 'Grand Total',
             periods: [
+              { month: '2026-06-01', current_year: 100000, last_year: 0, difference_pct: null },
               { month: '2026-07-01', current_year: 81000, last_year: 0, difference_pct: null },
             ],
           },
@@ -639,34 +646,35 @@ describe('Stitch North Star helpers', () => {
     expect(forecast?.monthlyExpenseRunRate).toBeCloseTo(732500, 2)
     expect(forecast?.annualExpenseRunRate).toBeCloseTo(8790000, 2)
     expect(forecast?.requiredMonthlySales).toBeCloseTo(804945.05, 2)
-    expect(forecast?.budgetFulfillmentPct).toBeCloseTo(0.86, 4)
+    expect(forecast?.latestFullMonth).toBe('2026-06-01')
+    expect(forecast?.budgetFulfillmentPct).toBeCloseTo(0.85, 4)
     expect(forecast?.months).toHaveLength(12)
     expect(forecast?.months[0]).toMatchObject({
       month: '2026-08-01',
       budgetSourceMonth: '2026-08-01',
       budgetedSales: 1200000,
-      forecastedSales: 1032000,
+      forecastedSales: 1020000,
       status: 'on_plan',
     })
-    expect(forecast?.months[0].noiPct).toBeCloseTo(0.2902, 4)
+    expect(forecast?.months[0].noiPct).toBeCloseTo(0.2819, 4)
     expect(forecast?.months[4]).toMatchObject({
       month: '2026-12-01',
       budgetSourceMonth: '2026-12-01',
       budgetedSales: 780000,
-      forecastedSales: 670800,
+      forecastedSales: 663000,
       status: 'at_risk',
     })
     expect(forecast?.months[5]).toMatchObject({
       month: '2027-01-01',
       budgetSourceMonth: '2026-01-01',
       budgetedSales: 1100000,
-      forecastedSales: 946000,
+      forecastedSales: 935000,
       status: 'on_plan',
     })
     expect(pnl).toMatchObject({
-      actual_mtd: 'July NOI was 9.0%',
-      forecast: '12-month forecast NOI is 15.4%',
-      constraint_now: '1 of 12 months are below the 9.0% NOI target; total sales gap is $134,145.',
+      actual_mtd: 'June NOI was 10.0%',
+      forecast: '12-month forecast NOI is 14.4%',
+      constraint_now: '1 of 12 months are below the 9.0% NOI target; total sales gap is $141,945.',
       status: 'at_risk',
     })
   })

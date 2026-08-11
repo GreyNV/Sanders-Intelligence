@@ -63,6 +63,8 @@ describe('Stitch North Star page contract', () => {
     expect(pageSource).toContain('NOI')
     expect(pageSource).toContain('grid grid-cols-2 gap-3 lg:grid-cols-4')
     expect(pageSource).toContain('grid min-w-0 grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6 2xl:grid-cols-12')
+    expect(pageSource).toContain('forecast.warning')
+    expect(pageSource).toContain('Need data')
   })
 
   it('merges live Monthly Star finance metrics into the same table and deck rows', () => {

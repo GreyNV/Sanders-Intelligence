@@ -579,98 +579,54 @@ function buildPnlRow(
   slotIndex: number
 ): NorthStarDisplayRow {
   const benchmarkPct = snapshot.sales_simulation.noi_benchmark_pct || 0.09
-  const forecastPath = buildPnlForecastPath(snapshot, benchmarkPct)
-  if (forecastPath) {
-    const latestActualLabel = formatShortMonth(forecastPath.latestActualMonth)
-    const belowTargetText = `${forecastPath.belowTargetCount} of ${forecastPath.months.length} months are below the ${formatPct(benchmarkPct)} NOI target`
-    const largestGapMonth = forecastPath.months
-      .filter(month => month.salesGap > 0)
-      .sort((left, right) => right.salesGap - left.salesGap)[0] ?? null
-    const actualNoiPct = latestActualNoiPct(snapshot, forecastPath.latestActualMonth)
-    const actualText = actualNoiPct === null ? `${latestActualLabel} NOI unavailable` : `${latestActualLabel} NOI was ${formatPct(actualNoiPct)}`
-
-    return generatedLeadershipRow({
-      periodMonth,
-      currentWeek,
-      slotIndex,
-      northStar: 'PnL / 9% NOI',
-      plan: `${formatPct(benchmarkPct)} NOI requires ${fmtCurrency(forecastPath.requiredMonthlySales)} monthly sales`,
-      actual: actualText,
-      forecast: `12-month forecast NOI is ${formatPct(forecastPath.forecastNoiPct)}`,
-      constraint: `${belowTargetText}; total sales gap is ${fmtCurrency(forecastPath.totalSalesGap)}.`,
-      move: largestGapMonth
-        ? `Close the ${fmtCurrency(largestGapMonth.salesGap)} ${largestGapMonth.label} sales gap to reach ${formatPct(benchmarkPct)} NOI.`
-        : `Protect budget-adjusted sales pace above ${formatPct(benchmarkPct)} NOI.`,
-      result: `Expense base uses ${formatMonthRange(forecastPath.expenseBaseMonths)}; budget fulfillment is ${formatPct(forecastPath.budgetFulfillmentPct)}.`,
-      status: forecastPath.belowTargetCount > 0 ? 'at_risk' : 'on_plan',
-      chart: {
-        kind: 'pnl',
-        valueFormat: 'percent',
-        benchmarkLabel: `${formatPct(benchmarkPct)} benchmark`,
-        points: forecastPath.months.map(month => ({
-          label: month.label,
-          value: month.noiPct ?? 0,
-          benchmark: benchmarkPct,
-          tone: month.status === 'on_plan' ? 'success' : 'danger',
-        })),
-        pnlForecast: forecastPath,
-      },
-    })
-  }
-
-  const actualMonth = addMonthsToPeriod(periodMonth, -1)
-  const income = findPnlAccount(snapshot, 'Income')
-  const grandTotal = findPnlAccount(snapshot, 'Grand Total', 'NOI')
-  const actualIncome = findPeriodForMonth(income?.periods ?? [], actualMonth)
-  const actualNoi = findPeriodForMonth(grandTotal?.periods ?? [], actualMonth)
-  const actualNoiPct = actualIncome && actualIncome.current_year > 0 && actualNoi ? actualNoi.current_year / actualIncome.current_year : snapshot.sales_simulation.latest_noi_pct
-  const forecastIncome = findPeriodForMonth(income?.periods ?? [], periodMonth)
-  const forecastNoi = findPeriodForMonth(grandTotal?.periods ?? [], periodMonth)
-  const forecastNoiValue = forecastNoi?.last_year ?? null
-  const forecastIncomeValue = forecastIncome?.last_year ?? null
-  const forecastNoiPct = forecastIncomeValue && forecastIncomeValue > 0 && forecastNoiValue !== null ? forecastNoiValue / forecastIncomeValue : null
-  const needsAction = forecastNoiPct === null || forecastNoiPct < benchmarkPct
-  const actualMonthLabel = formatShortMonth(actualNoi?.month || actualIncome?.month || actualMonth)
-  const forecastMonthLabel = formatShortMonth(forecastNoi?.month || forecastIncome?.month || periodMonth)
-  const benchmarkLabel = formatPct(benchmarkPct)
+  const forecastPath = buildPnlForecastPath(snapshot, benchmarkPct, periodMonth)
+  const largestGapMonth = forecastPath.months
+    .filter(month => month.salesGap !== null && month.salesGap > 0)
+    .sort((left, right) => (right.salesGap ?? 0) - (left.salesGap ?? 0))[0] ?? null
 
   return generatedLeadershipRow({
     periodMonth,
     currentWeek,
     slotIndex,
     northStar: 'PnL / 9% NOI',
-    plan: `${benchmarkLabel} NOI benchmark`,
-    actual: `${formatPct(actualNoiPct)} NOI`,
-    forecast: forecastNoiValue !== null ? `${fmtCurrency(forecastNoiValue)} forecast NOI` : 'Last year NOI unavailable',
-    constraint: pnlForecastConstraint(forecastNoiPct, benchmarkLabel, needsAction),
-    move: needsAction ? `Use last year's ${forecastMonthLabel} NOI baseline to define margin actions.` : `Use last year's ${forecastMonthLabel} NOI baseline and protect margin discipline.`,
-    result: actualNoi && actualIncome ? `${actualMonthLabel} NOI was ${fmtCurrency(actualNoi.current_year)} on income of ${fmtCurrency(actualIncome.current_year)}.` : null,
-    status: needsAction ? 'at_risk' : 'on_plan',
+    plan: forecastPath.requiredMonthlySales > 0
+      ? `${formatPct(benchmarkPct)} NOI requires ${fmtCurrency(forecastPath.requiredMonthlySales)} monthly sales`
+      : `${formatPct(benchmarkPct)} NOI sales requirement needs expense data`,
+    actual: pnlActualText(snapshot, forecastPath.latestFullMonth ?? forecastPath.latestActualMonth),
+    forecast: pnlForecastSummary(forecastPath),
+    constraint: pnlForecastConstraintText(forecastPath, benchmarkPct),
+    move: largestGapMonth
+      ? `Close the ${fmtCurrency(largestGapMonth.salesGap ?? 0)} ${largestGapMonth.label} sales gap to reach ${formatPct(benchmarkPct)} NOI.`
+      : forecastPath.dataStatus === 'ready'
+        ? `Protect budget-adjusted sales pace above ${formatPct(benchmarkPct)} NOI.`
+        : 'Re-upload the Leadership Tool so BgtData can populate the 12-month NOI forecast.',
+    result: pnlForecastResultText(forecastPath),
+    status: forecastPath.dataStatus === 'ready' && forecastPath.belowTargetCount === 0 ? 'on_plan' : 'at_risk',
     chart: {
       kind: 'pnl',
       valueFormat: 'percent',
-      benchmarkLabel: `${benchmarkLabel} benchmark`,
-      points: [
-        { label: 'Last month', value: actualNoiPct ?? 0, benchmark: benchmarkPct },
-        { label: 'Forecast', value: forecastNoiPct ?? 0, benchmark: benchmarkPct },
-        { label: 'Benchmark', value: benchmarkPct, benchmark: benchmarkPct },
-      ],
+      benchmarkLabel: `${formatPct(benchmarkPct)} benchmark`,
+      points: forecastPath.months.map(month => ({
+        label: month.label,
+        value: month.noiPct ?? benchmarkPct,
+        benchmark: benchmarkPct,
+        tone: month.status === 'on_plan' ? 'success' : 'danger',
+      })),
+      pnlForecast: forecastPath,
     },
   })
 }
 
 function buildPnlForecastPath(
   snapshot: Pick<LeadershipToolSnapshot, 'pnl'> & Partial<Pick<LeadershipToolSnapshot, 'budget'>>,
-  benchmarkPct: number
-): NonNullable<NorthStarSlideChart['pnlForecast']> | null {
+  benchmarkPct: number,
+  periodMonth: string
+): NonNullable<NorthStarSlideChart['pnlForecast']> {
   const income = findPnlAccount(snapshot, 'Income')
   const cogs = findPnlAccount(snapshot, 'COGS')
   const expense = findPnlAccount(snapshot, 'Expense')
-  const latestActualMonth = latestActualIncomeMonth(income?.periods ?? [])
+  const latestActualMonth = latestActualIncomeMonth(income?.periods ?? []) ?? periodMonth
   const budgetRows = snapshot.budget?.sales ?? []
-
-  if (!latestActualMonth || budgetRows.length === 0) return null
-
   const expenseBaseMonths = previousMonths(latestActualMonth, 4)
   const expenseValues = expenseBaseMonths.map(month => {
     const cogsValue = findExactPeriod(cogs?.periods ?? [], month)?.current_year ?? null
@@ -678,21 +634,65 @@ function buildPnlForecastPath(
     if (cogsValue === null && expenseValue === null) return null
     return (cogsValue ?? 0) + (expenseValue ?? 0)
   }).filter((value): value is number => value !== null)
-  if (expenseValues.length === 0) return null
+  const populatedExpenseBaseMonths = expenseBaseMonths.filter(month => {
+    const cogsValue = findExactPeriod(cogs?.periods ?? [], month)?.current_year ?? null
+    const expenseValue = findExactPeriod(expense?.periods ?? [], month)?.current_year ?? null
+    return cogsValue !== null || expenseValue !== null
+  })
+  const monthlyExpenseRunRate = expenseValues.length
+    ? Math.abs(expenseValues.reduce((sum, value) => sum + value, 0)) / expenseValues.length
+    : 0
+  const requiredMonthlySales = monthlyExpenseRunRate > 0 && Number.isFinite(monthlyExpenseRunRate)
+    ? monthlyExpenseRunRate / (1 - benchmarkPct)
+    : 0
+  const forecastStart = addMonthsToPeriod(latestActualMonth, 1)
+  const forecastMonths = Array.from({ length: 12 }, (_, index) => addMonthsToPeriod(forecastStart, index))
+  const latestFullMonth = latestFullNoiMonth(snapshot, latestActualMonth) ?? populatedExpenseBaseMonths[populatedExpenseBaseMonths.length - 1] ?? null
+  const base = {
+    benchmarkPct,
+    latestActualMonth,
+    latestFullMonth,
+    expenseBaseMonths: populatedExpenseBaseMonths,
+    monthlyExpenseRunRate: roundChartNumber(monthlyExpenseRunRate),
+    annualExpenseRunRate: roundChartNumber(monthlyExpenseRunRate * 12),
+    requiredMonthlySales: roundChartNumber(requiredMonthlySales),
+  }
 
-  const monthlyExpenseRunRate = Math.abs(expenseValues.reduce((sum, value) => sum + value, 0)) / expenseValues.length
-  if (monthlyExpenseRunRate <= 0 || !Number.isFinite(monthlyExpenseRunRate)) return null
+  if (monthlyExpenseRunRate <= 0 || !Number.isFinite(monthlyExpenseRunRate)) {
+    return buildUnavailablePnlForecast({
+      ...base,
+      dataStatus: 'missing_expenses',
+      warning: 'COGS + Expense data is missing for the full-month expense base.',
+      months: forecastMonths,
+    })
+  }
+
+  if (budgetRows.length === 0) {
+    return buildUnavailablePnlForecast({
+      ...base,
+      dataStatus: 'missing_budget',
+      warning: 'BgtData sales budget is missing from the current Leadership snapshot; re-upload the Leadership Tool now that budget parsing is live.',
+      months: forecastMonths,
+    })
+  }
 
   const budgetByMonth = new Map(budgetRows.map(row => [row.month, row]))
   const budgetFulfillment = budgetFulfillmentPct(income?.periods ?? [], budgetByMonth, latestActualMonth)
-  if (budgetFulfillment === null || budgetFulfillment <= 0) return null
+  if (budgetFulfillment === null || budgetFulfillment <= 0) {
+    return buildUnavailablePnlForecast({
+      ...base,
+      dataStatus: 'missing_budget_actuals',
+      warning: 'Budget fulfillment cannot be calculated because no full months have both Income and BgtData sales budget.',
+      months: forecastMonths,
+    })
+  }
 
-  const requiredMonthlySales = monthlyExpenseRunRate / (1 - benchmarkPct)
-  const forecastStart = addMonthsToPeriod(latestActualMonth, 1)
-  const months = Array.from({ length: 12 }, (_, index) => {
-    const month = addMonthsToPeriod(forecastStart, index)
+  const months = forecastMonths.map(month => {
     const budgetSource = budgetForForecastMonth(month, budgetByMonth)
-    const budgetedSales = budgetSource?.budgeted_sales ?? 0
+    const budgetedSales = budgetSource?.budgeted_sales ?? null
+    if (budgetedSales === null || budgetedSales <= 0) {
+      return buildUnavailablePnlForecastMonth(month, roundChartNumber(monthlyExpenseRunRate), roundChartNumber(requiredMonthlySales))
+    }
     const forecastedSales = roundChartNumber(budgetedSales * budgetFulfillment)
     const noi = roundChartNumber(forecastedSales - monthlyExpenseRunRate)
     const noiPct = forecastedSales > 0 ? noi / forecastedSales : null
@@ -713,20 +713,33 @@ function buildPnlForecastPath(
       status,
     }
   })
-  const forecastSalesTotal = months.reduce((sum, month) => sum + month.forecastedSales, 0)
-  const forecastNoiTotal = months.reduce((sum, month) => sum + month.noi, 0)
+  const missingForecastBudget = months.some(month => month.forecastedSales === null)
+  if (missingForecastBudget) {
+    return {
+      ...buildUnavailablePnlForecast({
+        ...base,
+        dataStatus: 'missing_budget',
+        warning: 'BgtData sales budget does not cover all 12 forecast months or the prior-year budget pattern.',
+        months: forecastMonths,
+      }),
+      budgetFulfillmentPct: budgetFulfillment,
+      months,
+    }
+  }
+
+  const forecastSalesTotal = months.reduce((sum, month) => sum + (month.forecastedSales ?? 0), 0)
+  const forecastNoiTotal = months.reduce((sum, month) => sum + (month.noi ?? 0), 0)
   const forecastNoiPct = forecastSalesTotal > 0 ? forecastNoiTotal / forecastSalesTotal : null
-  const totalSalesGap = months.reduce((sum, month) => sum + month.salesGap, 0)
+  const totalSalesGap = months.reduce((sum, month) => sum + (month.salesGap ?? 0), 0)
   const belowTargetCount = months.filter(month => month.status === 'at_risk').length
 
   return {
+    dataStatus: 'ready',
+    warning: null,
     benchmarkPct,
     latestActualMonth,
-    expenseBaseMonths: expenseBaseMonths.filter(month => {
-      const cogsValue = findExactPeriod(cogs?.periods ?? [], month)?.current_year ?? null
-      const expenseValue = findExactPeriod(expense?.periods ?? [], month)?.current_year ?? null
-      return cogsValue !== null || expenseValue !== null
-    }),
+    latestFullMonth,
+    expenseBaseMonths: populatedExpenseBaseMonths,
     monthlyExpenseRunRate: roundChartNumber(monthlyExpenseRunRate),
     annualExpenseRunRate: roundChartNumber(monthlyExpenseRunRate * 12),
     requiredMonthlySales: roundChartNumber(requiredMonthlySales),
@@ -737,6 +750,65 @@ function buildPnlForecastPath(
     totalSalesGap: roundChartNumber(totalSalesGap),
     belowTargetCount,
     months,
+  }
+}
+
+function buildUnavailablePnlForecast({
+  dataStatus,
+  warning,
+  months,
+  benchmarkPct,
+  latestActualMonth,
+  latestFullMonth,
+  expenseBaseMonths,
+  monthlyExpenseRunRate,
+  annualExpenseRunRate,
+  requiredMonthlySales,
+}: {
+  dataStatus: NonNullable<NorthStarSlideChart['pnlForecast']>['dataStatus']
+  warning: string
+  months: string[]
+  benchmarkPct: number
+  latestActualMonth: string
+  latestFullMonth: string | null
+  expenseBaseMonths: string[]
+  monthlyExpenseRunRate: number
+  annualExpenseRunRate: number
+  requiredMonthlySales: number
+}): NonNullable<NorthStarSlideChart['pnlForecast']> {
+  return {
+    dataStatus,
+    warning,
+    benchmarkPct,
+    latestActualMonth,
+    latestFullMonth,
+    expenseBaseMonths,
+    monthlyExpenseRunRate,
+    annualExpenseRunRate,
+    requiredMonthlySales,
+    budgetFulfillmentPct: null,
+    forecastSalesTotal: null,
+    forecastNoiTotal: null,
+    forecastNoiPct: null,
+    totalSalesGap: null,
+    belowTargetCount: 0,
+    months: months.map(month => buildUnavailablePnlForecastMonth(month, monthlyExpenseRunRate, requiredMonthlySales)),
+  }
+}
+
+function buildUnavailablePnlForecastMonth(month: string, expenses: number, requiredSales: number): NonNullable<NorthStarSlideChart['pnlForecast']>['months'][number] {
+  return {
+    month,
+    label: formatShortMonth(month),
+    budgetSourceMonth: null,
+    budgetedSales: null,
+    forecastedSales: null,
+    expenses,
+    requiredSales,
+    noi: null,
+    noiPct: null,
+    salesGap: null,
+    status: 'at_risk',
   }
 }
 
@@ -758,7 +830,7 @@ function budgetFulfillmentPct(
   latestActualMonth: string
 ): number | null {
   const totals = incomePeriods
-    .filter(period => period.month <= latestActualMonth && period.current_year > 0)
+    .filter(period => period.month < latestActualMonth && period.current_year > 0)
     .reduce((sum, period) => {
       const budgetedSales = budgetByMonth.get(period.month)?.budgeted_sales ?? 0
       if (budgetedSales <= 0) return sum
@@ -779,6 +851,42 @@ function latestActualNoiPct(snapshot: Pick<LeadershipToolSnapshot, 'pnl'>, month
   const income = findExactPeriod(findPnlAccount(snapshot, 'Income')?.periods ?? [], month)
   const noi = findExactPeriod(findPnlAccount(snapshot, 'Grand Total', 'NOI')?.periods ?? [], month)
   return income && income.current_year > 0 && noi ? noi.current_year / income.current_year : null
+}
+
+function latestFullNoiMonth(snapshot: Pick<LeadershipToolSnapshot, 'pnl'>, latestActualMonth: string): string | null {
+  const incomePeriods = findPnlAccount(snapshot, 'Income')?.periods ?? []
+  const noiPeriods = findPnlAccount(snapshot, 'Grand Total', 'NOI')?.periods ?? []
+  const months = incomePeriods
+    .filter(period => period.month < latestActualMonth && period.current_year > 0 && findExactPeriod(noiPeriods, period.month))
+    .map(period => period.month)
+    .sort()
+  return months[months.length - 1] ?? null
+}
+
+function pnlActualText(snapshot: Pick<LeadershipToolSnapshot, 'pnl'>, month: string | null): string {
+  if (!month) return 'Full-month NOI unavailable'
+  const actualNoiPct = latestActualNoiPct(snapshot, month)
+  const monthLabel = formatShortMonth(month)
+  return actualNoiPct === null ? `${monthLabel} NOI unavailable` : `${monthLabel} NOI was ${formatPct(actualNoiPct)}`
+}
+
+function pnlForecastSummary(forecast: NonNullable<NorthStarSlideChart['pnlForecast']>): string {
+  if (forecast.dataStatus === 'ready') return `12-month forecast NOI is ${formatPct(forecast.forecastNoiPct)}`
+  if (forecast.dataStatus === 'missing_expenses') return '12-month forecast needs COGS + Expense data'
+  if (forecast.dataStatus === 'missing_budget_actuals') return '12-month forecast needs actual/budget overlap'
+  return '12-month forecast needs BgtData sales budget'
+}
+
+function pnlForecastConstraintText(forecast: NonNullable<NorthStarSlideChart['pnlForecast']>, benchmarkPct: number): string {
+  if (forecast.dataStatus !== 'ready') return forecast.warning ?? '12-month NOI forecast data is incomplete.'
+  const belowTargetText = `${forecast.belowTargetCount} of ${forecast.months.length} months are below the ${formatPct(benchmarkPct)} NOI target`
+  return `${belowTargetText}; total sales gap is ${fmtCurrency(forecast.totalSalesGap ?? 0)}.`
+}
+
+function pnlForecastResultText(forecast: NonNullable<NorthStarSlideChart['pnlForecast']>): string {
+  const expenseBase = `Expense base uses ${formatMonthRange(forecast.expenseBaseMonths)}`
+  if (forecast.dataStatus === 'ready') return `${expenseBase}; budget fulfillment is ${formatPct(forecast.budgetFulfillmentPct)}.`
+  return `${expenseBase}; budget fulfillment is unavailable until BgtData is parsed.`
 }
 
 function formatMonthRange(months: string[]): string {
@@ -1003,10 +1111,4 @@ function sumRevenue(rows: Array<Pick<SalesDaily, 'revenue'>>): number {
 
 function roundVersionNumber(value: number): string {
   return Number.isFinite(value) ? value.toFixed(2) : '0.00'
-}
-
-function pnlForecastConstraint(forecastNoiPct: number | null, benchmarkLabel: string, needsAction: boolean): string {
-  if (forecastNoiPct === null) return "Last year's same-month NOI is unavailable."
-  const comparison = needsAction ? 'below' : 'at or above'
-  return `Last year's same-month NOI was ${formatPct(forecastNoiPct)}, ${comparison} the ${benchmarkLabel} benchmark.`
 }
