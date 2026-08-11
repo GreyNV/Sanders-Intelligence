@@ -36,8 +36,15 @@ export interface StitchPillarTab {
 }
 
 export interface StitchOwnerDeck {
+  ownerKey: string
   owner: string
   rows: NorthStarDisplayRow[]
+}
+
+export interface StitchPresenterOrderEntry {
+  owner_key: string
+  owner_name: string
+  sort_index: number
 }
 
 export interface StitchPayrollSalesContext {
@@ -274,7 +281,7 @@ export function filterRowsByPillar(rows: NorthStarDisplayRow[], selectedPillar: 
   return rows.filter(row => normalizeTabId(row.pillar) === selectedPillar)
 }
 
-export function buildOwnerSlideDeck(rows: NorthStarDisplayRow[]): StitchOwnerDeck[] {
+export function buildOwnerSlideDeck(rows: NorthStarDisplayRow[], presenterOrder: StitchPresenterOrderEntry[] = []): StitchOwnerDeck[] {
   const decks = new Map<string, NorthStarDisplayRow[]>()
 
   for (const row of rows) {
@@ -285,16 +292,49 @@ export function buildOwnerSlideDeck(rows: NorthStarDisplayRow[]): StitchOwnerDec
     }
   }
 
-  return [...decks.entries()]
-    .sort(([left], [right]) => {
-      if (left === STITCH_UNASSIGNED_OWNER) return 1
-      if (right === STITCH_UNASSIGNED_OWNER) return -1
-      return left.localeCompare(right, undefined, { sensitivity: 'base' })
-    })
+  const defaultDecks = [...decks.entries()]
+    .sort(defaultOwnerSort)
     .map(([owner, ownerRows]) => ({
+      ownerKey: stitchPresenterOrderKey(owner),
       owner,
       rows: [...ownerRows].sort((a, b) => a.slot_index - b.slot_index),
     }))
+  const defaultIndexByKey = new Map(defaultDecks.map((deck, index) => [deck.ownerKey, index]))
+  const orderIndexByKey = buildPresenterOrderIndex(presenterOrder)
+
+  return [...defaultDecks].sort((left, right) => {
+    const leftOrder = orderIndexByKey.get(left.ownerKey)
+    const rightOrder = orderIndexByKey.get(right.ownerKey)
+
+    if (leftOrder !== undefined && rightOrder !== undefined) return leftOrder - rightOrder
+    if (leftOrder !== undefined) return -1
+    if (rightOrder !== undefined) return 1
+
+    return (defaultIndexByKey.get(left.ownerKey) ?? 0) - (defaultIndexByKey.get(right.ownerKey) ?? 0)
+  })
+}
+
+export function stitchPresenterOrderKey(owner: string): string {
+  return normalizeTabId(owner)
+}
+
+export function moveStitchPresenterOrder(
+  decks: StitchOwnerDeck[],
+  ownerKey: string,
+  direction: -1 | 1
+): StitchPresenterOrderEntry[] {
+  const currentIndex = decks.findIndex(deck => deck.ownerKey === ownerKey)
+  const nextIndex = currentIndex + direction
+
+  if (currentIndex < 0 || nextIndex < 0 || nextIndex >= decks.length) {
+    return presenterOrderPayload(decks)
+  }
+
+  const reorderedDecks = [...decks]
+  const [deck] = reorderedDecks.splice(currentIndex, 1)
+  reorderedDecks.splice(nextIndex, 0, deck)
+
+  return presenterOrderPayload(reorderedDecks)
 }
 
 export function splitOwners(owner: string | null): string[] {
@@ -304,6 +344,34 @@ export function splitOwners(owner: string | null): string[] {
     .filter(Boolean)
 
   return owners.length > 0 ? owners : [STITCH_UNASSIGNED_OWNER]
+}
+
+function presenterOrderPayload(decks: StitchOwnerDeck[]): StitchPresenterOrderEntry[] {
+  return decks.map((deck, sortIndex) => ({
+    owner_key: deck.ownerKey,
+    owner_name: deck.owner,
+    sort_index: sortIndex,
+  }))
+}
+
+function defaultOwnerSort([left]: [string, NorthStarDisplayRow[]], [right]: [string, NorthStarDisplayRow[]]): number {
+  if (left === STITCH_UNASSIGNED_OWNER) return 1
+  if (right === STITCH_UNASSIGNED_OWNER) return -1
+  return left.localeCompare(right, undefined, { sensitivity: 'base' })
+}
+
+function buildPresenterOrderIndex(presenterOrder: StitchPresenterOrderEntry[]): Map<string, number> {
+  const indexByKey = new Map<string, number>()
+  const sortedOrder = [...presenterOrder]
+    .filter(entry => entry.owner_key.trim() && Number.isFinite(entry.sort_index))
+    .sort((left, right) => left.sort_index - right.sort_index)
+
+  for (const entry of sortedOrder) {
+    const key = entry.owner_key.trim().toLowerCase()
+    if (!indexByKey.has(key)) indexByKey.set(key, indexByKey.size)
+  }
+
+  return indexByKey
 }
 
 function normalizeTabId(value: string): string {

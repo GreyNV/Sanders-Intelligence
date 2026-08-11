@@ -7,6 +7,7 @@ describe('Stitch North Star page contract', () => {
   const sidebarSource = readFileSync(resolve(__dirname, '../components/layout/Sidebar.tsx'), 'utf8')
   const pageSource = readFileSync(resolve(__dirname, '../pages/csuite/StitchNorthStar.tsx'), 'utf8')
   const htmlHookSource = readFileSync(resolve(__dirname, '../hooks/useStitchSlideHtmlBlocks.ts'), 'utf8')
+  const presenterOrderHookSource = readFileSync(resolve(__dirname, '../hooks/useStitchPresenterOrder.ts'), 'utf8')
 
   it('registers Stitch North Star as a C-Suite route and sidebar item', () => {
     expect(appSource).toContain("const StitchNorthStar = lazy(() => import('@/pages/csuite/StitchNorthStar'))")
@@ -96,6 +97,25 @@ describe('Stitch North Star page contract', () => {
     expect(pageSource).toContain('className="min-w-0 space-y-5"')
     expect(pageSource).toContain('grid min-w-0 gap-3 rounded-lg border border-border bg-bg/45 p-3 sm:grid-cols-2 xl:grid-cols-4')
     expect(pageSource).toContain('group/edit flex min-h-[28px] w-full min-w-0 items-start justify-between gap-2 overflow-hidden')
+  })
+
+  it('uses a globally saved presenter order with admin-only move controls', () => {
+    expect(pageSource).toContain('useStitchPresenterOrder')
+    expect(pageSource).toContain('useUpdateStitchPresenterOrder')
+    expect(pageSource).toContain('buildOwnerSlideDeck(rows, presenterOrder)')
+    expect(pageSource).toContain('handlePresenterOrderMove')
+    expect(pageSource).toContain('moveStitchPresenterOrder')
+    expect(pageSource).toContain('aria-label={`Move ${deck.owner} up`}')
+    expect(pageSource).toContain('aria-label={`Move ${deck.owner} down`}')
+    expect(pageSource).toContain('{isAdmin && (')
+    expect(pageSource).toContain('updatePresenterOrder.mutateAsync')
+
+    expect(presenterOrderHookSource).toContain('useStitchPresenterOrder')
+    expect(presenterOrderHookSource).toContain('useUpdateStitchPresenterOrder')
+    expect(presenterOrderHookSource).toContain("['stitch_presenter_order']")
+    expect(presenterOrderHookSource).toContain("from('stitch_presenter_order')")
+    expect(presenterOrderHookSource).toContain("onConflict: 'owner_key'")
+    expect(presenterOrderHookSource).toContain("profile.role !== 'admin'")
   })
 
   it('lets presentation Metrics actual and forecast values expand to fit long text', () => {

@@ -15,8 +15,10 @@ import {
   readMonthlyStarPresentationOverrides,
   readStitchAutoRowOverrides,
   scaledChartDomain,
+  moveStitchPresenterOrder,
   stitchSlideHtmlKey,
   stitchAutoRowOverrideKey,
+  stitchPresenterOrderKey,
   writeMonthlyStarPresentationOverrides,
   writeStitchAutoRowOverride,
 } from '../pages/csuite/StitchNorthStar.helpers'
@@ -48,6 +50,21 @@ describe('Stitch North Star helpers', () => {
     expect(decks.map(deck => deck.owner)).toContain('Sam')
     expect(decks.find(deck => deck.owner === 'Sam')?.rows.map(row => row.pillar)).toEqual(['Wholesale', 'Cloud9'])
     expect(decks.find(deck => deck.owner === 'Ryan')?.rows.map(row => row.pillar)).toEqual(['Finance / cash', 'Purchasing'])
+  })
+
+  it('orders presenter decks from saved global order and appends new presenters to the bottom', () => {
+    const rows = mergeNorthStarRows([], '2026-07-01', '2026-07-05')
+    const decks = buildOwnerSlideDeck(rows, [
+      { owner_key: stitchPresenterOrderKey('Ryan'), owner_name: 'Ryan', sort_index: 0 },
+      { owner_key: stitchPresenterOrderKey('Sam'), owner_name: 'Sam', sort_index: 1 },
+    ])
+
+    expect(decks.map(deck => deck.owner)).toEqual(['Ryan', 'Sam', 'Kalmy', 'Meilich', 'Mike'])
+    expect(decks[0].ownerKey).toBe(stitchPresenterOrderKey('Ryan'))
+
+    const movedOrder = moveStitchPresenterOrder(decks, stitchPresenterOrderKey('Kalmy'), -1)
+    expect(movedOrder.map(entry => entry.owner_name)).toEqual(['Ryan', 'Kalmy', 'Sam', 'Meilich', 'Mike'])
+    expect(movedOrder.map(entry => entry.sort_index)).toEqual([0, 1, 2, 3, 4])
   })
 
   it('builds stable month-scoped HTML slide keys for saved and generated rows', () => {

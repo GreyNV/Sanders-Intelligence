@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import {
   AlertTriangle,
+  ArrowDown,
+  ArrowUp,
   BarChart3,
   Check,
   ChevronLeft,
@@ -24,6 +26,7 @@ import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLeadershipSnapshot } from '@/hooks/useLeadershipSnapshot'
 import { useMonthlyStar, useMonthlyStarSales, useNorthStarRows, useUpdateNorthStarProgress, useUpdateNorthStarRow } from '@/hooks/useNorthStar'
+import { useStitchPresenterOrder, useUpdateStitchPresenterOrder } from '@/hooks/useStitchPresenterOrder'
 import { useStitchSlideHtmlBlocks, useUpsertStitchSlideHtmlBlock } from '@/hooks/useStitchSlideHtmlBlocks'
 import { cn, fmtCurrency, fmtNumber } from '@/lib/utils'
 import type { NorthStarStatus, StitchSlideHtmlBlock, StitchSlideHtmlViewMode } from '@/types'
@@ -57,6 +60,7 @@ import {
   isStitchAutoFinanceField,
   leadershipToolOverrideSourceVersion,
   mergeStitchFinanceRows,
+  moveStitchPresenterOrder,
   monthlyStarOverrideSourceVersion,
   readStitchAutoRowOverrides,
   scaledChartDomain,
@@ -108,9 +112,11 @@ export default function StitchNorthStar() {
   const { data: salesRows, isLoading: salesLoading, error: salesError } = useMonthlyStarSales(selectedMonth)
   const { data: leadershipSnapshot = null, isLoading: leadershipLoading, error: leadershipError } = useLeadershipSnapshot()
   const { data: htmlBlocks = [], isLoading: htmlLoading, error: htmlError } = useStitchSlideHtmlBlocks(selectedMonth)
+  const { data: presenterOrder = [], isLoading: presenterOrderLoading, error: presenterOrderError } = useStitchPresenterOrder()
   const updateRow = useUpdateNorthStarRow()
   const updateProgress = useUpdateNorthStarProgress()
   const upsertHtmlBlock = useUpsertStitchSlideHtmlBlock()
+  const updatePresenterOrder = useUpdateStitchPresenterOrder()
 
   const baseRows = useMemo(() => mergeNorthStarRows(savedRows, selectedMonth, currentWeek), [savedRows, selectedMonth, currentWeek])
   const salesWindows = useMemo(() => monthlyStarSalesWindows(selectedMonth), [selectedMonth])
@@ -183,7 +189,7 @@ export default function StitchNorthStar() {
         .some(value => (value ?? '').toLowerCase().includes(query))
     })
   }, [rows, selectedPillar, search])
-  const ownerDecks = useMemo(() => buildOwnerSlideDeck(rows), [rows])
+  const ownerDecks = useMemo(() => buildOwnerSlideDeck(rows, presenterOrder), [rows, presenterOrder])
   const selectedDeck = ownerDecks.find(deck => deck.owner === presentingOwner) ?? null
   const selectedDeckIndex = selectedDeck ? ownerDecks.findIndex(deck => deck.owner === selectedDeck.owner) : -1
   const statusCounts = useMemo(() => countStatuses(rows), [rows])
@@ -211,9 +217,9 @@ export default function StitchNorthStar() {
     }
   }, [presentingOwner, selectedDeck])
 
-  if (rowsLoading || monthlyLoading || salesLoading || leadershipLoading || htmlLoading) return <PageLoader />
+  if (rowsLoading || monthlyLoading || salesLoading || leadershipLoading || htmlLoading || presenterOrderLoading) return <PageLoader />
 
-  const error = rowsError ?? monthlyError ?? salesError ?? leadershipError ?? htmlError
+  const error = rowsError ?? monthlyError ?? salesError ?? leadershipError ?? htmlError ?? presenterOrderError
   if (error) {
     return (
       <div className="card text-center py-16">
@@ -224,7 +230,7 @@ export default function StitchNorthStar() {
     )
   }
 
-  const isSaving = updateRow.isPending || updateProgress.isPending || upsertHtmlBlock.isPending
+  const isSaving = updateRow.isPending || updateProgress.isPending || upsertHtmlBlock.isPending || updatePresenterOrder.isPending
 
   function canEditField(row: NorthStarDisplayRow, field: NorthStarEditableField): boolean {
     if (row.source === 'monthly_star') {
@@ -268,6 +274,13 @@ export default function StitchNorthStar() {
     const nextIndex = (selectedDeckIndex + direction + ownerDecks.length) % ownerDecks.length
     setPresentingOwner(ownerDecks[nextIndex].owner)
     setActiveSlide(0)
+  }
+
+  async function handlePresenterOrderMove(deck: StitchOwnerDeck, direction: -1 | 1) {
+    if (!isAdmin) return
+    await updatePresenterOrder.mutateAsync({
+      presenters: moveStitchPresenterOrder(ownerDecks, deck.ownerKey, direction),
+    })
   }
 
   function handleGeneratedRowSessionSave(row: NorthStarDisplayRow, field: NorthStarEditableField, value: string | NorthStarStatus): boolean {
@@ -413,19 +426,47 @@ export default function StitchNorthStar() {
               <Users size={16} className="text-accent" />
             </div>
             <div className="space-y-2">
-              {ownerDecks.map(deck => (
-                <button
-                  key={deck.owner}
-                  type="button"
-                  className="flex w-full items-center justify-between gap-3 rounded-lg border border-border bg-surface2 px-3 py-2 text-left transition hover:border-accent/50 hover:text-accent"
-                  onClick={() => setPresentingOwner(deck.owner)}
+              {ownerDecks.map((deck, index) => (
+                <div
+                  key={deck.ownerKey}
+                  className="flex w-full items-center gap-2 rounded-lg border border-border bg-surface2 px-2 py-2 transition hover:border-accent/50"
                 >
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold text-text1">{deck.owner}</span>
-                    <span className="text-xs text-text2">{deck.rows.length} slides</span>
-                  </span>
-                  <Maximize2 size={14} className="text-text2" />
-                </button>
+                  {isAdmin && (
+                    <div className="flex shrink-0 flex-col gap-1" aria-label="Presenter order controls">
+                      <button
+                        type="button"
+                        className="inline-flex h-6 w-6 items-center justify-center rounded-md text-text2 transition hover:bg-bg hover:text-text1 disabled:cursor-not-allowed disabled:opacity-35"
+                        onClick={() => handlePresenterOrderMove(deck, -1)}
+                        disabled={index === 0 || updatePresenterOrder.isPending}
+                        title="Move up"
+                        aria-label={`Move ${deck.owner} up`}
+                      >
+                        <ArrowUp size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex h-6 w-6 items-center justify-center rounded-md text-text2 transition hover:bg-bg hover:text-text1 disabled:cursor-not-allowed disabled:opacity-35"
+                        onClick={() => handlePresenterOrderMove(deck, 1)}
+                        disabled={index === ownerDecks.length - 1 || updatePresenterOrder.isPending}
+                        title="Move down"
+                        aria-label={`Move ${deck.owner} down`}
+                      >
+                        <ArrowDown size={13} />
+                      </button>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-md px-1 py-1 text-left transition hover:text-accent"
+                    onClick={() => setPresentingOwner(deck.owner)}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold text-text1">{deck.owner}</span>
+                      <span className="text-xs text-text2">{deck.rows.length} slides</span>
+                    </span>
+                    <Maximize2 size={14} className="shrink-0 text-text2" />
+                  </button>
+                </div>
               ))}
             </div>
           </div>

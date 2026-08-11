@@ -383,6 +383,15 @@ export interface StitchSlideHtmlBlock {
   created_at: string
 }
 
+export interface StitchPresenterOrderRow {
+  owner_key: string
+  owner_name: string
+  sort_index: number
+  updated_by: string | null
+  updated_at: string
+  created_at: string
+}
+
 export interface LeadershipPayrollDepartment {
   department: string
   periods: Array<{
