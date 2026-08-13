@@ -28,7 +28,7 @@ export async function parseLeadershipToolFile(file: File): Promise<ParsedLeaders
 export function parseLeadershipWorkbookSheets(sheets: Record<string, SheetMatrix>): ParsedLeadershipTool {
   const cashflow = parseCashflow(requiredSheet(sheets, 'Summary_13wks'))
   const payroll = parsePayroll(requiredSheet(sheets, 'Payroll'))
-  const pnl = parsePnl(requiredSheet(sheets, 'PnL'))
+  const pnl = mergePnlDetailAccounts(parsePnl(requiredSheet(sheets, 'PnL')), parseDataPnlSalesRateAccounts(sheets.dataPnL ?? []))
   const budget = parseBudget(sheets.BgtData ?? [])
 
   return {
@@ -107,6 +107,80 @@ function parsePnl(sheet: SheetMatrix): LeadershipToolSnapshot['pnl'] {
     }))
 
   return { accounts }
+}
+
+function parseDataPnlSalesRateAccounts(sheet: SheetMatrix): LeadershipToolSnapshot['pnl']['accounts'] {
+  const header = sheet[0] ?? []
+  const periodIndex = findPreferredHeaderIndex(header, ['Period', 'Month', 'Date'])
+  const accountIndex = findPreferredHeaderIndex(header, ['Account'])
+  const classIndex = findPreferredHeaderIndex(header, ['Class'])
+  const isTotalIndex = findPreferredHeaderIndex(header, ['IsTotalRow'])
+  const sectionIndex = findPreferredHeaderIndex(header, ['Section'])
+  const amountCyIndex = findPreferredHeaderIndex(header, ['AmountCY', 'AmountCYRaw'])
+  const amountLyIndex = findPreferredHeaderIndex(header, ['AmountLY', 'AmountLYRaw'])
+
+  if ([periodIndex, accountIndex, classIndex, isTotalIndex, sectionIndex, amountCyIndex, amountLyIndex].some(index => index < 0)) {
+    return []
+  }
+
+  const categoryPeriods = new Map<string, Map<string, { current_year: number; last_year: number }>>()
+
+  for (const row of sheet.slice(1)) {
+    if (!toBoolean(row[isTotalIndex]) || normalizeLabel(String(row[classIndex] ?? '')) !== 'total') continue
+    if (normalizeLabel(String(row[sectionIndex] ?? '')) !== 'expense') continue
+
+    const category = salesRateCategoryForAccount(String(row[accountIndex] ?? ''))
+    const month = toIsoMonth(row[periodIndex])
+    const currentYear = toNumber(row[amountCyIndex])
+    const lastYear = toNumber(row[amountLyIndex])
+    if (!category || !month || (currentYear === null && lastYear === null)) continue
+
+    const periods = categoryPeriods.get(category) ?? new Map<string, { current_year: number; last_year: number }>()
+    const existing = periods.get(month) ?? { current_year: 0, last_year: 0 }
+    periods.set(month, {
+      current_year: existing.current_year + (currentYear ?? 0),
+      last_year: existing.last_year + (lastYear ?? 0),
+    })
+    categoryPeriods.set(category, periods)
+  }
+
+  return ['Advertising', 'Commission', 'Shipping']
+    .map(account => ({
+      account,
+      periods: [...(categoryPeriods.get(account)?.entries() ?? [])]
+        .map(([month, values]) => ({
+          month,
+          current_year: values.current_year,
+          last_year: values.last_year,
+          difference_pct: null,
+        }))
+        .filter(period => period.current_year !== 0 || period.last_year !== 0)
+        .sort((left, right) => left.month.localeCompare(right.month)),
+    }))
+    .filter(account => account.periods.length > 0)
+}
+
+function mergePnlDetailAccounts(
+  pnl: LeadershipToolSnapshot['pnl'],
+  detailAccounts: LeadershipToolSnapshot['pnl']['accounts']
+): LeadershipToolSnapshot['pnl'] {
+  if (detailAccounts.length === 0) return pnl
+
+  const detailNames = new Set(detailAccounts.map(account => normalizeLabel(account.account)))
+  return {
+    accounts: [
+      ...pnl.accounts.filter(account => !detailNames.has(normalizeLabel(account.account))),
+      ...detailAccounts,
+    ],
+  }
+}
+
+function salesRateCategoryForAccount(account: string): 'Advertising' | 'Commission' | 'Shipping' | null {
+  const normalizedAccount = normalizeLabel(account)
+  if (normalizedAccount.includes('advertising')) return 'Advertising'
+  if (normalizedAccount.includes('commission')) return 'Commission'
+  if (normalizedAccount.includes('shipping') || normalizedAccount.includes('freight')) return 'Shipping'
+  return null
 }
 
 function parseBudget(sheet: SheetMatrix): LeadershipToolSnapshot['budget'] {
@@ -236,6 +310,13 @@ function toNumber(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null
   }
   return null
+}
+
+function toBoolean(value: unknown): boolean {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value !== 0
+  if (typeof value === 'string') return value.trim().toLowerCase() === 'true'
+  return false
 }
 
 function toIsoDate(value: unknown): string {

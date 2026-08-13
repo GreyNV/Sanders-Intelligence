@@ -1110,12 +1110,12 @@ function PnlForecastPanel({
         <PnlForecastMetric
           label="OpEx run-rate"
           value={`${fmtCurrency(forecast.monthlyExpenseRunRate)} / mo`}
-          sub={`${formatNullablePercent(forecast.cogsPct)} COGS on sales`}
+          sub={`${formatNullablePercent(forecast.variableCostPct)} variable costs`}
         />
         <PnlForecastMetric
           label="Sales needed"
           value={fmtCurrency(forecast.requiredMonthlySales)}
-          sub={`${formatNullablePercent(forecast.benchmarkPct)} NOI after COGS`}
+          sub={`${formatNullablePercent(forecast.benchmarkPct)} NOI after variable costs`}
           tone="warning"
         />
         <PnlForecastMetric
@@ -1144,7 +1144,8 @@ function PnlForecastPanel({
                 isOnPlan ? 'border-success/25 bg-success/10' : isAtRisk ? 'border-danger/30 bg-danger/10' : 'border-warning/30 bg-warning/10'
               )}
               title={[
-                `${month.label} budget source: ${month.budgetSourceMonth ? formatPeriodMonth(month.budgetSourceMonth) : 'n/a'}`,
+                `${month.label} sales source: ${pnlSalesSourceLabel(month.salesSource)}`,
+                `Budget source: ${month.budgetSourceMonth ? formatPeriodMonth(month.budgetSourceMonth) : 'n/a'}`,
                 `Required sales: ${fmtCurrency(month.requiredSales)}`,
                 `Sales gap: ${formatNullableCurrency(month.salesGap)}`,
               ].join('\n')}
@@ -1161,7 +1162,7 @@ function PnlForecastPanel({
                   <dd className="shrink-0 tabular-nums text-text1">{formatNullableCurrency(month.forecastedSales)}</dd>
                 </div>
                 <div className="flex min-w-0 items-center justify-between gap-2">
-                  <dt className="truncate">COGS + OpEx</dt>
+                  <dt className="truncate">Var + OpEx</dt>
                   <dd className="shrink-0 tabular-nums text-text1">{forecast.dataStatus === 'missing_expenses' ? 'n/a' : fmtCurrency(month.expenses)}</dd>
                 </div>
                 <div className="flex min-w-0 items-center justify-between gap-2">
@@ -1469,6 +1470,13 @@ function formatNullablePercent(value: number | null): string {
 
 function formatNullableCurrency(value: number | null): string {
   return value === null || !Number.isFinite(value) ? 'n/a' : fmtCurrency(value)
+}
+
+function pnlSalesSourceLabel(source: NonNullable<NonNullable<NorthStarDisplayRow['chart']>['pnlForecast']>['months'][number]['salesSource']): string {
+  if (source === 'current_projection') return 'North Star projected sales'
+  if (source === 'budget') return 'Current-year budget'
+  if (source === 'prior_year_budget') return 'Prior-year budget'
+  return 'Missing'
 }
 
 function pieSliceTitle(

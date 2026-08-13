@@ -144,7 +144,12 @@ export interface NorthStarPnlForecast {
   monthlyExpenseRunRate: number
   annualExpenseRunRate: number
   cogsPct: number | null
+  advertisingPct: number | null
+  commissionPct: number | null
+  shippingPct: number | null
+  variableCostPct: number | null
   grossMarginPct: number | null
+  contributionMarginPct: number | null
   requiredMonthlySales: number
   budgetFulfillmentPct: number | null
   forecastSalesTotal: number | null
@@ -159,9 +164,11 @@ export interface NorthStarPnlForecastMonth {
   month: string
   label: string
   budgetSourceMonth: string | null
+  salesSource: 'current_projection' | 'budget' | 'prior_year_budget' | 'missing'
   budgetedSales: number | null
   forecastedSales: number | null
   forecastedCogs: number | null
+  forecastedSalesRateCosts: number | null
   operatingExpenses: number
   expenses: number
   requiredSales: number

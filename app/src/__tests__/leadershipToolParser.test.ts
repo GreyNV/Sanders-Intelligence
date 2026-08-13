@@ -107,6 +107,46 @@ describe('leadership tool parser', () => {
     expect(parsed.sales_simulation.sales_needed_for_benchmark).toBe(0)
   })
 
+  it('adds sales-rate expense categories from dataPnL total rows', () => {
+    const sheets = {
+      Summary_13wks: [],
+      Payroll: [],
+      PnL: [
+        [],
+        [],
+        [null, '2026'],
+        [null, '2026-03-01'],
+        ['Account', 'Current Year, $', 'Last Year, $', 'Difference, %'],
+        ['Income', 700000, 650000, 0.0769],
+        ['COGS', -350000, -325000, 0.0769],
+        ['Expense', -319000, -300000, 0.0633],
+        ['Grand Total', 31000, 25000, 0.24],
+      ],
+      dataPnL: [
+        ['Period', 'Account', 'Class', 'AmountCYRaw', 'AmountLYRaw', 'IsTotalRow', 'Payrol Dep', 'IsPayroll', 'CY/LY Difference', 'Section', 'AmountCY', 'AmountLY'],
+        ['2026-03-01', 'Advertising and Promotion - Other', 'Amazon US', -999999, -999999, false, 'SKIP', false, 0, 'Expense', -999999, -999999],
+        ['2026-03-01', 'Advertising and Promotion - Other', 'TOTAL', -70000, -65000, true, 'SKIP', false, 0, 'Expense', -70000, -65000],
+        ['2026-03-01', 'Platform Commission', 'TOTAL', -25000, -20000, true, 'SKIP', false, 0, 'Expense', -25000, -20000],
+        ['2026-03-01', 'Payroll Commission', 'TOTAL', -10000, -8000, true, 'SKIP', false, 0, 'Expense', -10000, -8000],
+        ['2026-03-01', 'Shipping', 'TOTAL', -10000, -9000, true, 'SKIP', false, 0, 'Expense', -10000, -9000],
+        ['2026-03-01', 'Freight Import', 'TOTAL', -4000, -3000, true, 'SKIP', false, 0, 'Expense', -4000, -3000],
+        ['2026-03-01', 'Shipping Income', 'TOTAL', 5000, 3000, true, 'SKIP', false, 0, 'Income', 5000, 3000],
+      ],
+    }
+
+    const parsed = parseLeadershipWorkbookSheets(sheets)
+
+    expect(parsed.pnl.accounts.find(row => row.account === 'Advertising')?.periods).toEqual([
+      { month: '2026-03-01', current_year: -70000, last_year: -65000, difference_pct: null },
+    ])
+    expect(parsed.pnl.accounts.find(row => row.account === 'Commission')?.periods).toEqual([
+      { month: '2026-03-01', current_year: -35000, last_year: -28000, difference_pct: null },
+    ])
+    expect(parsed.pnl.accounts.find(row => row.account === 'Shipping')?.periods).toEqual([
+      { month: '2026-03-01', current_year: -14000, last_year: -12000, difference_pct: null },
+    ])
+  })
+
   it('parses BgtData monthly budgeted sales from row-one headers', () => {
     const sheets = {
       Summary_13wks: [],

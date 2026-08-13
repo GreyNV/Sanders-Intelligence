@@ -548,9 +548,10 @@ describe('Stitch North Star helpers', () => {
     expect(pnl?.chart?.pnlForecast?.dataStatus).toBe('missing_budget')
     expect(pnl?.chart?.pnlForecast?.months).toHaveLength(12)
     expect(pnl?.chart?.points.map(point => point.label)).not.toEqual(['Last month', 'Forecast', 'Benchmark'])
-    expect(pnl?.chart?.points.map(point => point.label).slice(0, 5)).toEqual(['August', 'September', 'October', 'November', 'December'])
+    expect(pnl?.chart?.points.map(point => point.label).slice(0, 5)).toEqual(['July', 'August', 'September', 'October', 'November'])
     expect(pnl?.chart?.pnlForecast?.months[0]).toMatchObject({
-      month: '2026-08-01',
+      month: '2026-07-01',
+      salesSource: 'missing',
       budgetedSales: null,
       forecastedSales: null,
       noiPct: null,
@@ -558,7 +559,7 @@ describe('Stitch North Star helpers', () => {
     })
   })
 
-  it('builds a 12-month budget-adjusted NOI forecast from BgtData, gross margin, and OpEx', () => {
+  it('builds a 12-month budget-adjusted NOI forecast from BgtData, sales-rate costs, and fixed OpEx', () => {
     const rows = mergeNorthStarRows([], '2026-08-01', '2026-08-06')
     const snapshot = baseLeadershipSnapshot({
       pnl: {
@@ -576,11 +577,38 @@ describe('Stitch North Star helpers', () => {
           {
             account: 'COGS',
             periods: [
-              { month: '2026-03-01', current_year: -450000, last_year: 0, difference_pct: null },
+              { month: '2026-03-01', current_year: -350000, last_year: 0, difference_pct: null },
               { month: '2026-04-01', current_year: -400000, last_year: 0, difference_pct: null },
               { month: '2026-05-01', current_year: -450000, last_year: 0, difference_pct: null },
               { month: '2026-06-01', current_year: -500000, last_year: 0, difference_pct: null },
               { month: '2026-07-01', current_year: -9999999, last_year: 0, difference_pct: null },
+            ],
+          },
+          {
+            account: 'Advertising',
+            periods: [
+              { month: '2026-03-01', current_year: -70000, last_year: 0, difference_pct: null },
+              { month: '2026-04-01', current_year: -80000, last_year: 0, difference_pct: null },
+              { month: '2026-05-01', current_year: -90000, last_year: 0, difference_pct: null },
+              { month: '2026-06-01', current_year: -100000, last_year: 0, difference_pct: null },
+            ],
+          },
+          {
+            account: 'Commission',
+            periods: [
+              { month: '2026-03-01', current_year: -35000, last_year: 0, difference_pct: null },
+              { month: '2026-04-01', current_year: -40000, last_year: 0, difference_pct: null },
+              { month: '2026-05-01', current_year: -45000, last_year: 0, difference_pct: null },
+              { month: '2026-06-01', current_year: -50000, last_year: 0, difference_pct: null },
+            ],
+          },
+          {
+            account: 'Shipping',
+            periods: [
+              { month: '2026-03-01', current_year: -14000, last_year: 0, difference_pct: null },
+              { month: '2026-04-01', current_year: -16000, last_year: 0, difference_pct: null },
+              { month: '2026-05-01', current_year: -18000, last_year: 0, difference_pct: null },
+              { month: '2026-06-01', current_year: -20000, last_year: 0, difference_pct: null },
             ],
           },
           {
@@ -595,10 +623,10 @@ describe('Stitch North Star helpers', () => {
           {
             account: 'Expense',
             periods: [
-              { month: '2026-03-01', current_year: -250000, last_year: 0, difference_pct: null },
-              { month: '2026-04-01', current_year: -300000, last_year: 0, difference_pct: null },
-              { month: '2026-05-01', current_year: -280000, last_year: 0, difference_pct: null },
-              { month: '2026-06-01', current_year: -300000, last_year: 0, difference_pct: null },
+              { month: '2026-03-01', current_year: -319000, last_year: 0, difference_pct: null },
+              { month: '2026-04-01', current_year: -336000, last_year: 0, difference_pct: null },
+              { month: '2026-05-01', current_year: -353000, last_year: 0, difference_pct: null },
+              { month: '2026-06-01', current_year: -370000, last_year: 0, difference_pct: null },
               { month: '2026-07-01', current_year: -9999999, last_year: 0, difference_pct: null },
             ],
           },
@@ -638,33 +666,44 @@ describe('Stitch North Star helpers', () => {
       },
     })
 
-    const pnl = buildLeadershipFinanceRows(rows, snapshot, '2026-08-01', '2026-08-06')
+    const pnl = buildLeadershipFinanceRows(rows, snapshot, '2026-08-01', '2026-08-06', {
+      currentMonthProjectedSales: 950000,
+    })
       .find(row => row.north_star === 'PnL / 9% NOI')
     const forecast = pnl?.chart?.pnlForecast
 
     expect(forecast?.expenseBaseMonths).toEqual(['2026-03-01', '2026-04-01', '2026-05-01', '2026-06-01'])
-    expect(forecast?.monthlyExpenseRunRate).toBeCloseTo(282500, 2)
-    expect(forecast?.annualExpenseRunRate).toBeCloseTo(3390000, 2)
-    expect(forecast?.cogsPct).toBeCloseTo(0.5294, 4)
-    expect(forecast?.grossMarginPct).toBeCloseTo(0.4706, 4)
-    expect(forecast?.requiredMonthlySales).toBeCloseTo(742272.02, 2)
+    expect(forecast?.monthlyExpenseRunRate).toBeCloseTo(200000, 2)
+    expect(forecast?.annualExpenseRunRate).toBeCloseTo(2400000, 2)
+    expect(forecast?.cogsPct).toBeCloseTo(0.5, 4)
+    expect(forecast?.advertisingPct).toBeCloseTo(0.1, 4)
+    expect(forecast?.commissionPct).toBeCloseTo(0.05, 4)
+    expect(forecast?.shippingPct).toBeCloseTo(0.02, 4)
+    expect(forecast?.variableCostPct).toBeCloseTo(0.67, 4)
+    expect(forecast?.contributionMarginPct).toBeCloseTo(0.33, 4)
+    expect(forecast?.requiredMonthlySales).toBeCloseTo(833333.33, 2)
     expect(forecast?.latestFullMonth).toBe('2026-06-01')
     expect(forecast?.budgetFulfillmentPct).toBeCloseTo(0.85, 4)
     expect(forecast?.months).toHaveLength(12)
     expect(forecast?.months[0]).toMatchObject({
       month: '2026-08-01',
       budgetSourceMonth: '2026-08-01',
+      salesSource: 'current_projection',
       budgetedSales: 1200000,
-      forecastedSales: 1020000,
-      expenses: 822500,
+      forecastedSales: 950000,
+      forecastedCogs: 475000,
+      forecastedSalesRateCosts: 636500,
+      operatingExpenses: 200000,
+      expenses: 836500,
       status: 'on_plan',
     })
-    expect(forecast?.months[0].noiPct).toBeCloseTo(0.1936, 4)
+    expect(forecast?.months[0].noiPct).toBeCloseTo(0.1195, 4)
     expect(forecast?.months[4]).toMatchObject({
       month: '2026-12-01',
       budgetSourceMonth: '2026-12-01',
       budgetedSales: 780000,
       forecastedSales: 663000,
+      salesSource: 'budget',
       status: 'at_risk',
     })
     expect(forecast?.months[5]).toMatchObject({
@@ -672,13 +711,95 @@ describe('Stitch North Star helpers', () => {
       budgetSourceMonth: '2026-01-01',
       budgetedSales: 1100000,
       forecastedSales: 935000,
+      salesSource: 'prior_year_budget',
       status: 'on_plan',
     })
     expect(pnl).toMatchObject({
       actual_mtd: 'June NOI was 10.0%',
-      forecast: '12-month forecast NOI is 14.0%',
-      constraint_now: '1 of 12 months are below the 9.0% NOI target; total sales gap is $79,272.',
+      forecast: '12-month forecast NOI is 9.5%',
+      constraint_now: '1 of 12 months are below the 9.0% NOI target; total sales gap is $170,333.',
       status: 'at_risk',
+    })
+  })
+
+  it('starts the PnL forecast at the selected month when the leadership file has current-month actuals', () => {
+    const rows = mergeNorthStarRows([], '2026-08-01', '2026-08-06')
+    const snapshot = baseLeadershipSnapshot({
+      pnl: {
+        accounts: [
+          {
+            account: 'Income',
+            periods: [
+              { month: '2026-04-01', current_year: 800000, last_year: 0, difference_pct: null },
+              { month: '2026-05-01', current_year: 900000, last_year: 0, difference_pct: null },
+              { month: '2026-06-01', current_year: 1000000, last_year: 0, difference_pct: null },
+              { month: '2026-07-01', current_year: 1000000, last_year: 0, difference_pct: null },
+              { month: '2026-08-01', current_year: 125000, last_year: 0, difference_pct: null },
+            ],
+          },
+          {
+            account: 'COGS',
+            periods: [
+              { month: '2026-04-01', current_year: -400000, last_year: 0, difference_pct: null },
+              { month: '2026-05-01', current_year: -450000, last_year: 0, difference_pct: null },
+              { month: '2026-06-01', current_year: -500000, last_year: 0, difference_pct: null },
+              { month: '2026-07-01', current_year: -500000, last_year: 0, difference_pct: null },
+              { month: '2026-08-01', current_year: -62500, last_year: 0, difference_pct: null },
+            ],
+          },
+          {
+            account: 'Expense',
+            periods: [
+              { month: '2026-04-01', current_year: -300000, last_year: 0, difference_pct: null },
+              { month: '2026-05-01', current_year: -300000, last_year: 0, difference_pct: null },
+              { month: '2026-06-01', current_year: -300000, last_year: 0, difference_pct: null },
+              { month: '2026-07-01', current_year: -300000, last_year: 0, difference_pct: null },
+              { month: '2026-08-01', current_year: -37500, last_year: 0, difference_pct: null },
+            ],
+          },
+          {
+            account: 'Grand Total',
+            periods: [
+              { month: '2026-07-01', current_year: 200000, last_year: 0, difference_pct: null },
+              { month: '2026-08-01', current_year: 25000, last_year: 0, difference_pct: null },
+            ],
+          },
+        ],
+      },
+      budget: {
+        sales: [
+          { month: '2026-04-01', budgeted_sales: 1000000 },
+          { month: '2026-05-01', budgeted_sales: 1000000 },
+          { month: '2026-06-01', budgeted_sales: 1000000 },
+          { month: '2026-07-01', budgeted_sales: 1000000 },
+          { month: '2026-08-01', budgeted_sales: 2000000 },
+          { month: '2026-09-01', budgeted_sales: 1000000 },
+          { month: '2026-10-01', budgeted_sales: 1000000 },
+          { month: '2026-11-01', budgeted_sales: 1000000 },
+          { month: '2026-12-01', budgeted_sales: 1000000 },
+          { month: '2026-01-01', budgeted_sales: 1000000 },
+          { month: '2026-02-01', budgeted_sales: 1000000 },
+          { month: '2026-03-01', budgeted_sales: 1000000 },
+        ],
+      },
+    })
+
+    const pnl = buildLeadershipFinanceRows(rows, snapshot, '2026-08-01', '2026-08-06', {
+      currentMonthProjectedSales: 900000,
+    })
+      .find(row => row.north_star === 'PnL / 9% NOI')
+    const forecast = pnl?.chart?.pnlForecast
+
+    expect(forecast?.latestActualMonth).toBe('2026-08-01')
+    expect(forecast?.months[0]).toMatchObject({
+      month: '2026-08-01',
+      salesSource: 'current_projection',
+      budgetedSales: 2000000,
+      forecastedSales: 900000,
+    })
+    expect(forecast?.months[1]).toMatchObject({
+      month: '2026-09-01',
+      salesSource: 'budget',
     })
   })
 
