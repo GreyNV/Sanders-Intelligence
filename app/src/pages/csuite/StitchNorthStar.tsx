@@ -1139,13 +1139,19 @@ function PnlForecastPanel({
           return (
             <div
               key={month.month}
+              tabIndex={0}
+              role="group"
+              aria-label={`${month.label} NOI forecast detail`}
               className={cn(
-                'min-w-0 rounded-lg border p-2',
+                'group relative min-w-0 rounded-lg border p-2 outline-none transition hover:z-30 hover:shadow-lg focus:z-30 focus:shadow-lg focus:ring-2 focus:ring-accent/45',
                 isOnPlan ? 'border-success/25 bg-success/10' : isAtRisk ? 'border-danger/30 bg-danger/10' : 'border-warning/30 bg-warning/10'
               )}
               title={[
                 `${month.label} sales source: ${pnlSalesSourceLabel(month.salesSource)}`,
                 `Budget source: ${month.budgetSourceMonth ? formatPeriodMonth(month.budgetSourceMonth) : 'n/a'}`,
+                `Sales: ${formatNullableCurrency(month.forecastedSales)}`,
+                `Variable costs: ${formatNullableCurrency(month.forecastedSalesRateCosts)}`,
+                `Fixed OpEx: ${fmtCurrency(month.operatingExpenses)}`,
                 `Required sales: ${fmtCurrency(month.requiredSales)}`,
                 `Sales gap: ${formatNullableCurrency(month.salesGap)}`,
               ].join('\n')}
@@ -1159,17 +1165,35 @@ function PnlForecastPanel({
               <dl className="space-y-1 text-[10px] font-semibold text-text2">
                 <div className="flex min-w-0 items-center justify-between gap-2">
                   <dt className="truncate">Sales</dt>
-                  <dd className="shrink-0 tabular-nums text-text1">{formatNullableCurrency(month.forecastedSales)}</dd>
+                  <dd className="max-w-[4.75rem] shrink-0 truncate tabular-nums text-text1">{formatCompactCurrency(month.forecastedSales)}</dd>
                 </div>
                 <div className="flex min-w-0 items-center justify-between gap-2">
                   <dt className="truncate">Var + OpEx</dt>
-                  <dd className="shrink-0 tabular-nums text-text1">{forecast.dataStatus === 'missing_expenses' ? 'n/a' : fmtCurrency(month.expenses)}</dd>
+                  <dd className="max-w-[4.75rem] shrink-0 truncate tabular-nums text-text1">{forecast.dataStatus === 'missing_expenses' ? 'n/a' : formatCompactCurrency(month.expenses)}</dd>
                 </div>
                 <div className="flex min-w-0 items-center justify-between gap-2">
                   <dt className="truncate">NOI</dt>
                   <dd className={cn('shrink-0 tabular-nums', isOnPlan ? 'text-success' : isAtRisk ? 'text-danger' : 'text-warning')}>{formatNullablePercent(month.noiPct)}</dd>
                 </div>
               </dl>
+              <div className="absolute left-1/2 top-full z-40 mt-2 hidden w-64 -translate-x-1/2 rounded-lg border border-border bg-surface p-3 text-[11px] shadow-xl group-hover:block group-focus:block">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="font-bold uppercase tracking-wider text-text1">{month.label}</div>
+                  <div className={cn('font-bold', isOnPlan ? 'text-success' : isAtRisk ? 'text-danger' : 'text-warning')}>
+                    {isReady ? (isOnPlan ? 'Green' : 'Red') : 'Need data'}
+                  </div>
+                </div>
+                <dl className="space-y-1.5 font-semibold text-text2">
+                  <PnlForecastDetailLine label="Sales" value={formatNullableCurrency(month.forecastedSales)} />
+                  <PnlForecastDetailLine label="Variable costs" value={formatNullableCurrency(month.forecastedSalesRateCosts)} />
+                  <PnlForecastDetailLine label="Fixed OpEx" value={fmtCurrency(month.operatingExpenses)} />
+                  <PnlForecastDetailLine label="Total costs" value={forecast.dataStatus === 'missing_expenses' ? 'n/a' : fmtCurrency(month.expenses)} />
+                  <PnlForecastDetailLine label="NOI" value={formatNullableCurrency(month.noi)} tone={isOnPlan ? 'success' : isAtRisk ? 'danger' : 'warning'} />
+                  <PnlForecastDetailLine label="NOI %" value={formatNullablePercent(month.noiPct)} tone={isOnPlan ? 'success' : isAtRisk ? 'danger' : 'warning'} />
+                  <PnlForecastDetailLine label="Required" value={fmtCurrency(month.requiredSales)} />
+                  <PnlForecastDetailLine label="Gap" value={formatNullableCurrency(month.salesGap)} />
+                </dl>
+              </div>
             </div>
           )
         })}
@@ -1202,6 +1226,30 @@ function PnlForecastMetric({
       <div className="truncate text-[10px] font-bold uppercase tracking-wider text-text2">{label}</div>
       <div className={cn('mt-1 truncate text-sm font-bold tabular-nums', toneClass)} title={value}>{value}</div>
       <div className="mt-1 truncate text-[10px] font-semibold text-text2" title={sub}>{sub}</div>
+    </div>
+  )
+}
+
+function PnlForecastDetailLine({
+  label,
+  value,
+  tone = 'neutral',
+}: {
+  label: string
+  value: string
+  tone?: 'neutral' | 'success' | 'warning' | 'danger'
+}) {
+  const toneClass = {
+    neutral: 'text-text1',
+    success: 'text-success',
+    warning: 'text-warning',
+    danger: 'text-danger',
+  }[tone]
+
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-3">
+      <dt className="truncate">{label}</dt>
+      <dd className={cn('shrink-0 tabular-nums', toneClass)}>{value}</dd>
     </div>
   )
 }
@@ -1470,6 +1518,21 @@ function formatNullablePercent(value: number | null): string {
 
 function formatNullableCurrency(value: number | null): string {
   return value === null || !Number.isFinite(value) ? 'n/a' : fmtCurrency(value)
+}
+
+function formatCompactCurrency(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return 'n/a'
+  const sign = value < 0 ? '-' : ''
+  const absolute = Math.abs(value)
+  if (absolute >= 1_000_000_000) return `${sign}$${formatCompactNumber(absolute / 1_000_000_000)}B`
+  if (absolute >= 1_000_000) return `${sign}$${formatCompactNumber(absolute / 1_000_000)}M`
+  if (absolute >= 1_000) return `${sign}$${formatCompactNumber(absolute / 1_000)}k`
+  return fmtCurrency(value)
+}
+
+function formatCompactNumber(value: number): string {
+  const rounded = value >= 10 ? value.toFixed(0) : value.toFixed(1)
+  return rounded.replace(/\.0$/, '')
 }
 
 function pnlSalesSourceLabel(source: NonNullable<NonNullable<NorthStarDisplayRow['chart']>['pnlForecast']>['months'][number]['salesSource']): string {
