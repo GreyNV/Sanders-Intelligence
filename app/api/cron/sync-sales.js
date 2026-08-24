@@ -3,11 +3,12 @@ export const config = {
 }
 
 const PAGE_SIZE = 50
-const PAGES_PER_CALL = 10
+const PAGES_PER_CALL = 40
 const MAX_TOTAL_PAGES = 240
 const CRON_PROGRESS_KEY = 'sellercloud_sales_cron_progress'
-const CRON_DURATION_BUDGET_MS = 240_000
-const MIN_NEXT_CHUNK_BUDGET_MS = 75_000
+const CRON_DURATION_BUDGET_MS = 285_000
+const DEFAULT_NEXT_CHUNK_ESTIMATE_MS = 90_000
+const NEXT_CHUNK_BUFFER_MS = 25_000
 const DEFAULT_BUSINESS_TIME_ZONE = 'America/New_York'
 
 export default async function handler(request, response) {
@@ -43,8 +44,13 @@ export default async function handler(request, response) {
 
 async function syncSalesInChunks(supabaseUrl, serviceKey, options = {}) {
   const started = Date.now()
-  const targetDate = nullableDateText(options.date) ?? businessDateOffset(-1, process.env.SELLERCLOUD_SALES_TIME_ZONE || DEFAULT_BUSINESS_TIME_ZONE)
   const savedProgress = await loadCronProgress(supabaseUrl, serviceKey)
+  const targetDate = nextTargetDate(
+    nullableDateText(options.date),
+    savedProgress,
+    options.force,
+    businessDateOffset(-1, process.env.SELLERCLOUD_SALES_TIME_ZONE || DEFAULT_BUSINESS_TIME_ZONE),
+  )
   const progress = savedProgress?.date === targetDate && !options.force
     ? savedProgress
     : initialProgress(targetDate)
@@ -66,8 +72,10 @@ async function syncSalesInChunks(supabaseUrl, serviceKey, options = {}) {
   let totalResults = Number(progress.totalResults ?? 0)
   const totals = normalizeTotals(progress.totals)
   let lastBody = progress.lastBody ?? {}
+  let estimatedNextChunkMs = DEFAULT_NEXT_CHUNK_ESTIMATE_MS
 
-  while (startPage <= MAX_TOTAL_PAGES && hasTimeForAnotherChunk(started)) {
+  while (startPage <= MAX_TOTAL_PAGES && hasTimeForAnotherChunk(started, estimatedNextChunkMs)) {
+    const chunkStarted = Date.now()
     const body = await invokeSalesSync(supabaseUrl, serviceKey, {
       dateFrom: targetDate,
       dateTo: targetDate,
@@ -81,6 +89,7 @@ async function syncSalesInChunks(supabaseUrl, serviceKey, options = {}) {
 
     lastBody = body
     addToTotals(totals, body)
+    estimatedNextChunkMs = Date.now() - chunkStarted
     totalResults = Number(body.totalResults ?? totalResults)
 
     const pagesFetched = Number(body.pagesFetched ?? 0)
@@ -136,6 +145,15 @@ async function syncSalesInChunks(supabaseUrl, serviceKey, options = {}) {
     complete: false,
     durationMs: Date.now() - started,
   }
+}
+
+function nextTargetDate(requestedDate, savedProgress, force, defaultDate) {
+  if (requestedDate) return requestedDate
+  const savedDate = nullableDateText(savedProgress?.date)
+  if (force || !savedDate) return defaultDate
+  if (savedProgress.complete === false) return savedDate
+  if (savedDate < defaultDate) return addDays(savedDate, 1)
+  return defaultDate
 }
 
 async function invokeSalesSync(supabaseUrl, serviceKey, payload) {
@@ -233,8 +251,8 @@ function addToTotals(totals, body) {
   totals.pagesFetched += Number(body.pagesFetched ?? 0)
 }
 
-function hasTimeForAnotherChunk(started) {
-  return Date.now() - started < CRON_DURATION_BUDGET_MS - MIN_NEXT_CHUNK_BUDGET_MS
+function hasTimeForAnotherChunk(started, estimatedNextChunkMs = DEFAULT_NEXT_CHUNK_ESTIMATE_MS) {
+  return Date.now() - started + estimatedNextChunkMs + NEXT_CHUNK_BUFFER_MS < CRON_DURATION_BUDGET_MS
 }
 
 async function readJsonBody(request) {
@@ -278,6 +296,12 @@ function businessDateOffset(offsetDays, timeZone) {
   const anchor = new Date(`${parts.year}-${parts.month}-${parts.day}T00:00:00Z`)
   anchor.setUTCDate(anchor.getUTCDate() + offsetDays)
   return anchor.toISOString().slice(0, 10)
+}
+
+function addDays(date, days) {
+  const value = new Date(`${date}T00:00:00Z`)
+  value.setUTCDate(value.getUTCDate() + days)
+  return value.toISOString().slice(0, 10)
 }
 
 function stripTrailingSlash(value) {
