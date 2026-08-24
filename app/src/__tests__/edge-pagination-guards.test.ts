@@ -125,4 +125,20 @@ describe('Edge Supabase pagination guards', () => {
     expect(backfill).toContain('saleDatePreset')
     expect(backfill).toContain('replaceDate: startPage === 1')
   })
+
+  it('resumes the Vercel sales cron across invocations for high-volume ship dates', () => {
+    const cron = readRepoFile('app/api/cron/sync-sales.js')
+    const vercel = JSON.parse(readRepoFile('app/vercel.json')) as {
+      crons: Array<{ path: string; schedule: string }>
+    }
+    const salesCron = vercel.crons.find(entry => entry.path === '/api/cron/sync-sales')
+
+    expect(cron).toContain('CRON_PROGRESS_KEY')
+    expect(cron).toContain('loadCronProgress')
+    expect(cron).toContain('saveCronProgress')
+    expect(cron).toContain('nextPage')
+    expect(cron).toContain('hasTimeForAnotherChunk')
+    expect(cron).toContain('complete: false')
+    expect(salesCron?.schedule).toBe('*/10 * * * *')
+  })
 })
