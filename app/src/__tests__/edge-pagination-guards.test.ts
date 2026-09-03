@@ -117,6 +117,45 @@ describe('Edge Supabase pagination guards', () => {
     expect(keyBuilder.indexOf('raw_channel')).toBeLessThan(keyBuilder.indexOf('source_sku'))
   })
 
+  it('persists SellerCloud P&L COGS on sales_daily rows', () => {
+    const salesSync = readRepoFile('supabase/functions/sync-sales/index.ts')
+    const aggregate = functionBody(salesSync, 'aggregateSalesRows')
+    const merge = functionBody(salesSync, 'mergeSalesRowsWithExisting')
+    const cogsSelector = functionBody(salesSync, 'orderCogsTotal')
+
+    expect(aggregate).toContain('orderCogsAllocations(rows)')
+    expect(aggregate).toContain('cogs_amount')
+    expect(aggregate).toContain('cogs_source')
+    expect(merge).toContain('cogs_amount')
+    expect(merge).toContain('Number(existing.cogs_amount')
+    expect(merge).toContain('Number(row.cogs_amount')
+    expect(cogsSelector).toContain("['OrderCostUsd', 'orderCostUsd']")
+    expect(cogsSelector).toContain("['OrderCost', 'orderCost']")
+    expect(cogsSelector.indexOf("['OrderCostUsd'")).toBeLessThan(cogsSelector.indexOf("['OrderCost'"))
+  })
+
+  it('records idempotent PO receipt movements from received quantity deltas', () => {
+    const poSync = readRepoFile('supabase/functions/sync-purchase-orders/index.ts')
+    const poScript = readRepoFile('app/scripts/sync-active-purchase-orders.mjs')
+    const handler = poSync.slice(poSync.indexOf('Deno.serve'))
+    const loadBaselines = functionBody(poSync, 'loadExistingPOItemReceiptBaselines')
+    const movementBuilder = functionBody(poSync, 'buildReceiptMovements')
+    const itemMapper = functionBody(poSync, 'toPOItemRow')
+
+    expect(loadBaselines).toContain('last_balance_received_units')
+    expect(loadBaselines).toContain('.in(')
+    expect(movementBuilder).toContain('movement_key')
+    expect(movementBuilder).toContain('received_delta_units')
+    expect(movementBuilder).toContain('received_value')
+    expect(itemMapper).toContain('last_balance_received_units')
+    expect(handler).toContain('buildReceiptMovements')
+    expect(handler).toContain("from('po_receipt_movements')")
+    expect(handler).toContain("onConflict: 'movement_key'")
+    expect(handler).toContain('ignoreDuplicates: true')
+    expect(poScript).toContain('buildReceiptMovements')
+    expect(poScript).toContain("upsertInBatches('po_receipt_movements'")
+  })
+
   it('backfills sales by ship date and replaces each date before rebuilding chunks', () => {
     const backfill = readRepoFile('app/scripts/backfill-sales-daily.mjs')
 

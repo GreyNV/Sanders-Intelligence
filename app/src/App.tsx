@@ -9,6 +9,7 @@ const Login = lazy(() => import('@/pages/Login'))
 const ResetPassword = lazy(() => import('@/pages/ResetPassword'))
 const ActionCenter = lazy(() => import('@/pages/purchasing/ActionCenter'))
 const InventoryBrowser = lazy(() => import('@/pages/purchasing/InventoryBrowser'))
+const InventoryBalance = lazy(() => import('@/pages/purchasing/InventoryBalance'))
 const InboundPipeline = lazy(() => import('@/pages/purchasing/InboundPipeline'))
 const VendorView = lazy(() => import('@/pages/purchasing/VendorView'))
 const PurchaseOrders = lazy(() => import('@/pages/purchasing/PurchaseOrders'))
@@ -129,6 +130,9 @@ export default function App() {
           } />
           <Route path="/purchasing/inventory" element={
             <RoleGuard allow={['admin', 'purchasing']}><InventoryBrowser /></RoleGuard>
+          } />
+          <Route path="/purchasing/inventory-balance" element={
+            <RoleGuard allow={['admin', 'purchasing']}><InventoryBalance /></RoleGuard>
           } />
           <Route path="/purchasing/inbound" element={
             <RoleGuard allow={['admin', 'purchasing']}><InboundPipeline /></RoleGuard>

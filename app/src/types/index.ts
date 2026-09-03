@@ -238,6 +238,34 @@ export interface POInboundItem {
   > | null
 }
 
+// Inventory balance
+
+export interface InventoryBalanceSettings {
+  id: string
+  settings_key: 'active' | string
+  beginning_period_month: string
+  beginning_inventory_value: number
+  updated_by: string | null
+  updated_at: string
+  created_at: string
+}
+
+export interface PoReceiptMovement {
+  id: string
+  movement_key: string
+  po_item_id: number
+  po_id: number
+  source_sku: string
+  planning_sku: string | null
+  received_delta_units: number
+  unit_price: number
+  received_value: number
+  observed_at: string
+  source_updated_on: string | null
+  sync_run_key: string | null
+  created_at: string
+}
+
 // News feed
 
 export interface NewsItem {
@@ -313,6 +341,8 @@ export interface SalesDaily {
   planning_sku: string | null
   units_sold: number
   revenue: number
+  cogs_amount: number
+  cogs_source: string | null
   orders_count: number
   source_payload: Record<string, unknown> | null
   synced_at: string

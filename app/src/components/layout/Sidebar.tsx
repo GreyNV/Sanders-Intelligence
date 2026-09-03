@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Package, Truck, BarChart3,
   CheckSquare, Users, Upload, Building2, LogOut, Store,
   PanelLeftClose, PanelLeftOpen, CalendarDays, ShoppingCart, Newspaper, Target,
-  Monitor, Moon, Settings2, Sun,
+  Calculator, Monitor, Moon, Settings2, Sun,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -22,6 +22,7 @@ const NAV: NavItem[] = [
   // Purchasing
   { to: '/purchasing/action-center', label: 'Action Center',     icon: <LayoutDashboard size={16} />, roles: ['admin', 'purchasing'], group: 'Purchasing' },
   { to: '/purchasing/inventory',     label: 'Inventory Browser', icon: <Package size={16} />,          roles: ['admin', 'purchasing'], group: 'Purchasing' },
+  { to: '/purchasing/inventory-balance', label: 'Inventory Balance', icon: <Calculator size={16} />,   roles: ['admin', 'purchasing'], group: 'Purchasing' },
   { to: '/purchasing/inbound',       label: 'Inbound Pipeline',  icon: <Truck size={16} />,            roles: ['admin', 'purchasing'], group: 'Purchasing' },
   { to: '/purchasing/vendors',       label: 'Vendor View',       icon: <Store size={16} />,            roles: ['admin', 'purchasing'], group: 'Purchasing' },
   { to: '/purchasing/purchase-orders', label: 'Purchase Orders', icon: <ShoppingCart size={16} />,     roles: ['admin', 'purchasing'], group: 'Purchasing' },

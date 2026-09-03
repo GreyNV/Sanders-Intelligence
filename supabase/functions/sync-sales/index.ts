@@ -112,6 +112,7 @@ Deno.serve(async (req) => {
     let salesRows = aggregateSalesRows(rowsInWindow, bridge, endpoint, options)
     const synced = salesRows.length
     const revenue = sumField(salesRows, 'revenue')
+    const cogs = sumField(salesRows, 'cogs_amount')
     const units = sumField(salesRows, 'units_sold')
     const ordersCount = sumField(salesRows, 'orders_count')
 
@@ -155,6 +156,7 @@ Deno.serve(async (req) => {
       sourceRows: rows.length,
       sourceRowsInWindow: rowsInWindow.length,
       revenue,
+      cogs,
       units,
       ordersCount,
       endpoint,
@@ -554,7 +556,7 @@ async function mergeSalesRowsWithExisting(
   while (true) {
     const { data, error } = await supabase
       .from('sales_daily')
-      .select('sale_date,raw_company,raw_channel,channel,source_sku,units_sold,revenue,orders_count,source_payload')
+      .select('sale_date,raw_company,raw_channel,channel,source_sku,units_sold,revenue,cogs_amount,cogs_source,orders_count,source_payload')
       .in('sale_date', saleDates)
       .range(from, from + pageSize - 1)
     if (error) throw error
@@ -574,6 +576,8 @@ async function mergeSalesRowsWithExisting(
       ...row,
       units_sold: Number(existing.units_sold ?? 0) + Number(row.units_sold ?? 0),
       revenue: Number((Number(existing.revenue ?? 0) + Number(row.revenue ?? 0)).toFixed(2)),
+      cogs_amount: Number((Number(existing.cogs_amount ?? 0) + Number(row.cogs_amount ?? 0)).toFixed(2)),
+      cogs_source: combinedCogsSource(nullableText(existing.cogs_source), nullableText(row.cogs_source)),
       orders_count: Number(existing.orders_count ?? 0) + Number(row.orders_count ?? 0),
       source_payload: mergedSourcePayload(existing.source_payload, row.source_payload),
     }
@@ -595,6 +599,7 @@ function mergedSourcePayload(existingPayload: unknown, nextPayload: unknown): Js
   return {
     ...next,
     sample_count: Number(existing.sample_count ?? 0) + Number(next.sample_count ?? 0),
+    cogs_missing_count: Number(existing.cogs_missing_count ?? 0) + Number(next.cogs_missing_count ?? 0),
     chunk_merged: true,
   }
 }
@@ -602,6 +607,7 @@ function mergedSourcePayload(existingPayload: unknown, nextPayload: unknown): Js
 function aggregateSalesRows(rows: JsonRecord[], bridge: Map<string, string>, endpoint: string, options: SyncOptions): JsonRecord[] {
   const map = new Map<string, JsonRecord>()
   const orderRevenue = orderRevenueAllocations(rows)
+  const orderCogs = orderCogsAllocations(rows)
   for (const row of rows) {
     const saleDate = saleDateOnly(row, options)
     const sourceSku = nullableText(first(row, ['ProductID', 'ProductId', 'productId', 'SKU', 'sku', 'Sku']))
@@ -619,22 +625,32 @@ function aggregateSalesRows(rows: JsonRecord[], bridge: Map<string, string>, end
       planning_sku: bridge.get(sourceSku.toLowerCase()) ?? null,
       units_sold: 0,
       revenue: 0,
+      cogs_amount: 0,
+      cogs_source: 'missing',
       orders_count: 0,
-      source_payload: { endpoint, sellercloud_company: rawCompany, sellercloud_channel: rawChannel, sample_count: 0 },
+      source_payload: { endpoint, sellercloud_company: rawCompany, sellercloud_channel: rawChannel, sample_count: 0, cogs_missing_count: 0 },
       synced_at: new Date().toISOString(),
     }
+    const cogs = cogsForRow(row, orderCogs)
     existing.units_sold = Number(existing.units_sold) + (nullableNumber(first(row, ['Qty', 'qty', 'Quantity', 'quantity', 'QtySold', 'qtySold'])) ?? 0)
     existing.revenue = Number(existing.revenue) + revenueForRow(row, orderRevenue)
+    existing.cogs_amount = Number(existing.cogs_amount) + cogs.amount
+    existing.cogs_source = combinedCogsSource(nullableText(existing.cogs_source), cogs.source)
     existing.orders_count = Number(existing.orders_count) + 1
     existing.source_payload = {
       endpoint,
       sellercloud_company: rawCompany,
       sellercloud_channel: rawChannel,
       sample_count: Number((existing.source_payload as JsonRecord).sample_count ?? 0) + 1,
+      cogs_missing_count: Number((existing.source_payload as JsonRecord).cogs_missing_count ?? 0) + (cogs.source === 'missing' ? 1 : 0),
     }
     map.set(key, existing)
   }
-  return Array.from(map.values())
+  return Array.from(map.values()).map(row => ({
+    ...row,
+    revenue: Number(Number(row.revenue ?? 0).toFixed(2)),
+    cogs_amount: Number(Number(row.cogs_amount ?? 0).toFixed(2)),
+  }))
 }
 
 function sellerCloudChannel(row: JsonRecord): string {
@@ -663,6 +679,19 @@ interface OrderRevenueGroup {
 interface ReportOrderTotal {
   amount: number
   applyCurrencyRate: boolean
+}
+
+interface OrderCogsGroup {
+  count: number
+  allocationBasis: number
+  orderCogs: number | null
+  cogsSource: string
+}
+
+interface ReportOrderCost {
+  amount: number
+  applyCurrencyRate: boolean
+  source: string
 }
 
 function orderRevenueAllocations(rows: JsonRecord[]): Map<string, OrderRevenueGroup> {
@@ -697,6 +726,68 @@ function revenueForRow(row: JsonRecord, orderRevenueGroups: Map<string, OrderRev
     if (group?.count && group.count > 0) return allocatedOrderRevenue / group.count
   }
   return nullableNumber(first(row, ['LineTotal', 'lineTotal', 'SubTotal', 'subTotal', 'GrandTotal', 'grandTotal', 'Total', 'total'])) ?? 0
+}
+
+function orderCogsAllocations(rows: JsonRecord[]): Map<string, OrderCogsGroup> {
+  const groups = new Map<string, OrderCogsGroup>()
+  for (const row of rows) {
+    const orderId = orderKey(row)
+    if (!orderId) continue
+    const group = groups.get(orderId) ?? { count: 0, allocationBasis: 0, orderCogs: null, cogsSource: 'missing' }
+    group.count += 1
+    group.allocationBasis += lineRevenueBasis(row)
+
+    const reportCost = orderCogsTotal(row)
+    const currencyRate = reportCost?.applyCurrencyRate
+      ? nullableNumber(first(row, ['CurrencyRateToUSD', 'currencyRateToUsd'])) ?? 1
+      : 1
+    if (reportCost != null) {
+      group.orderCogs = Math.max(0, reportCost.amount * currencyRate)
+      group.cogsSource = reportCost.source
+    }
+    groups.set(orderId, group)
+  }
+  return groups
+}
+
+function cogsForRow(row: JsonRecord, orderCogsGroups: Map<string, OrderCogsGroup>): { amount: number; source: string } {
+  const orderId = orderKey(row)
+  const group = orderId ? orderCogsGroups.get(orderId) : null
+  if (group?.orderCogs != null) {
+    const allocationBasis = lineRevenueBasis(row)
+    if (group.allocationBasis > 0) {
+      return {
+        amount: (allocationBasis / group.allocationBasis) * group.orderCogs,
+        source: group.cogsSource,
+      }
+    }
+    if (group.count > 0) return { amount: group.orderCogs / group.count, source: group.cogsSource }
+  }
+
+  const directCost = orderCogsTotal(row)
+  if (directCost != null) return { amount: Math.max(0, directCost.amount), source: directCost.source }
+  return { amount: 0, source: 'missing' }
+}
+
+function orderCogsTotal(row: JsonRecord): ReportOrderCost | null {
+  const usdCost = nullableNumber(first(row, ['OrderCostUsd', 'orderCostUsd']))
+  if (usdCost != null && usdCost > 0) {
+    return { amount: usdCost, applyCurrencyRate: false, source: 'sellercloud_profit_loss_usd' }
+  }
+
+  const localCost = nullableNumber(first(row, ['OrderCost', 'orderCost']))
+  if (localCost != null && localCost > 0) {
+    return { amount: localCost, applyCurrencyRate: true, source: 'sellercloud_profit_loss' }
+  }
+
+  return null
+}
+
+function combinedCogsSource(left: string | null, right: string | null): string {
+  const sources = new Set([left, right].filter((value): value is string => Boolean(value) && value !== 'missing'))
+  if (sources.size === 0) return 'missing'
+  if (sources.size === 1) return Array.from(sources)[0]
+  return 'mixed'
 }
 
 function reportGrandTotal(row: JsonRecord): ReportOrderTotal | null {
