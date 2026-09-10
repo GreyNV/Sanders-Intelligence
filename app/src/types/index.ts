@@ -288,6 +288,19 @@ export interface NorthStarHistory {
   period_week: string
 }
 
+export interface StitchAutoRowOverride {
+  id: string
+  period_month: string
+  source: 'monthly_star' | 'leadership_tool'
+  source_version: string
+  row_key: string
+  field_name: string
+  field_value: string
+  updated_by: string | null
+  updated_at: string
+  created_at: string
+}
+
 export interface MonthlyStar {
   id: string
   period_month: string

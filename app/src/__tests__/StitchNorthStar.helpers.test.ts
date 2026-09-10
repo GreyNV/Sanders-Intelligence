@@ -10,6 +10,7 @@ import {
   buildStitchPillarTabs,
   filterRowsByPillar,
   leadershipToolOverrideSourceVersion,
+  mergeStitchAutoRowOverrideMaps,
   mergeStitchFinanceMetricRow,
   monthlyStarOverrideSourceVersion,
   readMonthlyStarPresentationOverrides,
@@ -18,6 +19,7 @@ import {
   moveStitchPresenterOrder,
   stitchSlideHtmlKey,
   stitchAutoRowOverrideKey,
+  stitchAutoRowOverridesFromRows,
   stitchPresenterOrderKey,
   writeMonthlyStarPresentationOverrides,
   writeStitchAutoRowOverride,
@@ -556,6 +558,38 @@ describe('Stitch North Star helpers', () => {
       forecastedSales: null,
       noiPct: null,
       status: 'at_risk',
+    })
+  })
+
+  it('loads shared auto-row overrides only for the current automated source version', () => {
+    const monthlyKey = 'monthly_star:sales'
+    const payrollKey = 'leadership_tool:payroll'
+    const records = [
+      { source: 'monthly_star', source_version: 'sales-sync-a', row_key: monthlyKey, field_name: 'constraint_now', field_value: 'Shared constraint' },
+      { source: 'monthly_star', source_version: 'sales-sync-a', row_key: monthlyKey, field_name: 'weekly_move', field_value: 'Shared move' },
+      { source: 'leadership_tool', source_version: 'leadership-upload-old', row_key: payrollKey, field_name: 'last_week_result', field_value: 'Stale comment' },
+    ] as any
+
+    const shared = stitchAutoRowOverridesFromRows(records, {
+      monthly_star: 'sales-sync-a',
+      leadership_tool: 'leadership-upload-new',
+    })
+
+    expect(shared).toEqual({
+      [monthlyKey]: {
+        constraint_now: 'Shared constraint',
+        weekly_move: 'Shared move',
+      },
+    })
+    expect(mergeStitchAutoRowOverrideMaps(
+      { [monthlyKey]: { constraint_now: 'Browser fallback', last_week_result: 'Local comment' } },
+      shared
+    )).toEqual({
+      [monthlyKey]: {
+        constraint_now: 'Shared constraint',
+        weekly_move: 'Shared move',
+        last_week_result: 'Local comment',
+      },
     })
   })
 
