@@ -140,6 +140,6 @@ describe('Edge Supabase pagination guards', () => {
     expect(cron).toContain('nextPage')
     expect(cron).toContain('hasTimeForAnotherChunk')
     expect(cron).toContain('complete: false')
-    expect(salesCron?.schedule).toBe('30 10 * * *')
+    expect(salesCron?.schedule).toBe('30 */4 * * *')
   })
 })
