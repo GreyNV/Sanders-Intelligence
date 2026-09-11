@@ -1,5 +1,5 @@
 import { fmtCurrency } from '@/lib/utils'
-import type { LeadershipToolSnapshot, MonthlyStar, NorthStarStatus, SalesDaily } from '@/types'
+import type { LeadershipToolSnapshot, MonthlyStar, NorthStarStatus, SalesDaily, StitchAutoRowOverride } from '@/types'
 import type { MonthlyStarInput, MonthlyStarMetrics, NorthStarDisplayRow, NorthStarEditableField, NorthStarSlideChart } from './NorthStar.helpers'
 import { NORTH_STAR_EDITABLE_FIELDS, addMonthsToPeriod, formatMonthlyStarDragChannelNotes, formatPeriodMonth, nextNorthStarSlot } from './NorthStar.helpers'
 
@@ -129,6 +129,36 @@ export function readStitchAutoRowOverrides(
     Object.assign(result, sanitizeStitchAutoRowOverrideRows(sourceOverrides.rows))
   }
 
+  return result
+}
+
+export function stitchAutoRowOverridesFromRows(
+  rows: StitchAutoRowOverride[],
+  sourceVersions: StitchAutoRowOverrideSourceVersions
+): StitchAutoRowOverrideMap {
+  const result: StitchAutoRowOverrideMap = {}
+
+  for (const row of rows) {
+    if (sourceVersions[row.source] !== row.source_version) continue
+    const sanitized = sanitizeStitchAutoRowOverrideRow({
+      ...(result[row.row_key] ?? {}),
+      [row.field_name]: row.field_value,
+    })
+    if (Object.keys(sanitized).length > 0) result[row.row_key] = sanitized
+  }
+
+  return result
+}
+
+export function mergeStitchAutoRowOverrideMaps(
+  ...maps: StitchAutoRowOverrideMap[]
+): StitchAutoRowOverrideMap {
+  const result: StitchAutoRowOverrideMap = {}
+  for (const map of maps) {
+    for (const [rowKey, fields] of Object.entries(map)) {
+      result[rowKey] = { ...(result[rowKey] ?? {}), ...fields }
+    }
+  }
   return result
 }
 

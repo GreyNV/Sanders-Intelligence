@@ -26,6 +26,11 @@ import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/contexts/AuthContext'
 import { useLeadershipSnapshot } from '@/hooks/useLeadershipSnapshot'
 import { useMonthlyStar, useMonthlyStarSales, useNorthStarRows, useUpdateNorthStarProgress, useUpdateNorthStarRow } from '@/hooks/useNorthStar'
+import {
+  useSeedStitchAutoRowOverrides,
+  useStitchAutoRowOverrides,
+  useUpsertStitchAutoRowOverride,
+} from '@/hooks/useStitchAutoRowOverrides'
 import { useStitchPresenterOrder, useUpdateStitchPresenterOrder } from '@/hooks/useStitchPresenterOrder'
 import { useStitchSlideHtmlBlocks, useUpsertStitchSlideHtmlBlock } from '@/hooks/useStitchSlideHtmlBlocks'
 import { cn, fmtCurrency, fmtNumber } from '@/lib/utils'
@@ -59,11 +64,13 @@ import {
   filterRowsByPillar,
   isStitchAutoFinanceField,
   leadershipToolOverrideSourceVersion,
+  mergeStitchAutoRowOverrideMaps,
   mergeStitchFinanceRows,
   moveStitchPresenterOrder,
   monthlyStarOverrideSourceVersion,
   readStitchAutoRowOverrides,
   scaledChartDomain,
+  stitchAutoRowOverridesFromRows,
   stitchSlideHtmlKey,
   stitchAutoRowOverrideKey,
   writeStitchAutoRowOverride,
@@ -106,15 +113,19 @@ export default function StitchNorthStar() {
   const [presentingOwner, setPresentingOwner] = useState<string | null>(null)
   const [activeSlide, setActiveSlide] = useState(0)
   const [generatedRowOverrides, setGeneratedRowOverrides] = useState<StitchAutoRowOverrideMap>({})
+  const migratedLocalOverridesRef = useRef('')
 
   const { data: savedRows = [], isLoading: rowsLoading, error: rowsError } = useNorthStarRows()
   const { data: monthlyStar = null, isLoading: monthlyLoading, error: monthlyError } = useMonthlyStar(selectedMonth)
   const { data: salesRows, isLoading: salesLoading, error: salesError } = useMonthlyStarSales(selectedMonth)
   const { data: leadershipSnapshot = null, isLoading: leadershipLoading, error: leadershipError } = useLeadershipSnapshot()
+  const { data: sharedAutoRowOverrides = [], isLoading: autoRowOverridesLoading, error: autoRowOverridesError } = useStitchAutoRowOverrides(selectedMonth)
   const { data: htmlBlocks = [], isLoading: htmlLoading, error: htmlError } = useStitchSlideHtmlBlocks(selectedMonth)
   const { data: presenterOrder = [], isLoading: presenterOrderLoading, error: presenterOrderError } = useStitchPresenterOrder()
   const updateRow = useUpdateNorthStarRow()
   const updateProgress = useUpdateNorthStarProgress()
+  const seedAutoRowOverrides = useSeedStitchAutoRowOverrides()
+  const upsertAutoRowOverride = useUpsertStitchAutoRowOverride()
   const upsertHtmlBlock = useUpsertStitchSlideHtmlBlock()
   const updatePresenterOrder = useUpdateStitchPresenterOrder()
 
@@ -208,8 +219,31 @@ export default function StitchNorthStar() {
   }, [presentingOwner])
 
   useEffect(() => {
-    setGeneratedRowOverrides(readStitchAutoRowOverrides(selectedMonth, autoRowSourceVersions))
-  }, [selectedMonth, autoRowSourceVersions])
+    const localOverrides = readStitchAutoRowOverrides(selectedMonth, autoRowSourceVersions)
+    const databaseOverrides = stitchAutoRowOverridesFromRows(sharedAutoRowOverrides, autoRowSourceVersions)
+    setGeneratedRowOverrides(mergeStitchAutoRowOverrideMaps(localOverrides, databaseOverrides))
+  }, [selectedMonth, autoRowSourceVersions, sharedAutoRowOverrides])
+
+  useEffect(() => {
+    if (autoRowOverridesLoading || !canEditProgress) return
+
+    const migrationKey = `${selectedMonth}|${autoRowSourceVersions.monthly_star ?? ''}|${autoRowSourceVersions.leadership_tool ?? ''}`
+    if (migratedLocalOverridesRef.current === migrationKey) return
+    migratedLocalOverridesRef.current = migrationKey
+
+    const localOverrides = readStitchAutoRowOverrides(selectedMonth, autoRowSourceVersions)
+    if (Object.keys(localOverrides).length === 0) return
+
+    seedAutoRowOverrides.mutate({
+      period_month: selectedMonth,
+      source_versions: autoRowSourceVersions,
+      overrides: localOverrides,
+    }, {
+      onError: () => {
+        migratedLocalOverridesRef.current = ''
+      },
+    })
+  }, [selectedMonth, autoRowSourceVersions, autoRowOverridesLoading, canEditProgress])
 
   useEffect(() => {
     if (presentingOwner && !selectedDeck) {
@@ -217,9 +251,9 @@ export default function StitchNorthStar() {
     }
   }, [presentingOwner, selectedDeck])
 
-  if (rowsLoading || monthlyLoading || salesLoading || leadershipLoading || htmlLoading || presenterOrderLoading) return <PageLoader />
+  if (rowsLoading || monthlyLoading || salesLoading || leadershipLoading || autoRowOverridesLoading || htmlLoading || presenterOrderLoading) return <PageLoader />
 
-  const error = rowsError ?? monthlyError ?? salesError ?? leadershipError ?? htmlError ?? presenterOrderError
+  const error = rowsError ?? monthlyError ?? salesError ?? leadershipError ?? autoRowOverridesError ?? htmlError ?? presenterOrderError
   if (error) {
     return (
       <div className="card text-center py-16">
@@ -230,7 +264,7 @@ export default function StitchNorthStar() {
     )
   }
 
-  const isSaving = updateRow.isPending || updateProgress.isPending || upsertHtmlBlock.isPending || updatePresenterOrder.isPending
+  const isSaving = updateRow.isPending || updateProgress.isPending || upsertAutoRowOverride.isPending || upsertHtmlBlock.isPending || updatePresenterOrder.isPending
 
   function canEditField(row: NorthStarDisplayRow, field: NorthStarEditableField): boolean {
     if (row.source === 'monthly_star') {
@@ -248,7 +282,7 @@ export default function StitchNorthStar() {
   }
 
   async function handleCellSave(row: NorthStarDisplayRow, field: NorthStarEditableField, value: string | NorthStarStatus) {
-    if (handleGeneratedRowSessionSave(row, field, value)) return
+    if (await handleGeneratedRowSave(row, field, value)) return
     if (isStitchAutoFinanceField(row, field)) return
 
     if (!isAdmin && isNorthStarProgressField(field)) {
@@ -283,7 +317,7 @@ export default function StitchNorthStar() {
     })
   }
 
-  function handleGeneratedRowSessionSave(row: NorthStarDisplayRow, field: NorthStarEditableField, value: string | NorthStarStatus): boolean {
+  async function handleGeneratedRowSave(row: NorthStarDisplayRow, field: NorthStarEditableField, value: string | NorthStarStatus): Promise<boolean> {
     if (row.source === 'monthly_star' && (field === 'plan_value' || field === 'actual_mtd' || field === 'forecast')) {
       const parsed = parseMetricNumber(String(value))
       if (!Number.isFinite(parsed)) throw new Error('Enter a valid number')
@@ -295,6 +329,17 @@ export default function StitchNorthStar() {
     const textValue = typeof value === 'string' ? value.trim() : value
     const key = stitchAutoRowOverrideKey(row)
     const sourceVersion = autoRowSourceVersions[row.source]
+    if (!sourceVersion) throw new Error('Automated source version is unavailable')
+
+    await upsertAutoRowOverride.mutateAsync({
+      period_month: selectedMonth,
+      source: row.source,
+      source_version: sourceVersion,
+      row_key: key,
+      field_name: field,
+      field_value: textValue,
+    })
+
     setGeneratedRowOverrides(previous => ({
       ...previous,
       [key]: {
@@ -302,9 +347,7 @@ export default function StitchNorthStar() {
         [field]: textValue,
       },
     }))
-    if (sourceVersion) {
-      writeStitchAutoRowOverride(selectedMonth, row.source, sourceVersion, key, field, textValue)
-    }
+    writeStitchAutoRowOverride(selectedMonth, row.source, sourceVersion, key, field, textValue)
     return true
   }
 

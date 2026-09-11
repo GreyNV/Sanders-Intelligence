@@ -6,6 +6,7 @@ describe('Stitch North Star page contract', () => {
   const appSource = readFileSync(resolve(__dirname, '../App.tsx'), 'utf8')
   const sidebarSource = readFileSync(resolve(__dirname, '../components/layout/Sidebar.tsx'), 'utf8')
   const pageSource = readFileSync(resolve(__dirname, '../pages/csuite/StitchNorthStar.tsx'), 'utf8')
+  const overrideHookSource = readFileSync(resolve(__dirname, '../hooks/useStitchAutoRowOverrides.ts'), 'utf8')
   const htmlHookSource = readFileSync(resolve(__dirname, '../hooks/useStitchSlideHtmlBlocks.ts'), 'utf8')
   const presenterOrderHookSource = readFileSync(resolve(__dirname, '../hooks/useStitchPresenterOrder.ts'), 'utf8')
 
@@ -143,11 +144,22 @@ describe('Stitch North Star page contract', () => {
     expect(pageSource).toContain('leadershipToolOverrideSourceVersion')
     expect(pageSource).toContain('readStitchAutoRowOverrides')
     expect(pageSource).toContain('writeStitchAutoRowOverride')
+    expect(pageSource).toContain('useStitchAutoRowOverrides')
+    expect(pageSource).toContain('useSeedStitchAutoRowOverrides')
+    expect(pageSource).toContain('useUpsertStitchAutoRowOverride')
+    expect(pageSource).toContain('stitchAutoRowOverridesFromRows')
+    expect(pageSource).toContain('await upsertAutoRowOverride.mutateAsync')
     expect(pageSource).toContain('stitchAutoRowOverrideKey')
     expect(pageSource).toContain('label={commentBoxLabel(row)}')
     expect(pageSource).toContain("return row.source === 'monthly_star' ? 'Comment' : 'Last week'")
     expect(pageSource).toContain('useLeadershipSnapshot')
     expect(pageSource).not.toContain('useUpdateMonthlyStar')
+
+    expect(overrideHookSource).toContain("['stitch_auto_row_overrides', periodMonth]")
+    expect(overrideHookSource).toContain("from('stitch_auto_row_overrides')")
+    expect(overrideHookSource).toContain("onConflict: 'period_month,source,row_key,field_name'")
+    expect(overrideHookSource).toContain('ignoreDuplicates: true')
+    expect(pageSource).toContain('seedAutoRowOverrides.mutate')
   })
 
   it('renders per-card Fields/HTML view modes with raw sandboxed iframe srcdoc', () => {
