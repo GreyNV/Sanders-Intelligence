@@ -217,93 +217,8 @@ async function upsertInBatches(table, data, onConflict, batchSize = 500, options
   }
 }
 
-async function loadExistingPOItemReceiptBaselines(itemRows) {
-  const existing = new Map()
-  const ids = Array.from(new Set(itemRows
-    .map(row => Number(row.id))
-    .filter(id => Number.isFinite(id))))
-
-  for (let index = 0; index < ids.length; index += 500) {
-    const batch = ids.slice(index, index + 500)
-    const { data, error } = await supabase
-      .from('po_items')
-      .select('id,qty_units_received,last_balance_received_units')
-      .in('id', batch)
-    if (error) throw error
-
-    for (const row of data ?? []) {
-      const id = Number(row.id)
-      if (Number.isFinite(id)) existing.set(id, row)
-    }
-  }
-
-  return existing
-}
-
-function buildReceiptMovements(itemRows, existingById, ordersById, observedAt) {
-  const movements = []
-
-  for (const row of itemRows) {
-    const poItemId = Number(row.id)
-    const poId = Number(row.po_id)
-    if (!Number.isFinite(poItemId) || !Number.isFinite(poId)) continue
-
-    const currentReceived = Number(row.qty_units_received ?? 0)
-    if (!Number.isFinite(currentReceived)) continue
-
-    const existing = existingById.get(poItemId)
-    const previousReceived = Number(
-      existing?.last_balance_received_units
-        ?? existing?.qty_units_received
-        ?? currentReceived
-    )
-    if (!Number.isFinite(previousReceived)) continue
-
-    const receivedDeltaUnits = currentReceived - previousReceived
-    if (!Number.isFinite(receivedDeltaUnits) || receivedDeltaUnits === 0) continue
-
-    const unitPrice = Number(row.unit_price ?? 0)
-    const order = ordersById.get(poId)
-    const sourceUpdatedOn = nullableDate(order?.updated_on)
-    const movementKey = [
-      poItemId,
-      previousReceived,
-      currentReceived,
-      sourceUpdatedOn ?? 'unknown',
-    ].join('|')
-
-    movements.push({
-      movement_key: movementKey,
-      po_item_id: poItemId,
-      po_id: poId,
-      source_sku: String(row.source_sku ?? ''),
-      planning_sku: nullableText(row.planning_sku),
-      received_delta_units: roundMoney(receivedDeltaUnits),
-      unit_price: roundMoney(unitPrice),
-      received_value: roundMoney(receivedDeltaUnits * unitPrice),
-      observed_at: observedAt,
-      source_updated_on: sourceUpdatedOn,
-      sync_run_key: observedAt,
-    })
-  }
-
-  return movements
-}
-
-async function deleteInBatches(table, column, values, batchSize = 200) {
-  for (let index = 0; index < values.length; index += batchSize) {
-    const chunk = values.slice(index, index + batchSize)
-    const { error } = await supabase.from(table).delete().in(column, chunk)
-    if (error) throw error
-  }
-}
-
 function uniqueById(rows) {
   return Array.from(new Map(rows.map(row => [row.id, row])).values())
-}
-
-function roundMoney(value) {
-  return Math.round((value + Number.EPSILON) * 100) / 100
 }
 
 function maxIsoDate(values) {
@@ -381,11 +296,7 @@ async function main() {
   })
 
   const itemRows = itemResults.flatMap(result => result.itemRows)
-  const existingItemReceipts = await loadExistingPOItemReceiptBaselines(itemRows)
-  const ordersById = new Map(orderRows.map(row => [Number(row.id), row]))
-  const receiptMovements = buildReceiptMovements(itemRows, existingItemReceipts, ordersById, new Date().toISOString())
-  await upsertInBatches('po_receipt_movements', receiptMovements, 'movement_key', 500, { ignoreDuplicates: true })
-  if (activeIds.length > 0) await deleteInBatches('po_items', 'po_id', activeIds)
+  // Preserve existing item snapshots; the database records each quantity delta atomically.
   await upsertInBatches('po_items', itemRows, 'id')
   const failures = itemResults.filter(result => result.error)
 
@@ -414,7 +325,6 @@ async function main() {
     headers: orderRows.length,
     active: activeRows.length,
     items: itemRows.length,
-    receiptMovements: receiptMovements.length,
     failures: failures.length,
     durationMs: Date.now() - started,
     activeSampleIds: activeRows.slice(0, 10).map(row => row.id),

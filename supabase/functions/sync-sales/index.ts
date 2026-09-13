@@ -369,6 +369,7 @@ async function enrichOrdersWithProfitAndLoss(base: string, token: string, orders
 }
 
 function needsProfitAndLoss(order: JsonRecord): boolean {
+  if (orderCogsTotal(order) == null) return true
   const grandTotal = nullableNumber(first(order, ['GrandTotal', 'grandTotal']))
   if (grandTotal != null && grandTotal > 0) return false
 
@@ -742,7 +743,7 @@ function orderCogsAllocations(rows: JsonRecord[]): Map<string, OrderCogsGroup> {
       ? nullableNumber(first(row, ['CurrencyRateToUSD', 'currencyRateToUsd'])) ?? 1
       : 1
     if (reportCost != null) {
-      group.orderCogs = Math.max(0, reportCost.amount * currencyRate)
+      group.orderCogs = reportCost.amount * currencyRate
       group.cogsSource = reportCost.source
     }
     groups.set(orderId, group)
@@ -765,18 +766,18 @@ function cogsForRow(row: JsonRecord, orderCogsGroups: Map<string, OrderCogsGroup
   }
 
   const directCost = orderCogsTotal(row)
-  if (directCost != null) return { amount: Math.max(0, directCost.amount), source: directCost.source }
+  if (directCost != null) return { amount: directCost.amount * (directCost.applyCurrencyRate ? nullableNumber(first(row, ['CurrencyRateToUSD', 'currencyRateToUsd'])) ?? 1 : 1), source: directCost.source }
   return { amount: 0, source: 'missing' }
 }
 
 function orderCogsTotal(row: JsonRecord): ReportOrderCost | null {
   const usdCost = nullableNumber(first(row, ['OrderCostUsd', 'orderCostUsd']))
-  if (usdCost != null && usdCost > 0) {
+  if (usdCost != null) {
     return { amount: usdCost, applyCurrencyRate: false, source: 'sellercloud_profit_loss_usd' }
   }
 
   const localCost = nullableNumber(first(row, ['OrderCost', 'orderCost']))
-  if (localCost != null && localCost > 0) {
+  if (localCost != null) {
     return { amount: localCost, applyCurrencyRate: true, source: 'sellercloud_profit_loss' }
   }
 

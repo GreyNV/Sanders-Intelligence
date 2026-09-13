@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import InventoryReceiptImport from './InventoryReceiptImport'
 import {
   AlertTriangle,
   Boxes,
@@ -13,7 +14,10 @@ import {
 import KPICard from '@/components/ui/KPICard'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/contexts/AuthContext'
-import { useInventoryBalance, useUpdateInventoryBalanceSettings } from '@/hooks/useInventoryBalance'
+import {
+  useInventoryBalance,
+  useUpdateInventoryBalanceSettings,
+} from '@/hooks/useInventoryBalance'
 import { cn, fmtCurrency, fmtCurrencyFull, fmtNumber } from '@/lib/utils'
 import {
   addMonthsToInventoryPeriod,
@@ -25,17 +29,24 @@ import {
 export default function InventoryBalance() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
-  const currentMonth = useMemo(() => periodMonthFromDate(new Date().toISOString()), [])
+  const currentMonth = useMemo(
+    () => periodMonthFromDate(new Date().toISOString()),
+    [],
+  )
   const [selectedMonth, setSelectedMonth] = useState(currentMonth)
   const { data, isLoading, error } = useInventoryBalance(selectedMonth)
   const updateSettings = useUpdateInventoryBalanceSettings()
-  const [draftPeriod, setDraftPeriod] = useState(currentMonth)
+  const [draftPeriod, setDraftPeriod] = useState(
+    currentMonth.slice(0, 4) + '-01-01',
+  )
   const [draftValue, setDraftValue] = useState('')
 
   useEffect(() => {
     if (!data?.settings) return
     setDraftPeriod(periodMonthFromDate(data.settings.beginning_period_month))
-    setDraftValue(fmtCurrencyFull(Number(data.settings.beginning_inventory_value ?? 0)))
+    setDraftValue(
+      fmtCurrencyFull(Number(data.settings.beginning_inventory_value ?? 0)),
+    )
   }, [data?.settings])
 
   const rows = data?.rows ?? []
@@ -43,20 +54,46 @@ export default function InventoryBalance() {
   const firstRow = rows[0] ?? null
   const previousMonth = addMonthsToInventoryPeriod(selectedMonth, -1)
   const nextMonth = addMonthsToInventoryPeriod(selectedMonth, 1)
-  const minMonth = data?.settings ? periodMonthFromDate(data.settings.beginning_period_month) : ''
+  const minMonth = data?.settings
+    ? periodMonthFromDate(data.settings.beginning_period_month)
+    : ''
   const canGoBack = !minMonth || selectedMonth > minMonth
   const canGoForward = selectedMonth < currentMonth
   const periodDelta = selectedRow
     ? selectedRow.ending_inventory_value - selectedRow.beginning_inventory_value
     : 0
 
+  const [inputError, setInputError] = useState('')
+  useEffect(() => {
+    if (minMonth && selectedMonth < minMonth) setSelectedMonth(minMonth)
+  }, [minMonth, selectedMonth])
+  const incomplete = (data?.coverage ?? []).filter(
+    (r) =>
+      Number(r.receipt_covered_days) < Number(r.expected_days) ||
+      Number(r.cogs_covered_days) < Number(r.expected_days) ||
+      Number(r.missing_cogs_count) > 0,
+  )
+
   async function handleSaveSettings() {
-    const period = periodMonthFromDate(draftPeriod)
-    await updateSettings.mutateAsync({
-      beginning_period_month: period,
-      beginning_inventory_value: parseInventoryMoney(draftValue),
-    })
-    setSelectedMonth(period)
+    setInputError('')
+    if (
+      !draftValue.trim() ||
+      !/^[$\d,\s.]+$/.test(draftValue.trim()) ||
+      !Number.isFinite(Number(draftValue.replace(/[$,\s]/g, '')))
+    ) {
+      setInputError('Enter a valid opening inventory value')
+      return
+    }
+    try {
+      const period = periodMonthFromDate(draftPeriod)
+      await updateSettings.mutateAsync({
+        beginning_period_month: period,
+        beginning_inventory_value: parseInventoryMoney(draftValue),
+      })
+      setSelectedMonth(period)
+    } catch (error) {
+      setInputError((error as Error).message)
+    }
   }
 
   if (isLoading) return <PageLoader />
@@ -65,8 +102,12 @@ export default function InventoryBalance() {
     return (
       <div className="card py-16 text-center">
         <AlertTriangle size={32} className="mx-auto mb-3 text-danger" />
-        <div className="font-semibold text-text1">Failed to load inventory balance</div>
-        <div className="mt-1 text-sm text-text2">{(error as Error)?.message ?? 'Try refreshing the page.'}</div>
+        <div className="font-semibold text-text1">
+          Failed to load inventory balance
+        </div>
+        <div className="mt-1 text-sm text-text2">
+          {(error as Error)?.message ?? 'Try refreshing the page.'}
+        </div>
       </div>
     )
   }
@@ -75,8 +116,12 @@ export default function InventoryBalance() {
     return (
       <div className="card py-16 text-center">
         <AlertTriangle size={32} className="mx-auto mb-3 text-warning" />
-        <div className="font-semibold text-text1">Inventory balance setup is not available</div>
-        <div className="mt-1 text-sm text-text2">Run the inventory balance migration before opening this view.</div>
+        <div className="font-semibold text-text1">
+          Inventory balance setup is not available
+        </div>
+        <div className="mt-1 text-sm text-text2">
+          Run the inventory balance migration before opening this view.
+        </div>
       </div>
     )
   }
@@ -120,7 +165,11 @@ export default function InventoryBalance() {
             </button>
           </div>
           {selectedMonth !== currentMonth && (
-            <button type="button" className="btn-secondary text-xs" onClick={() => setSelectedMonth(currentMonth)}>
+            <button
+              type="button"
+              className="btn-secondary text-xs"
+              onClick={() => setSelectedMonth(currentMonth)}
+            >
               <RotateCcw size={14} />
               Current month
             </button>
@@ -128,31 +177,53 @@ export default function InventoryBalance() {
         </div>
       </div>
 
-      <div className="mb-6 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="mb-6 grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <KPICard
             label="Beginning balance"
-            value={selectedRow ? fmtCurrency(selectedRow.beginning_inventory_value) : '-'}
-            sub={firstRow ? `From ${formatInventoryPeriod(firstRow.period_month)}` : 'Not set'}
+            value={
+              selectedRow
+                ? fmtCurrency(selectedRow.beginning_inventory_value)
+                : '-'
+            }
+            sub={
+              firstRow
+                ? `From ${formatInventoryPeriod(firstRow.period_month)}`
+                : 'Not set'
+            }
             icon={<WalletCards size={15} />}
           />
           <KPICard
             label="PO received"
-            value={selectedRow ? fmtCurrency(selectedRow.po_received_value) : '-'}
+            value={
+              selectedRow ? fmtCurrency(selectedRow.po_received_value) : '-'
+            }
             sub={`${fmtNumber(data?.receiptMovementCount ?? 0)} receipt movements`}
             variant="info"
             icon={<Boxes size={15} />}
           />
           <KPICard
             label="COGS"
-            value={selectedRow ? accountingCurrency(-selectedRow.cogs_amount) : '-'}
-            sub={selectedRow && selectedRow.missing_cogs_count > 0 ? `${fmtNumber(selectedRow.missing_cogs_count)} missing rows` : 'Sales cost in period'}
-            variant={selectedRow && selectedRow.cogs_amount > 0 ? 'danger' : 'default'}
+            value={
+              selectedRow ? accountingCurrency(-selectedRow.cogs_amount) : '-'
+            }
+            sub={
+              selectedRow && selectedRow.missing_cogs_count > 0
+                ? `${fmtNumber(selectedRow.missing_cogs_count)} missing rows`
+                : 'Sales cost in period'
+            }
+            variant={
+              selectedRow && selectedRow.cogs_amount > 0 ? 'danger' : 'default'
+            }
             icon={<ReceiptText size={15} />}
           />
           <KPICard
             label="Ending inventory"
-            value={selectedRow ? fmtCurrency(selectedRow.ending_inventory_value) : '-'}
+            value={
+              selectedRow
+                ? fmtCurrency(selectedRow.ending_inventory_value)
+                : '-'
+            }
             sub={selectedRow ? signedCurrency(periodDelta) : 'Balance result'}
             variant={periodDelta < 0 ? 'warning' : 'success'}
             icon={<Calculator size={15} />}
@@ -165,7 +236,12 @@ export default function InventoryBalance() {
           draftPeriod={draftPeriod}
           draftValue={draftValue}
           isSaving={updateSettings.isPending}
-          saveError={updateSettings.error instanceof Error ? updateSettings.error.message : null}
+          saveError={
+            inputError ||
+            (updateSettings.error instanceof Error
+              ? updateSettings.error.message
+              : null)
+          }
           saveSuccess={updateSettings.isSuccess}
           onPeriodChange={setDraftPeriod}
           onValueChange={setDraftValue}
@@ -181,11 +257,37 @@ export default function InventoryBalance() {
 
       {(data?.missingCogsRows ?? 0) > 0 && (
         <div className="mb-4 rounded-lg border border-warning/25 bg-warning/10 px-4 py-3 text-sm text-warning">
-          COGS is missing on {fmtNumber(data?.missingCogsRows ?? 0)} SellerCloud sales row{data?.missingCogsRows === 1 ? '' : 's'}.
+          COGS is missing on {fmtNumber(data?.missingCogsRows ?? 0)} SellerCloud
+          sales row{data?.missingCogsRows === 1 ? '' : 's'}.
         </div>
       )}
 
-      <InventoryBalanceTable rows={rows} selectedPeriod={selectedRow?.period_month ?? selectedMonth} />
+      {data?.settings && incomplete.length > 0 && (
+        <div
+          role="status"
+          className="mb-4 rounded-lg border border-warning/25 bg-warning/10 px-4 py-3 text-sm text-warning"
+        >
+          <strong>Provisional balance.</strong> {incomplete.length} month(s)
+          have incomplete receipt history or COGS. Uncovered receipts use the
+          date first observed by sync, which may differ from their actual
+          receiving date. Later balances remain provisional until earlier gaps
+          are filled.
+          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
+            {incomplete.map((r) => (
+              <span key={r.period_month}>
+                {formatInventoryPeriod(r.period_month)}: receipts{' '}
+                {r.receipt_covered_days}/{r.expected_days} days; COGS{' '}
+                {r.cogs_covered_days}/{r.expected_days} days
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {isAdmin && <InventoryReceiptImport />}
+      <InventoryBalanceTable
+        rows={rows}
+        selectedPeriod={selectedRow?.period_month ?? selectedMonth}
+      />
     </div>
   )
 }
@@ -216,11 +318,15 @@ function OpeningBalancePanel({
   if (!isAdmin) {
     return (
       <div className="card">
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-text2">Opening balance</div>
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-text2">
+          Opening balance
+        </div>
         <div className="mt-2 text-lg font-bold text-text1">
           {hasSettings ? formatInventoryPeriod(draftPeriod) : 'Not set'}
         </div>
-        <div className="mt-1 text-sm text-text2">{hasSettings ? draftValue : 'Admin setup required'}</div>
+        <div className="mt-1 text-sm text-text2">
+          {hasSettings ? draftValue : 'Admin setup required'}
+        </div>
       </div>
     )
   }
@@ -229,30 +335,44 @@ function OpeningBalancePanel({
     <div className="card">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-text2">Opening balance</div>
-          <div className="mt-1 text-sm font-semibold text-text1">Admin setting</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-text2">
+            Opening balance
+          </div>
+          <div className="mt-1 text-sm font-semibold text-text1">
+            Admin setting
+          </div>
+          <p className="mt-2 text-xs text-text2">
+            Enter inventory at the beginning of this month. If you change the
+            month, enter the matching opening value. Historical data is
+            retained.
+          </p>
         </div>
         <Calculator size={17} className="text-text2" />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
         <label className="block">
-          <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text2">Period</span>
+          <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text2">
+            Period
+          </span>
           <input
             className="input w-full"
             type="month"
+            max={new Date().toISOString().slice(0, 7)}
             value={draftPeriod.slice(0, 7)}
-            onChange={event => onPeriodChange(`${event.target.value}-01`)}
+            onChange={(event) => onPeriodChange(`${event.target.value}-01`)}
           />
         </label>
         <label className="block">
-          <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text2">Value</span>
+          <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text2">
+            Value
+          </span>
           <input
             className="input w-full tabular-nums"
             value={draftValue}
             inputMode="decimal"
-            onChange={event => onValueChange(event.target.value)}
-            onBlur={() => onValueChange(fmtCurrencyFull(parseInventoryMoney(draftValue)))}
+            onChange={(event) => onValueChange(event.target.value)}
+
             placeholder="$0.00"
           />
         </label>
@@ -260,9 +380,18 @@ function OpeningBalancePanel({
 
       <div className="mt-4 flex items-center justify-between gap-3">
         <div className="min-h-5 text-xs">
-          {saveError ? <span className="text-danger">{saveError}</span> : saveSuccess ? <span className="text-success">Saved</span> : null}
+          {saveError ? (
+            <span className="text-danger">{saveError}</span>
+          ) : saveSuccess ? (
+            <span className="text-success">Saved</span>
+          ) : null}
         </div>
-        <button type="button" className="btn-primary text-xs" onClick={onSave} disabled={isSaving}>
+        <button
+          type="button"
+          className="btn-primary text-xs"
+          onClick={onSave}
+          disabled={isSaving}
+        >
           <Save size={14} />
           {isSaving ? 'Saving' : 'Save'}
         </button>
@@ -271,7 +400,13 @@ function OpeningBalancePanel({
   )
 }
 
-function InventoryBalanceTable({ rows, selectedPeriod }: { rows: InventoryBalanceRow[]; selectedPeriod: string }) {
+function InventoryBalanceTable({
+  rows,
+  selectedPeriod,
+}: {
+  rows: InventoryBalanceRow[]
+  selectedPeriod: string
+}) {
   return (
     <div className="tbl-wrap max-h-[calc(100vh-360px)]">
       <table className="tbl min-w-[980px]">
@@ -292,16 +427,35 @@ function InventoryBalanceTable({ rows, selectedPeriod }: { rows: InventoryBalanc
                 No inventory balance rows to show.
               </td>
             </tr>
-          ) : rows.map(row => (
-            <tr key={row.period_month} className={cn(row.period_month === selectedPeriod && 'bg-accent/5')}>
-              <td className="whitespace-nowrap text-xs text-text2">{formatTableDate(row.first_date)}</td>
-              <td className="text-right font-semibold tabular-nums text-text1">{fmtCurrencyFull(row.beginning_inventory_value)}</td>
-              <td className="text-right tabular-nums text-accent">{fmtCurrencyFull(row.po_received_value)}</td>
-              <td className="text-right tabular-nums text-danger">{accountingCurrency(-row.cogs_amount)}</td>
-              <td className="text-right font-semibold tabular-nums text-success">{fmtCurrencyFull(row.ending_inventory_value)}</td>
-              <td className="whitespace-nowrap text-xs text-text2">{formatTableDate(row.end_date)}</td>
-            </tr>
-          ))}
+          ) : (
+            rows.map((row) => (
+              <tr
+                key={row.period_month}
+                className={cn(
+                  row.period_month === selectedPeriod && 'bg-accent/5',
+                )}
+              >
+                <td className="whitespace-nowrap text-xs text-text2">
+                  {formatTableDate(row.first_date)}
+                </td>
+                <td className="text-right font-semibold tabular-nums text-text1">
+                  {fmtCurrencyFull(row.beginning_inventory_value)}
+                </td>
+                <td className="text-right tabular-nums text-accent">
+                  {fmtCurrencyFull(row.po_received_value)}
+                </td>
+                <td className="text-right tabular-nums text-danger">
+                  {accountingCurrency(-row.cogs_amount)}
+                </td>
+                <td className="text-right font-semibold tabular-nums text-success">
+                  {fmtCurrencyFull(row.ending_inventory_value)}
+                </td>
+                <td className="whitespace-nowrap text-xs text-text2">
+                  {formatTableDate(row.end_date)}
+                </td>
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
     </div>
@@ -309,13 +463,20 @@ function InventoryBalanceTable({ rows, selectedPeriod }: { rows: InventoryBalanc
 }
 
 function formatInventoryPeriod(periodMonth: string): string {
-  return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
-    .format(new Date(`${periodMonth}T00:00:00Z`))
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${periodMonth}T00:00:00Z`))
 }
 
 function formatTableDate(value: string): string {
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
-    .format(new Date(`${value}T00:00:00Z`))
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${value}T00:00:00Z`))
 }
 
 function signedCurrency(value: number): string {

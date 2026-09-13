@@ -42,7 +42,8 @@ Deno.serve(async (req) => {
       : purchaseOrders
 
     if (options.includeItems) {
-      for (const po of activePurchaseOrders) {
+      // Include newly completed POs so their final receipts are not lost.
+      for (const po of purchaseOrders) {
         const poId = Number(first(po, ['ID', 'Id', 'id', 'POID', 'PurchaseOrderID']))
         if (!Number.isFinite(poId)) continue
         try {
@@ -54,20 +55,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    let receiptMovementCount = 0
+    // The database trigger records receipt deltas atomically with this upsert.
     if (itemRows.length > 0) {
-      const existingItemReceipts = await loadExistingPOItemReceiptBaselines(supabase, itemRows)
-      const ordersById = new Map(orderRows.map(row => [Number(row.id), row]))
-      const receiptMovements = buildReceiptMovements(itemRows, existingItemReceipts, ordersById, new Date().toISOString())
-      receiptMovementCount = receiptMovements.length
-
-      if (receiptMovements.length > 0) {
-        const { error } = await supabase
-          .from('po_receipt_movements')
-          .upsert(receiptMovements, { onConflict: 'movement_key', ignoreDuplicates: true })
-        if (error) throw error
-      }
-
       const { error } = await supabase.from('po_items').upsert(itemRows, { onConflict: 'id' })
       if (error) throw error
     }
@@ -95,7 +84,6 @@ Deno.serve(async (req) => {
       synced: orderRows.length,
       active: activePurchaseOrders.length,
       items: itemRows.length,
-      receiptMovements: receiptMovementCount,
       itemFailures,
       incrementalFrom: syncState.queryCursor,
       nextCursor,
@@ -366,88 +354,6 @@ function toPOItemRow(item: JsonRecord, poId: number, bridge: Map<string, string>
   }
 }
 
-async function loadExistingPOItemReceiptBaselines(
-  supabase: ReturnType<typeof createClient>,
-  itemRows: JsonRecord[]
-): Promise<Map<number, JsonRecord>> {
-  const existing = new Map<number, JsonRecord>()
-  const ids = Array.from(new Set(itemRows
-    .map(row => Number(row.id))
-    .filter(id => Number.isFinite(id))))
-  const pageSize = 500
-
-  for (let index = 0; index < ids.length; index += pageSize) {
-    const batch = ids.slice(index, index + pageSize)
-    const { data, error } = await supabase
-      .from('po_items')
-      .select('id,qty_units_received,last_balance_received_units')
-      .in('id', batch)
-    if (error) throw error
-
-    for (const row of data ?? []) {
-      const id = Number(row.id)
-      if (Number.isFinite(id)) existing.set(id, row as JsonRecord)
-    }
-  }
-
-  return existing
-}
-
-function buildReceiptMovements(
-  itemRows: JsonRecord[],
-  existingById: Map<number, JsonRecord>,
-  ordersById: Map<number, JsonRecord>,
-  observedAt: string
-): JsonRecord[] {
-  const movements: JsonRecord[] = []
-
-  for (const row of itemRows) {
-    const poItemId = Number(row.id)
-    const poId = Number(row.po_id)
-    if (!Number.isFinite(poItemId) || !Number.isFinite(poId)) continue
-
-    const currentReceived = Number(row.qty_units_received ?? 0)
-    if (!Number.isFinite(currentReceived)) continue
-
-    const existing = existingById.get(poItemId)
-    const previousReceived = Number(
-      existing?.last_balance_received_units
-        ?? existing?.qty_units_received
-        ?? currentReceived
-    )
-    if (!Number.isFinite(previousReceived)) continue
-
-    const receivedDeltaUnits = currentReceived - previousReceived
-    if (!Number.isFinite(receivedDeltaUnits) || receivedDeltaUnits === 0) continue
-
-    const unitPrice = Number(row.unit_price ?? 0)
-    const order = ordersById.get(poId)
-    const sourceUpdatedOn = nullableDate(order?.updated_on) ?? null
-    const movementKey = [
-      poItemId,
-      previousReceived,
-      currentReceived,
-      sourceUpdatedOn ?? 'unknown',
-    ].join('|')
-
-    movements.push({
-      movement_key: movementKey,
-      po_item_id: poItemId,
-      po_id: poId,
-      source_sku: String(row.source_sku ?? ''),
-      planning_sku: nullableText(row.planning_sku),
-      received_delta_units: roundMoney(receivedDeltaUnits),
-      unit_price: roundMoney(unitPrice),
-      received_value: roundMoney(receivedDeltaUnits * unitPrice),
-      observed_at: observedAt,
-      source_updated_on: sourceUpdatedOn,
-      sync_run_key: observedAt,
-    })
-  }
-
-  return movements
-}
-
 const PURCHASE_ORDER_STATUSES: Record<number, string> = {
   0: 'Saved',
   1: 'Ordered',
@@ -563,10 +469,6 @@ function nullableNumber(value: unknown): number | null {
   if (value == null || value === '') return null
   const number = Number(value)
   return Number.isFinite(number) ? number : null
-}
-
-function roundMoney(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100
 }
 
 function nullableBoolean(value: unknown): boolean | null {
