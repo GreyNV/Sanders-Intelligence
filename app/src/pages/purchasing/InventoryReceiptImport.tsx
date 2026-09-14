@@ -4,7 +4,7 @@ import { Download, Upload } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { fmtCurrencyFull } from '@/lib/utils'
 import {
-  parseReceiptRows,
+  prepareReceiptImport,
   type HistoricalReceipt,
 } from './InventoryBalance.import'
 
@@ -15,19 +15,26 @@ export default function InventoryReceiptImport() {
   const [to, setTo] = useState(yesterday)
   const [filename, setFilename] = useState('')
   const [rows, setRows] = useState<HistoricalReceipt[]>([])
+  const [summary, setSummary] = useState({
+    native: false,
+    excludedToday: 0,
+    zeroCost: 0,
+    reversals: 0,
+  })
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   function clearPreview() {
     setRows([])
+    setSummary({ native: false, excludedToday: 0, zeroCost: 0, reversals: 0 })
     setConfirmed(false)
     setFilename('')
     setError('')
     setSuccess('')
   }
   async function load(file: File | undefined) {
-    if (!file) return
+    if (!file || busy) return
     clearPreview()
     setBusy(true)
     try {
@@ -39,12 +46,20 @@ export default function InventoryReceiptImport() {
       const workbook = XLSX.read(await file.arrayBuffer(), {
         type: 'array',
         raw: true,
+        cellDates: true,
       })
       const source = XLSX.utils.sheet_to_json<Record<string, unknown>>(
         workbook.Sheets[workbook.SheetNames[0]],
-        { raw: false, defval: '' },
+        { raw: true, defval: '' },
       )
-      setRows(parseReceiptRows(source, from, to))
+      const preview = prepareReceiptImport(
+        source,
+        from,
+        to,
+        new Date().toISOString().slice(0, 10),
+      )
+      setRows(preview.rows)
+      setSummary(preview)
       setFilename(file.name)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not read the export')
@@ -68,6 +83,7 @@ export default function InventoryReceiptImport() {
       await qc.invalidateQueries({ queryKey: ['inventory_balance'] })
       setSuccess(`Imported ${rows.length} receipts for ${from} through ${to}.`)
       setRows([])
+      setSummary({ native: false, excludedToday: 0, zeroCost: 0, reversals: 0 })
       setConfirmed(false)
     } catch (e) {
       setError(
@@ -92,15 +108,28 @@ export default function InventoryReceiptImport() {
     URL.revokeObjectURL(url)
   }
   return (
-    <details className="card mb-5">
+    <details
+      className="card mb-5"
+      onDragOver={(e) => {
+        e.preventDefault()
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        if (!busy) {
+          e.currentTarget.open = true
+          void load(e.dataTransfer.files[0])
+        }
+      }}
+    >
       <summary className="cursor-pointer font-semibold text-text1">
         Import historical receipts
       </summary>
       <p className="mt-3 text-sm text-text2">
-        Use a complete SellerCloud receiving export with actual receipt dates
-        and USD unit costs. Each partial receipt or reversal needs its own
-        unique receipt ID. Changing the opening balance does not delete these
-        records.
+        Drop the original SellerCloud Inventory Arrivals XLSX here, or choose a
+        file below. No column changes are needed. Receipt dates, discounted USD
+        costs, and corrections are read directly from the report. Confirm the
+        date range you exported. Today's receipts are excluded because the day
+        is still incomplete.
       </p>
       <div className="mt-4 flex flex-wrap items-end gap-3">
         <label className="text-xs text-text2">
@@ -160,6 +189,27 @@ export default function InventoryReceiptImport() {
             {filename}: {rows.length} receipts ·{' '}
             {fmtCurrencyFull(rows.reduce((n, r) => n + r.received_value, 0))}
           </p>
+          {summary.native && (
+            <p className="mt-2 text-text2">
+              SellerCloud Inventory Arrivals detected. Using the final
+              discounted unit price plus extra cost per unit.
+            </p>
+          )}
+          <p className="mt-2 text-text2">
+            {summary.reversals} negative-quantity corrections preserved.
+          </p>
+          {summary.zeroCost > 0 && (
+            <p className="mt-2 text-warning">
+              {summary.zeroCost} receipts have zero unit cost. They will be kept
+              at zero; review these costs before relying on the balance.
+            </p>
+          )}
+          {summary.excludedToday > 0 && (
+            <p className="mt-2 text-text2">
+              {summary.excludedToday} receipts dated today excluded. Import them
+              with a later export after the day is complete.
+            </p>
+          )}
           <p className="mt-1 text-text2">
             Import replaces historical receipts in this date range. Observed
             sync movements in covered days will be excluded to avoid counting
