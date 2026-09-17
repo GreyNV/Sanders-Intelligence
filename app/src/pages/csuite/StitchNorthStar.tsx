@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import BprPresentation, { type PresentationPresenter } from '@/components/BprPresentation'
+import SlideFrame from '@/components/SlideFrame'
 import {
   AlertTriangle,
   ArrowDown,
@@ -112,6 +115,8 @@ export default function StitchNorthStar() {
   const [search, setSearch] = useState('')
   const [presentingOwner, setPresentingOwner] = useState<string | null>(null)
   const [activeSlide, setActiveSlide] = useState(0)
+  const [presentation, setPresentation] = useState<{ presenters: PresentationPresenter[]; owner: number; slide: number } | null>(null)
+  const [presentationError, setPresentationError] = useState('')
   const [generatedRowOverrides, setGeneratedRowOverrides] = useState<StitchAutoRowOverrideMap>({})
   const migratedLocalOverridesRef = useRef('')
 
@@ -266,6 +271,30 @@ export default function StitchNorthStar() {
 
   const isSaving = updateRow.isPending || updateProgress.isPending || upsertAutoRowOverride.isPending || upsertHtmlBlock.isPending || updatePresenterOrder.isPending
 
+  async function startPresentation(owner = 0, slide = 0) {
+    setPresentationError('')
+    try {
+      const fullscreen = document.documentElement.requestFullscreen()
+      const css = [...document.styleSheets].map(sheet => {
+        try { return [...sheet.cssRules].map(rule => rule.cssText).join('\n') } catch { return '' }
+      }).join('\n')
+      const presenters = ownerDecks.map((deck, order) => ({
+        id: deck.ownerKey, name: deck.owner, order,
+        slides: deck.rows.map((row, index) => ({
+          id: stitchSlideHtmlKey(row), order: index,
+          html: htmlBlocksByKey.get(stitchSlideHtmlKey(row))?.view_mode === 'html'
+            ? htmlBlocksByKey.get(stitchSlideHtmlKey(row))!.html_code
+            : buildFieldSlideHtml(row, deck.owner, css),
+        })),
+      }))
+      await fullscreen
+      setPresentation({ presenters, owner, slide })
+    } catch (error) {
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
+      setPresentationError(`Could not enter fullscreen: ${error instanceof Error ? error.message : 'Please try again.'}`)
+    }
+  }
+
   function canEditField(row: NorthStarDisplayRow, field: NorthStarEditableField): boolean {
     if (row.source === 'monthly_star') {
       if (field === 'pillar' || field === 'owner') return false
@@ -389,7 +418,7 @@ export default function StitchNorthStar() {
             </button>
           </div>
           {ownerDecks[0] && (
-            <button type="button" className="btn-primary text-xs" onClick={() => setPresentingOwner(ownerDecks[0].owner)}>
+            <button type="button" className="btn-primary text-xs" onClick={() => void startPresentation()}>
               <Monitor size={14} />
               Present
             </button>
@@ -397,6 +426,8 @@ export default function StitchNorthStar() {
         </div>
       </div>
 
+      {presentationError && <div role="alert" className="text-danger">{presentationError}</div>}
+      {presentation && <BprPresentation presenters={presentation.presenters} initialPresenter={presentation.owner} initialSlide={presentation.slide} onClose={() => setPresentation(null)} />}
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
         <StitchMetric label="MTD sales" value={fmtCurrency(displayedMonthlyInput.mtd_actual)} sub={`${fmtCurrency(displayedMonthlyMetrics.dailyPace)} / day`} icon={<BarChart3 size={16} />} tone="info" />
         <StitchMetric label="Projected" value={fmtCurrency(displayedMonthlyMetrics.projectedMonthEnd)} sub="Month-end pace" icon={displayedMonthlyMetrics.onTrack ? <TrendingUp size={16} /> : <TrendingDown size={16} />} tone={displayedMonthlyMetrics.onTrack ? 'success' : 'warning'} />
@@ -556,6 +587,7 @@ export default function StitchNorthStar() {
           onHtmlBlockSave={handleHtmlBlockSave}
           onSlideChange={setActiveSlide}
           onPresenterChange={movePresenter}
+          onPresent={() => void startPresentation(selectedDeckIndex, activeSlide)}
           onClose={() => setPresentingOwner(null)}
         />
       )}
@@ -714,6 +746,7 @@ function OwnerDeckModal({
   onHtmlBlockSave,
   onSlideChange,
   onPresenterChange,
+  onPresent,
   onClose,
 }: {
   deck: StitchOwnerDeck
@@ -728,6 +761,7 @@ function OwnerDeckModal({
   onHtmlBlockSave: StitchHtmlSaveHandler
   onSlideChange: (slide: number) => void
   onPresenterChange: (direction: -1 | 1) => void
+  onPresent: () => void
   onClose: () => void
 }) {
   const row = deck.rows[activeSlide]
@@ -772,6 +806,7 @@ function OwnerDeckModal({
               />
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <button type="button" className="btn-primary" onClick={onPresent}><Monitor size={16} />Present</button>
               <div className="inline-flex overflow-hidden rounded-lg border border-border bg-surface2">
                 <button
                   type="button"
@@ -1096,18 +1131,31 @@ function StitchHtmlFrame({
   presentation: boolean
 }) {
   return (
-    <div className={cn('overflow-hidden rounded-lg border border-border bg-white', presentation ? 'h-[min(72vh,760px)]' : 'h-[460px]')}>
-      <iframe
-        title={`HTML view for ${row.pillar}`}
-        className="h-full w-full bg-white"
-        sandbox="allow-scripts"
-        referrerPolicy="no-referrer"
-        srcDoc={htmlCode}
-      />
+    <div className={cn('relative overflow-hidden rounded-lg border border-border bg-white', presentation ? 'h-[min(72vh,760px)]' : 'h-[460px]')}>
+      <SlideFrame key={htmlCode} title={`HTML view for ${row.pillar}`} html={htmlCode} />
     </div>
   )
 }
 
+function buildFieldSlideHtml(row: NorthStarDisplayRow, owner: string, css: string): string {
+  const content = renderToStaticMarkup(
+    <main style={{ width: 1280, minHeight: 720, padding: 40, boxSizing: 'border-box', background: '#0f172a', color: '#f8fafc', fontFamily: 'Arial, sans-serif' }}>
+      <div style={{ fontSize: 18, color: '#94a3b8' }}>{owner} · {formatPeriodMonth(row.period_month)} · {STATUS_LABELS[row.status]}</div>
+      <h1 style={{ fontSize: 36, fontWeight: 700, margin: '12px 0' }}>{row.pillar}</h1>
+      <h2 style={{ fontSize: 26, marginBottom: 24, whiteSpace: 'pre-wrap' }}>{row.north_star || 'Not set'}</h2>
+      <FinanceSlideGraph row={row} />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 24 }}>
+        {[[actualMetricLabel(row), row.actual_mtd], ['Forecast', row.forecast], ['Plan', row.plan_value], ['Constraint now', row.constraint_now], ["This week's move", row.weekly_move], [commentBoxLabel(row), row.last_week_result]].map(([label, value]) => (
+          <section key={label} style={{ padding: 20, border: '1px solid #334155', borderRadius: 12 }}>
+            <h3 style={{ fontSize: 16, color: '#94a3b8', marginBottom: 8 }}>{label}</h3>
+            <div style={{ fontSize: 24, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{value || 'Not set'}</div>
+          </section>
+        ))}
+      </div>
+    </main>
+  )
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${css.replace(/<\/style/gi, '<\\/style')}\nhtml,body{margin:0;padding:0;width:1280px;min-height:720px;background:#0f172a}</style></head><body>${content}</body></html>`
+}
 function FinanceSlideGraph({ row }: { row: NorthStarDisplayRow }) {
   const chart = row.chart
   if (!chart) return null
