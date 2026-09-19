@@ -72,7 +72,7 @@ for (
     writeFileSync(`${file}.tmp`, JSON.stringify(row))
     renameSync(`${file}.tmp`, file)
   }
-  if (row.sale_date !== date || row.source !== 'sellercloud_profit_loss_usd' || !Number.isFinite(row.cogs_amount) || !Number.isInteger(row.order_count) || !Number.isInteger(row.missing_cost_count) || row.missing_cost_count < 0 || row.missing_cost_count > row.order_count) throw new Error(`Invalid cached daily COGS for ${date}`)
+  if (row.sale_date !== date || row.source !== 'sellercloud_item_cost_usd' || !Number.isFinite(row.cogs_amount) || !Number.isInteger(row.order_count) || !Number.isInteger(row.missing_cost_count) || row.missing_cost_count < 0 || row.missing_cost_count > row.order_count) throw new Error(`Invalid cached daily COGS for ${date}`)
   if (db) {
     const { error } = await db
       .from('inventory_cogs_daily')

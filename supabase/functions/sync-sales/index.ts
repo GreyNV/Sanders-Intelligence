@@ -216,7 +216,7 @@ async function requireAdminOrService(req: Request, supabase: ReturnType<typeof c
   if (!token) throw new Error('Missing bearer token')
 
   if (token === Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')) return
-  if (jwtRole(token) === 'service_role') return
+  // Service access requires the exact configured secret, not an unverified JWT claim.
 
   const { data: authData, error: authError } = await supabase.auth.getUser(token)
   if (authError || !authData.user) throw new Error('Invalid bearer token')
@@ -388,6 +388,8 @@ function orderHasPositiveLineRevenue(order: JsonRecord): boolean {
 function profitAndLossFields(row: JsonRecord): JsonRecord {
   const fields: JsonRecord = {}
   for (const key of [
+    'ItemCost',
+    'ItemCostUsd',
     'OrderCost',
     'OrderCostUsd',
     'ProfitLoss',
@@ -771,14 +773,14 @@ function cogsForRow(row: JsonRecord, orderCogsGroups: Map<string, OrderCogsGroup
 }
 
 function orderCogsTotal(row: JsonRecord): ReportOrderCost | null {
-  const usdCost = nullableNumber(first(row, ['OrderCostUsd', 'orderCostUsd']))
+  const usdCost = nullableNumber(first(row, ['ItemCostUsd', 'itemCostUsd']))
   if (usdCost != null) {
-    return { amount: usdCost, applyCurrencyRate: false, source: 'sellercloud_profit_loss_usd' }
+    return { amount: usdCost, applyCurrencyRate: false, source: 'sellercloud_item_cost_usd' }
   }
 
-  const localCost = nullableNumber(first(row, ['OrderCost', 'orderCost']))
+  const localCost = nullableNumber(first(row, ['ItemCost', 'itemCost']))
   if (localCost != null) {
-    return { amount: localCost, applyCurrencyRate: true, source: 'sellercloud_profit_loss' }
+    return { amount: localCost, applyCurrencyRate: true, source: 'sellercloud_item_cost' }
   }
 
   return null

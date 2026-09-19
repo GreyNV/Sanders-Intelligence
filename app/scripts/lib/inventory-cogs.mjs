@@ -12,7 +12,7 @@ export function summarizeOrderCosts(orders, costs) {
       throw new Error('Missing or duplicate order ID in shipment pages')
     seen.add(id)
     const pnl = costById.get(id)
-    const raw = pnl?.OrderCostUsd
+    const raw = pnl?.ItemCostUsd
     if (raw == null || raw === '' || !Number.isFinite(Number(raw))) {
       missing++
       continue
@@ -102,13 +102,13 @@ export async function fetchDayCosts(
       return rows
     })
   ).flat()
-  const priced = new Set(costs.filter(row => row.OrderCostUsd != null && row.OrderCostUsd !== '' && Number.isFinite(Number(row.OrderCostUsd))).map(row => String(row.OrderID ?? row.OrderId ?? row.ID)))
+  const priced = new Set(costs.filter(row => row.ItemCostUsd != null && row.ItemCostUsd !== '' && Number.isFinite(Number(row.ItemCostUsd))).map(row => String(row.OrderID ?? row.OrderId ?? row.ID)))
   const missingOrderIds = orders.filter(row => !priced.has(String(row.ID))).map(row => row.ID)
   if (missingOrderIds.length) progress({ date, phase: 'missing_costs', order_ids: missingOrderIds })
   return {
     sale_date: date,
     ...summarizeOrderCosts(orders, costs),
-    source: 'sellercloud_profit_loss_usd',
+    source: 'sellercloud_item_cost_usd',
     fetched_at: new Date().toISOString(),
   }
 }

@@ -8,9 +8,9 @@ describe('inventory COGS backfill', () => {
       summarizeOrderCosts(
         [{ ID: 1 }, { ID: 2 }, { ID: 3 }, { ID: 4 }],
         [
-          { OrderID: 1, OrderCostUsd: 100 },
-          { OrderID: 2, OrderCostUsd: 0 },
-          { OrderID: 3, OrderCostUsd: -20 },
+          { OrderID: 1, ItemCostUsd: 100 },
+          { OrderID: 2, ItemCostUsd: 0 },
+          { OrderID: 3, ItemCostUsd: -20 },
         ],
       ),
     ).toEqual({ cogs_amount: 80, order_count: 4, missing_cost_count: 1 })
@@ -47,7 +47,7 @@ it('identifies orders whose source cost is absent without treating zero as missi
   const events: Array<{ phase: string; order_ids?: number[] }> = []
   const result = await fetchDayCosts(
     async () => ({ Items: [{ ID: 11 }, { ID: 12 }], TotalResults: 2 }),
-    async () => [{ OrderID: 11, OrderCostUsd: 0 }],
+    async () => [{ OrderID: 11, ItemCostUsd: 0 }],
     '2026-01-01', 50,
     (event: { phase: string; order_ids?: number[] }) => events.push(event),
   )

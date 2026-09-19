@@ -7,3 +7,4 @@ dist
 *.log
 .sales-backfill-state.json
 .inventory-cogs-cache/
+.inventory-item-cogs-cache/

@@ -129,9 +129,9 @@ describe('Edge Supabase pagination guards', () => {
     expect(merge).toContain('cogs_amount')
     expect(merge).toContain('Number(existing.cogs_amount')
     expect(merge).toContain('Number(row.cogs_amount')
-    expect(cogsSelector).toContain("['OrderCostUsd', 'orderCostUsd']")
-    expect(cogsSelector).toContain("['OrderCost', 'orderCost']")
-    expect(cogsSelector.indexOf("['OrderCostUsd'")).toBeLessThan(cogsSelector.indexOf("['OrderCost'"))
+    expect(cogsSelector).toContain("['ItemCostUsd', 'itemCostUsd']")
+    expect(cogsSelector).toContain("['ItemCost', 'itemCost']")
+    expect(cogsSelector.indexOf("['ItemCostUsd'")).toBeLessThan(cogsSelector.indexOf("['ItemCost'"))
   })
 
   it('delegates receipt tracking to the database transaction', () => {
