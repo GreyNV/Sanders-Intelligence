@@ -32,9 +32,10 @@ export function sellerCloudReader(env, transport = fetch, sleep = ms => new Prom
   return async (path,body) => {
     for (let attempt=0;attempt<2;attempt++) {
       tokenPromise ??= authenticate().catch(error=>{tokenPromise=null;throw error})
-      const token=await tokenPromise
+      const currentTokenPromise=tokenPromise
+      const token=await currentTokenPromise
       try { return await request(path,body,token) }
-      catch(error){if(error.status!==401||attempt===1)throw error;tokenPromise=null}
+      catch(error){if(error.status!==401||attempt===1)throw error;if(tokenPromise===currentTokenPromise)tokenPromise=null}
     }
   }
 }
