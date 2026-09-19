@@ -102,6 +102,9 @@ export async function fetchDayCosts(
       return rows
     })
   ).flat()
+  const priced = new Set(costs.filter(row => row.OrderCostUsd != null && row.OrderCostUsd !== '' && Number.isFinite(Number(row.OrderCostUsd))).map(row => String(row.OrderID ?? row.OrderId ?? row.ID)))
+  const missingOrderIds = orders.filter(row => !priced.has(String(row.ID))).map(row => row.ID)
+  if (missingOrderIds.length) progress({ date, phase: 'missing_costs', order_ids: missingOrderIds })
   return {
     sale_date: date,
     ...summarizeOrderCosts(orders, costs),

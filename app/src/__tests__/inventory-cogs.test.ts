@@ -42,3 +42,15 @@ describe('inventory COGS backfill', () => {
     })
   })
 })
+
+it('identifies orders whose source cost is absent without treating zero as missing', async () => {
+  const events: Array<{ phase: string; order_ids?: number[] }> = []
+  const result = await fetchDayCosts(
+    async () => ({ Items: [{ ID: 11 }, { ID: 12 }], TotalResults: 2 }),
+    async () => [{ OrderID: 11, OrderCostUsd: 0 }],
+    '2026-01-01', 50,
+    (event: { phase: string; order_ids?: number[] }) => events.push(event),
+  )
+  expect(result.missing_cost_count).toBe(1)
+  expect(events.find(event => event.phase === 'missing_costs')?.order_ids).toEqual([12])
+})
