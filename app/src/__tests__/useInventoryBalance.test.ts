@@ -53,3 +53,18 @@ describe('inventory balance history', () => {
     ).toBe(true)
   })
 })
+
+it('bounds history requests to individual months and combines their balances', async () => {
+  const ranges: Array<{ p_from: string; p_to: string }> = []
+  const mock = { ...client(), rpc: async (_name: string, range: { p_from: string; p_to: string }) => {
+    ranges.push(range)
+    return { data: [{ period_month: range.p_from, po_received_value: 200, cogs_amount: 150, missing_cogs_count: 0, receipt_count: 1, receipt_covered_days: 28, cogs_covered_days: 28, expected_days: 28, observed_receipt_value: 0 }], error: null }
+  } }
+  const result = await fetchInventoryBalance('2026-03-01', mock as never)
+  expect(ranges).toEqual([
+    { p_from: '2026-01-01', p_to: '2026-01-31' },
+    { p_from: '2026-02-01', p_to: '2026-02-28' },
+    { p_from: '2026-03-01', p_to: '2026-03-31' },
+  ])
+  expect(result.selectedRow?.ending_inventory_value).toBe(1150)
+})

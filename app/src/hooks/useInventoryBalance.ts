@@ -98,12 +98,20 @@ export async function fetchInventoryBalance(
       throw new Error(
         'Opening month must be within ten years of the selected month',
       )
-    const { data, error: totalsError } = await client.rpc(
-      'inventory_balance_months',
-      { p_from: start, p_to: inventoryBalanceMonthEnd(end) },
-    )
-    if (totalsError) throw totalsError
-    const coverage = (data ?? []) as InventoryCoverageMonth[]
+    // Bound each aggregation to one month: long histories can exceed the
+    // database statement timeout even though each monthly query succeeds.
+    const coverage: InventoryCoverageMonth[] = []
+    for (let month = start; month <= end;) {
+      const { data, error: totalsError } = await client.rpc(
+        'inventory_balance_months',
+        { p_from: month, p_to: inventoryBalanceMonthEnd(month) },
+      )
+      if (totalsError) throw totalsError
+      coverage.push(...((data ?? []) as InventoryCoverageMonth[]))
+      const next = new Date(`${month}T00:00:00Z`)
+      next.setUTCMonth(next.getUTCMonth() + 1)
+      month = next.toISOString().slice(0, 10)
+    }
     const rows = buildInventoryBalanceRows({
       settings,
       selectedPeriodMonth: end,
