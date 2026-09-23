@@ -6,11 +6,13 @@ import {
   Calculator,
   ChevronLeft,
   ChevronRight,
+  Download,
   ReceiptText,
   RotateCcw,
   Save,
   WalletCards,
 } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import KPICard from '@/components/ui/KPICard'
 import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/contexts/AuthContext'
@@ -34,7 +36,11 @@ export default function InventoryBalance() {
     [],
   )
   const [selectedMonth, setSelectedMonth] = useState(currentMonth)
-  const { data, isLoading, error } = useInventoryBalance(selectedMonth)
+  const [rangeFrom, setRangeFrom] = useState('')
+  const [rangeTo, setRangeTo] = useState(currentMonth.slice(0, 7))
+  const requestedEnd = rangeTo ? `${rangeTo}-01` : selectedMonth
+  const queryEnd = selectedMonth > requestedEnd ? selectedMonth : requestedEnd
+  const { data, isLoading, error } = useInventoryBalance(queryEnd)
   const updateSettings = useUpdateInventoryBalanceSettings()
   const [draftPeriod, setDraftPeriod] = useState(
     currentMonth.slice(0, 4) + '-01-01',
@@ -50,13 +56,20 @@ export default function InventoryBalance() {
   }, [data?.settings])
 
   const rows = data?.rows ?? []
-  const selectedRow = data?.selectedRow ?? null
+  const selectedRow = rows.find((row) => row.period_month === selectedMonth) ?? null
   const firstRow = rows[0] ?? null
   const previousMonth = addMonthsToInventoryPeriod(selectedMonth, -1)
   const nextMonth = addMonthsToInventoryPeriod(selectedMonth, 1)
   const minMonth = data?.settings
     ? periodMonthFromDate(data.settings.beginning_period_month)
     : ''
+  const minRangeMonth = minMonth.slice(0, 7)
+  const effectiveRangeFrom = rangeFrom || minRangeMonth
+  const visibleRows = rows.filter(
+    (row) =>
+      (!effectiveRangeFrom || row.period_month.slice(0, 7) >= effectiveRangeFrom) &&
+      (!rangeTo || row.period_month.slice(0, 7) <= rangeTo),
+  )
   const canGoBack = !minMonth || selectedMonth > minMonth
   const canGoForward = selectedMonth < currentMonth
   const periodDelta = selectedRow
@@ -73,6 +86,51 @@ export default function InventoryBalance() {
       Number(r.cogs_covered_days) < Number(r.expected_days) ||
       Number(r.missing_cogs_count) > 0,
   )
+
+  function exportToExcel() {
+    const tableRows = [
+      [
+        'First date of the month',
+        'Beginning inventory value',
+        'New PO amount received',
+        'COGS in the time period',
+        'Total inventory value',
+        'End of the month',
+      ],
+      ...visibleRows.map((row) => [
+        new Date(`${row.first_date}T00:00:00Z`),
+        row.beginning_inventory_value,
+        row.po_received_value,
+        -row.cogs_amount,
+        row.ending_inventory_value,
+        new Date(`${row.end_date}T00:00:00Z`),
+      ]),
+    ]
+    const worksheet = XLSX.utils.aoa_to_sheet(tableRows)
+    worksheet['!cols'] = [
+      { wch: 24 },
+      { wch: 26 },
+      { wch: 25 },
+      { wch: 24 },
+      { wch: 24 },
+      { wch: 18 },
+    ]
+    for (let rowIndex = 1; rowIndex < tableRows.length; rowIndex += 1) {
+      for (const columnIndex of [1, 2, 3, 4]) {
+        const cell = worksheet[XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex })]
+        if (cell) cell.z = '$#,##0.00;($#,##0.00)'
+      }
+      for (const columnIndex of [0, 5]) {
+        const cell = worksheet[XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex })]
+        if (cell) cell.z = 'mmm d, yyyy'
+      }
+    }
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Inventory Balance')
+    const from = effectiveRangeFrom || 'all'
+    const to = rangeTo || 'current'
+    XLSX.writeFile(workbook, `inventory-balance-${from}-to-${to}.xlsx`)
+  }
 
   async function handleSaveSettings() {
     setInputError('')
@@ -284,8 +342,65 @@ export default function InventoryBalance() {
         </div>
       )}
       {isAdmin && <InventoryReceiptImport />}
+      <div className="mb-3 flex flex-col gap-3 rounded-lg border border-border bg-surface p-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="text-sm font-semibold text-text1">Table date range</div>
+          <p className="mt-1 text-xs text-text2">
+            Filter the monthly rows independently from the opening balance setup.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text2">
+              From
+            </span>
+            <input
+              aria-label="Inventory balance from month"
+              className="input"
+              type="month"
+              min={minRangeMonth || undefined}
+              max={rangeTo || currentMonth.slice(0, 7)}
+              value={rangeFrom || minRangeMonth}
+              disabled={!data?.settings}
+              onChange={(event) => {
+                const next = event.target.value
+                setRangeFrom(next)
+                if (rangeTo && next > rangeTo) setRangeTo(next)
+              }}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text2">
+              To
+            </span>
+            <input
+              aria-label="Inventory balance to month"
+              className="input"
+              type="month"
+              min={effectiveRangeFrom || minRangeMonth || undefined}
+              max={currentMonth.slice(0, 7)}
+              value={rangeTo}
+              disabled={!data?.settings}
+              onChange={(event) => {
+                const next = event.target.value
+                setRangeTo(next)
+                if (rangeFrom && next < rangeFrom) setRangeFrom(next)
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            className="btn-secondary text-xs"
+            onClick={exportToExcel}
+            disabled={visibleRows.length === 0}
+            title="Export the displayed date range to Excel"
+          >
+            <Download size={14} /> Export Excel
+          </button>
+        </div>
+      </div>
       <InventoryBalanceTable
-        rows={rows}
+        rows={visibleRows}
         selectedPeriod={selectedRow?.period_month ?? selectedMonth}
       />
     </div>

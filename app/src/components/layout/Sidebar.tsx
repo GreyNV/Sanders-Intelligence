@@ -22,11 +22,13 @@ const NAV: NavItem[] = [
   // Purchasing
   { to: '/purchasing/action-center', label: 'Action Center',     icon: <LayoutDashboard size={16} />, roles: ['admin', 'purchasing'], group: 'Purchasing' },
   { to: '/purchasing/inventory',     label: 'Inventory Browser', icon: <Package size={16} />,          roles: ['admin', 'purchasing'], group: 'Purchasing' },
-  { to: '/purchasing/inventory-balance', label: 'Inventory Balance', icon: <Calculator size={16} />,   roles: ['admin', 'purchasing'], group: 'Purchasing' },
   { to: '/purchasing/inbound',       label: 'Inbound Pipeline',  icon: <Truck size={16} />,            roles: ['admin', 'purchasing'], group: 'Purchasing' },
   { to: '/purchasing/vendors',       label: 'Vendor View',       icon: <Store size={16} />,            roles: ['admin', 'purchasing'], group: 'Purchasing' },
   { to: '/purchasing/purchase-orders', label: 'Purchase Orders', icon: <ShoppingCart size={16} />,     roles: ['admin', 'purchasing'], group: 'Purchasing' },
   { to: '/purchasing/news-feed',      label: 'Logistics News',   icon: <Newspaper size={16} />,        roles: ['admin', 'purchasing'], group: 'Purchasing' },
+
+  // Accounting
+  { to: '/purchasing/inventory-balance', label: 'Inventory Balance', icon: <Calculator size={16} />, roles: ['admin', 'purchasing'], group: 'Accounting' },
 
   // C-Suite
   { to: '/executive',              label: 'Executive Summary', icon: <BarChart3 size={16} />,  roles: ['admin', 'csuite'], group: 'C-Suite' },
