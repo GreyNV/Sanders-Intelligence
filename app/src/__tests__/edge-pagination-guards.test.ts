@@ -166,6 +166,8 @@ describe('Edge Supabase pagination guards', () => {
     expect(cron).toContain('nextPage')
     expect(cron).toContain('hasTimeForAnotherChunk')
     expect(cron).toContain('complete: false')
+    expect(cron).toContain('const PAGES_PER_CALL = 20')
+    expect(cron).toContain('const MAX_TOTAL_PAGES = 1_000')
     expect(salesCron?.schedule).toBe('30 10 * * *')
   })
 })

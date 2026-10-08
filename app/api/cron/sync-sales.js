@@ -3,8 +3,8 @@ export const config = {
 }
 
 const PAGE_SIZE = 50
-const PAGES_PER_CALL = 40
-const MAX_TOTAL_PAGES = 240
+const PAGES_PER_CALL = 20
+const MAX_TOTAL_PAGES = 1_000
 const CRON_PROGRESS_KEY = 'sellercloud_sales_cron_progress'
 const CRON_DURATION_BUDGET_MS = 285_000
 const DEFAULT_NEXT_CHUNK_ESTIMATE_MS = 90_000
