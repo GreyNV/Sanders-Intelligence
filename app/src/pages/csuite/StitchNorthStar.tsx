@@ -100,6 +100,12 @@ const STATUS_TEXT_CLASS: Record<NorthStarStatus, string> = {
   off_plan: 'text-danger',
 }
 
+const STATUS_PRESENTATION_COLOR: Record<NorthStarStatus, string> = {
+  on_plan: '#22c55e',
+  at_risk: '#eab308',
+  off_plan: '#ef4444',
+}
+
 const COMPACT_FIELDS = new Set<NorthStarEditableField>(['pillar', 'owner', 'plan_value', 'actual_mtd', 'forecast'])
 
 type StitchHtmlSaveHandler = (row: NorthStarDisplayRow, viewMode: StitchSlideHtmlViewMode, htmlCode: string) => Promise<void>
@@ -1138,9 +1144,10 @@ function StitchHtmlFrame({
 }
 
 function buildFieldSlideHtml(row: NorthStarDisplayRow, owner: string, css: string): string {
+  const statusColor = STATUS_PRESENTATION_COLOR[row.status]
   const content = renderToStaticMarkup(
     <main style={{ width: 1280, minHeight: 720, padding: 40, boxSizing: 'border-box', background: '#0f172a', color: '#f8fafc', fontFamily: 'Arial, sans-serif' }}>
-      <div style={{ fontSize: 18, color: '#94a3b8' }}>{owner} · {formatPeriodMonth(row.period_month)} · {STATUS_LABELS[row.status]}</div>
+      <div style={{ fontSize: 18, color: '#94a3b8' }}>{owner} · {formatPeriodMonth(row.period_month)} · <span style={{ color: statusColor, border: `2px solid ${statusColor}`, padding: '2px 8px' }}>{STATUS_LABELS[row.status]}</span></div>
       <h1 style={{ fontSize: 36, fontWeight: 700, margin: '12px 0' }}>{row.pillar}</h1>
       <h2 style={{ fontSize: 26, marginBottom: 24, whiteSpace: 'pre-wrap' }}>{row.north_star || 'Not set'}</h2>
       <FinanceSlideGraph row={row} />
