@@ -32,6 +32,35 @@ export interface InventoryBalanceRow {
   missing_cogs_count: number
 }
 
+export function aggregateInventoryBalanceByQuarter(
+  rows: InventoryBalanceRow[],
+): InventoryBalanceRow[] {
+  const quarters = new Map<string, InventoryBalanceRow[]>()
+  for (const row of rows) {
+    const date = periodDate(row.period_month)
+    const quarterMonth = Math.floor(date.getUTCMonth() / 3) * 3
+    const quarterStart = formatDate(new Date(Date.UTC(date.getUTCFullYear(), quarterMonth, 1)))
+    const group = quarters.get(quarterStart) ?? []
+    group.push(row)
+    quarters.set(quarterStart, group)
+  }
+
+  return Array.from(quarters, ([period_month, months]) => {
+    const first = months[0]
+    const last = months[months.length - 1]
+    return {
+      period_month,
+      first_date: first.first_date,
+      end_date: last.end_date,
+      beginning_inventory_value: first.beginning_inventory_value,
+      po_received_value: roundMoney(months.reduce((sum, row) => sum + row.po_received_value, 0)),
+      cogs_amount: roundMoney(months.reduce((sum, row) => sum + row.cogs_amount, 0)),
+      ending_inventory_value: last.ending_inventory_value,
+      missing_cogs_count: months.reduce((sum, row) => sum + row.missing_cogs_count, 0),
+    }
+  })
+}
+
 export function buildInventoryBalanceRows(input: InventoryBalanceInput): InventoryBalanceRow[] {
   if (!input.settings) return []
 

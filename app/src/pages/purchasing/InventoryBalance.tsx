@@ -25,6 +25,7 @@ import {
 import { cn, fmtCurrency, fmtCurrencyFull, fmtNumber } from '@/lib/utils'
 import {
   addMonthsToInventoryPeriod,
+  aggregateInventoryBalanceByQuarter,
   parseInventoryMoney,
   periodMonthFromDate,
   type InventoryBalanceRow,
@@ -40,6 +41,7 @@ export default function InventoryBalance() {
   const [selectedMonth, setSelectedMonth] = useState(currentMonth)
   const [rangeFrom, setRangeFrom] = useState('')
   const [rangeTo, setRangeTo] = useState(currentMonth.slice(0, 7))
+  const [periodView, setPeriodView] = useState<'month' | 'quarter'>('month')
   const requestedEnd = rangeTo ? `${rangeTo}-01` : selectedMonth
   const queryEnd = selectedMonth > requestedEnd ? selectedMonth : requestedEnd
   const { data, isLoading, error } = useInventoryBalance(queryEnd)
@@ -73,6 +75,9 @@ export default function InventoryBalance() {
       (!effectiveRangeFrom || row.period_month.slice(0, 7) >= effectiveRangeFrom) &&
       (!rangeTo || row.period_month.slice(0, 7) <= rangeTo),
   )
+  const displayedRows = periodView === 'quarter'
+    ? aggregateInventoryBalanceByQuarter(visibleRows)
+    : visibleRows
   const canGoBack = !minMonth || selectedMonth > minMonth
   const canGoForward = selectedMonth < currentMonth
   const periodDelta = selectedRow
@@ -93,15 +98,17 @@ export default function InventoryBalance() {
   function exportToExcel() {
     const tableRows = [
       [
-        'First date of the month',
+        periodView === 'quarter' ? 'Quarter' : 'First date of the month',
         'Beginning inventory value',
         'New PO amount received',
         'COGS in the time period',
         'Total inventory value',
-        'End of the month',
+        periodView === 'quarter' ? 'End of quarter' : 'End of the month',
       ],
-      ...visibleRows.map((row) => [
-        new Date(`${row.first_date}T00:00:00Z`),
+      ...displayedRows.map((row) => [
+        periodView === 'quarter'
+          ? formatInventoryQuarter(row.period_month)
+          : new Date(`${row.first_date}T00:00:00Z`),
         row.beginning_inventory_value,
         row.po_received_value,
         -row.cogs_amount,
@@ -129,7 +136,7 @@ export default function InventoryBalance() {
       }
     }
     const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Inventory Balance')
+    XLSX.utils.book_append_sheet(workbook, worksheet, periodView === 'quarter' ? 'Quarterly Balance' : 'Inventory Balance')
     const from = effectiveRangeFrom || 'all'
     const to = rangeTo || 'current'
     XLSX.writeFile(workbook, `inventory-balance-${from}-to-${to}.xlsx`)
@@ -374,10 +381,28 @@ export default function InventoryBalance() {
         <div>
           <div className="text-sm font-semibold text-text1">Table date range</div>
           <p className="mt-1 text-xs text-text2">
-            Filter the monthly rows independently from the opening balance setup.
+            Filter the balance period independently from the opening balance setup.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
+          <div className="inline-flex h-9 items-center rounded-lg border border-border bg-surface p-0.5" aria-label="Inventory balance period view">
+            <button
+              type="button"
+              className={cn('rounded-md px-3 py-1.5 text-xs font-medium transition', periodView === 'month' ? 'bg-surface2 text-text1' : 'text-text2 hover:text-text1')}
+              aria-pressed={periodView === 'month'}
+              onClick={() => setPeriodView('month')}
+            >
+              Monthly
+            </button>
+            <button
+              type="button"
+              className={cn('rounded-md px-3 py-1.5 text-xs font-medium transition', periodView === 'quarter' ? 'bg-surface2 text-text1' : 'text-text2 hover:text-text1')}
+              aria-pressed={periodView === 'quarter'}
+              onClick={() => setPeriodView('quarter')}
+            >
+              Quarterly
+            </button>
+          </div>
           <label className="block">
             <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text2">
               From
@@ -420,7 +445,7 @@ export default function InventoryBalance() {
             type="button"
             className="btn-secondary text-xs"
             onClick={exportToExcel}
-            disabled={visibleRows.length === 0}
+            disabled={displayedRows.length === 0}
             title="Export the displayed date range to Excel"
           >
             <Download size={14} /> Export Excel
@@ -428,8 +453,9 @@ export default function InventoryBalance() {
         </div>
       </div>
       <InventoryBalanceTable
-        rows={visibleRows}
+        rows={displayedRows}
         selectedPeriod={selectedRow?.period_month ?? selectedMonth}
+        periodView={periodView}
       />
     </div>
   )
@@ -546,21 +572,23 @@ function OpeningBalancePanel({
 function InventoryBalanceTable({
   rows,
   selectedPeriod,
+  periodView,
 }: {
   rows: InventoryBalanceRow[]
   selectedPeriod: string
+  periodView: 'month' | 'quarter'
 }) {
   return (
     <div className="tbl-wrap max-h-[calc(100vh-360px)]">
       <table className="tbl min-w-[980px]">
         <thead>
           <tr>
-            <th>First date of the month</th>
+            <th>{periodView === 'quarter' ? 'Quarter' : 'First date of the month'}</th>
             <th className="text-right">Beginning inventory value</th>
             <th className="text-right">New PO amount received</th>
             <th className="text-right">COGS in the time period</th>
             <th className="text-right">Total inventory value</th>
-            <th>End of the month</th>
+            <th>{periodView === 'quarter' ? 'End of quarter' : 'End of the month'}</th>
           </tr>
         </thead>
         <tbody>
@@ -575,11 +603,13 @@ function InventoryBalanceTable({
               <tr
                 key={row.period_month}
                 className={cn(
-                  row.period_month === selectedPeriod && 'bg-accent/5',
+                  periodView === 'month' && row.period_month === selectedPeriod && 'bg-accent/5',
                 )}
               >
                 <td className="whitespace-nowrap text-xs text-text2">
-                  {formatTableDate(row.first_date)}
+                  {periodView === 'quarter'
+                    ? formatInventoryQuarter(row.period_month)
+                    : formatTableDate(row.first_date)}
                 </td>
                 <td className="text-right font-semibold tabular-nums text-text1">
                   {fmtCurrencyFull(row.beginning_inventory_value)}
@@ -611,6 +641,12 @@ function formatInventoryPeriod(periodMonth: string): string {
     year: 'numeric',
     timeZone: 'UTC',
   }).format(new Date(`${periodMonth}T00:00:00Z`))
+}
+
+function formatInventoryQuarter(periodMonth: string): string {
+  const date = new Date(`${periodMonth}T00:00:00Z`)
+  const quarter = Math.floor(date.getUTCMonth() / 3) + 1
+  return `Q${quarter} ${date.getUTCFullYear()}`
 }
 
 function formatTableDate(value: string): string {
