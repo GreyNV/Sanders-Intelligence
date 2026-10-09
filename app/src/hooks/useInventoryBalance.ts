@@ -69,6 +69,19 @@ export function useUpdateInventoryBalanceSettings() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['inventory_balance'] }),
   })
 }
+
+export function useSyncMissingInventoryCogs() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke('sync-inventory-cogs')
+      if (error) throw error
+      if (data?.error) throw new Error(data.error)
+      return data as { syncedDays: number; skippedDays: number; missingDays: number; remainingDays: number }
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['inventory_balance'] }),
+  })
+}
 export async function fetchInventoryBalance(
   selectedMonth: string,
   client: typeof supabase = supabase,

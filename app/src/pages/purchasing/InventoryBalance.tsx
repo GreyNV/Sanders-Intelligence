@@ -10,6 +10,7 @@ import {
   ReceiptText,
   RotateCcw,
   Save,
+  RefreshCw,
   WalletCards,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
@@ -18,6 +19,7 @@ import { PageLoader } from '@/components/ui/LoadingSpinner'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   useInventoryBalance,
+  useSyncMissingInventoryCogs,
   useUpdateInventoryBalanceSettings,
 } from '@/hooks/useInventoryBalance'
 import { cn, fmtCurrency, fmtCurrencyFull, fmtNumber } from '@/lib/utils'
@@ -42,6 +44,7 @@ export default function InventoryBalance() {
   const queryEnd = selectedMonth > requestedEnd ? selectedMonth : requestedEnd
   const { data, isLoading, error } = useInventoryBalance(queryEnd)
   const updateSettings = useUpdateInventoryBalanceSettings()
+  const syncMissingCogs = useSyncMissingInventoryCogs()
   const [draftPeriod, setDraftPeriod] = useState(
     currentMonth.slice(0, 4) + '-01-01',
   )
@@ -319,6 +322,31 @@ export default function InventoryBalance() {
           sales row{data?.missingCogsRows === 1 ? '' : 's'}.
         </div>
       )}
+
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          className="btn-secondary text-xs"
+          onClick={() => syncMissingCogs.mutate()}
+          disabled={syncMissingCogs.isPending || !data?.settings}
+          title="Fetch SellerCloud COGS for dates missing from the daily COGS table"
+        >
+          <RefreshCw size={14} className={syncMissingCogs.isPending ? 'animate-spin' : undefined} />
+          {syncMissingCogs.isPending ? 'Syncing missing COGS…' : 'Sync missing COGS days'}
+        </button>
+        {syncMissingCogs.isSuccess && (
+          <span className="text-xs text-success">
+            {syncMissingCogs.data.missingDays === 0
+              ? 'No missing COGS days found.'
+              : `Processed ${fmtNumber(syncMissingCogs.data.syncedDays)} missing day(s); ${fmtNumber(syncMissingCogs.data.skippedDays)} had no sales.${syncMissingCogs.data.remainingDays > 0 ? ` ${fmtNumber(syncMissingCogs.data.remainingDays)} remain—click again to continue.` : ''}`}
+          </span>
+        )}
+        {syncMissingCogs.isError && (
+          <span role="alert" className="text-xs text-danger">
+            {(syncMissingCogs.error as Error).message}
+          </span>
+        )}
+      </div>
 
       {data?.settings && incomplete.length > 0 && (
         <div
