@@ -341,11 +341,21 @@ export default function InventoryBalance() {
           <RefreshCw size={14} className={syncMissingCogs.isPending ? 'animate-spin' : undefined} />
           {syncMissingCogs.isPending ? 'Syncing missing COGS…' : 'Sync missing COGS days'}
         </button>
+        {syncMissingCogs.isPending && syncMissingCogs.progress && (
+          <span role="status" className="text-xs text-muted-foreground">
+            {syncMissingCogs.progress.date}:{' '}
+            {syncMissingCogs.progress.phase === 'orders'
+              ? `orders page ${fmtNumber(syncMissingCogs.progress.pagesProcessed)} of ${fmtNumber(syncMissingCogs.progress.totalPages ?? 0)}`
+              : `COGS batch ${fmtNumber(syncMissingCogs.progress.pnlBatchesProcessed)} of ${fmtNumber(syncMissingCogs.progress.totalPnlBatches ?? 0)}`}
+          </span>
+        )}
         {syncMissingCogs.isSuccess && (
           <span className="text-xs text-success">
             {syncMissingCogs.data.missingDays === 0
               ? 'No missing COGS days found.'
-              : `Processed ${fmtNumber(syncMissingCogs.data.syncedDays)} missing day(s); ${fmtNumber(syncMissingCogs.data.skippedDays)} had no sales.${syncMissingCogs.data.remainingDays > 0 ? ` ${fmtNumber(syncMissingCogs.data.remainingDays)} remain—click again to continue.` : ''}`}
+              : syncMissingCogs.data.inProgress && syncMissingCogs.progress
+                ? `Working on ${syncMissingCogs.progress.date}: ${syncMissingCogs.progress.phase === 'orders' ? `orders page ${fmtNumber(syncMissingCogs.progress.pagesProcessed)} of ${fmtNumber(syncMissingCogs.progress.totalPages ?? 0)}` : `COGS batch ${fmtNumber(syncMissingCogs.progress.pnlBatchesProcessed)} of ${fmtNumber(syncMissingCogs.progress.totalPnlBatches ?? 0)}`}. Click again to continue.`
+                : `Processed ${fmtNumber(syncMissingCogs.data.syncedDays)} missing day(s); ${fmtNumber(syncMissingCogs.data.skippedDays)} had no sales.${syncMissingCogs.data.remainingDays > 0 ? ` ${fmtNumber(syncMissingCogs.data.remainingDays)} remain—click again to continue.` : ''}`}
           </span>
         )}
         {syncMissingCogs.isError && (

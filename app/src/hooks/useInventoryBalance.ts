@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
@@ -72,15 +73,32 @@ export function useUpdateInventoryBalanceSettings() {
 
 export function useSyncMissingInventoryCogs() {
   const qc = useQueryClient()
-  return useMutation({
+  const [progress, setProgress] = useState<{ date: string; phase: 'orders' | 'pnl'; pagesProcessed: number; totalPages: number | null; ordersCollected: number; totalOrders: number | null; pnlBatchesProcessed: number; totalPnlBatches: number | null } | null>(null)
+  const mutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke('sync-inventory-cogs')
-      if (error) throw error
-      if (data?.error) throw new Error(data.error)
-      return data as { syncedDays: number; skippedDays: number; missingDays: number; remainingDays: number }
+      let result: { syncedDays: number; skippedDays: number; missingDays: number; remainingDays: number; inProgress?: boolean; progress?: NonNullable<typeof progress> } | undefined
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const { data, error } = await supabase.functions.invoke('sync-inventory-cogs')
+        if (error) {
+          const context = (error as Error & { context?: unknown }).context
+          if (context && typeof context === 'object' && 'clone' in context && typeof context.clone === 'function') {
+            const response = context as Response
+            const body = await response.clone().json().catch(() => null)
+            if (typeof body?.error === 'string') throw new Error(body.error)
+          }
+          throw error
+        }
+        if (data?.error) throw new Error(data.error)
+        result = data as typeof result
+        setProgress(data?.inProgress ? data.progress ?? null : null)
+        if (!data?.inProgress) return result!
+      }
+      if (!result) throw new Error('COGS sync returned no progress')
+      return result
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['inventory_balance'] }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['inventory_balance'] }),
   })
+  return { ...mutation, progress }
 }
 export async function fetchInventoryBalance(
   selectedMonth: string,
