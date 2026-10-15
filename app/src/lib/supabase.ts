@@ -4,6 +4,7 @@ const url = import.meta.env.VITE_SUPABASE_URL as string
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string
 const REQUEST_TIMEOUT_MS = 15000
 const INVENTORY_COGS_SYNC_TIMEOUT_MS = 150000
+const SALES_SYNC_TIMEOUT_MS = 150000
 
 export const supabaseUrl = url
 export const supabaseAnonKey = key
@@ -24,7 +25,9 @@ const timeoutFetch: typeof fetch = async (input, init) => {
   const requestUrl = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
   const timeoutMs = requestUrl.includes('/functions/v1/sync-inventory-cogs')
     ? INVENTORY_COGS_SYNC_TIMEOUT_MS
-    : REQUEST_TIMEOUT_MS
+    : requestUrl.includes('/functions/v1/sync-sales')
+      ? SALES_SYNC_TIMEOUT_MS
+      : REQUEST_TIMEOUT_MS
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), timeoutMs)
 

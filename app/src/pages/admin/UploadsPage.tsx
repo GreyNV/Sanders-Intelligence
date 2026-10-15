@@ -8,6 +8,7 @@ import { fmtDate, fmtNumber } from '@/lib/utils'
 import { parseLeadershipToolFile } from '@/lib/leadershipToolParser'
 import { Upload, CheckCircle, XCircle, Clock, AlertTriangle, Download, FileSpreadsheet } from 'lucide-react'
 import { InventoryRecord } from '@/types'
+import SalesReportUpload from '@/components/admin/SalesReportUpload'
 
 function recordsToCsv(records: InventoryRecord[]): string {
   if (records.length === 0) return ''
@@ -163,6 +164,8 @@ export default function UploadsPage() {
           <AlertTriangle size={15} /> {uploadError}
         </div>
       )}
+
+      <SalesReportUpload />
 
       <div className="card mb-6 border border-border p-5">
         <div className="mb-4 flex items-start justify-between gap-3">
