@@ -150,6 +150,7 @@ describe('Edge Supabase pagination guards', () => {
     expect(backfill).toContain("const saleDatePreset = args.saleDatePreset ?? 'shipDate'")
     expect(backfill).toContain('saleDatePreset')
     expect(backfill).toContain('replaceDate: startPage === 1')
+    expect(backfill).toContain('!state.inProgress?.[stateKey]')
   })
 
   it('resumes the Vercel sales cron across invocations for high-volume ship dates', () => {

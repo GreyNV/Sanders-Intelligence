@@ -30,7 +30,7 @@ const dates = eachDate(from, to)
 
 for (const date of dates) {
   const stateKey = `${dateParamPreset}:${saleDatePreset}:${date}`
-  if (state.completed?.[stateKey] && args.resume !== 'false') {
+  if (state.completed?.[stateKey] && args.resume !== 'false' && !state.inProgress?.[stateKey]) {
     console.log(`skip date=${date} status=completed`)
     continue
   }
