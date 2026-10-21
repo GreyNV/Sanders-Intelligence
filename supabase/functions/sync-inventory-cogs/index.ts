@@ -101,7 +101,10 @@ Deno.serve(async (req) => {
           progress.nextPage = batchPages[i] + 1
         }
       }
-      if (progress.orderIds.length >= progress.totalOrders) progress.phase = 'pnl'
+      // SellerCloud's TotalResults can exceed the IDs actually returned across
+      // its pages. Once every reported page has been fetched, continue with the
+      // IDs we have instead of requesting empty pages forever.
+      if (progress.orderIds.length >= progress.totalOrders || progress.nextPage > totalPages) progress.phase = 'pnl'
     }
 
     if (progress.phase === 'pnl') {
