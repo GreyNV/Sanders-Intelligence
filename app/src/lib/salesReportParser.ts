@@ -29,14 +29,19 @@ export async function parseSalesReportFile(file: File): Promise<ParsedSalesRepor
     defval: null,
   }) as SheetMatrix
 
-  return parseSalesReportRows(rows, file.name)
+  return parseSalesReportRows(rows, file.name, workbookDateRange(workbook))
 }
 
-export function parseSalesReportRows(rows: SheetMatrix, filename = 'SellerCloud sales report.xlsx'): ParsedSalesReport {
-  const headerIndex = rows.slice(0, 20).findIndex(row => {
-    const labels = row.map(value => normalizeLabel(String(value ?? '')))
-    return labels.includes('ship date') && labels.includes('grand total') && labels.includes('order')
-  })
+export function parseSalesReportRows(
+  rows: SheetMatrix,
+  filename = 'SellerCloud sales report.xlsx',
+  statedRange?: { dateFrom: string; dateTo: string } | null
+): ParsedSalesReport {
+  const headerIndex = rows.slice(0, 20).findIndex(row =>
+    findHeader(row, ['Ship Date', 'ShipDate']) >= 0 &&
+    findHeader(row, ['Grand Total', 'GrandTotal']) >= 0 &&
+    findHeader(row, ['Order #', 'Order']) >= 0
+  )
   if (headerIndex < 0) {
     throw new Error('This does not look like a SellerCloud Sales by Date Range export. Required columns: Order #, Ship Date, and Grand Total.')
   }
@@ -80,12 +85,27 @@ export function parseSalesReportRows(rows: SheetMatrix, filename = 'SellerCloud 
 
   return {
     filename,
-    dateFrom: orderedDays[0].sale_date,
-    dateTo: orderedDays[orderedDays.length - 1]?.sale_date ?? orderedDays[0].sale_date,
+    dateFrom: statedRange?.dateFrom ?? orderedDays[0].sale_date,
+    dateTo: statedRange?.dateTo ?? orderedDays[orderedDays.length - 1]?.sale_date ?? orderedDays[0].sale_date,
     rowCount,
     totalRevenue: roundCurrency(totalRevenue),
     daily: orderedDays,
   }
+}
+
+function workbookDateRange(workbook: XLSX.WorkBook): { dateFrom: string; dateTo: string } | null {
+  const filtersName = workbook.SheetNames.find(name => name.trim().toLowerCase() === 'filters')
+  if (!filtersName) return null
+
+  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[filtersName], {
+    header: 1,
+    raw: true,
+    defval: null,
+  }) as SheetMatrix
+  const values = new Map(rows.map(row => [normalizeLabel(String(row[0] ?? '')), row[1]]))
+  const dateFrom = toIsoDate(values.get('start date'))
+  const dateTo = toIsoDate(values.get('end date'))
+  return dateFrom && dateTo && dateFrom <= dateTo ? { dateFrom, dateTo } : null
 }
 
 function findHeader(row: unknown[], labels: string[]): number {

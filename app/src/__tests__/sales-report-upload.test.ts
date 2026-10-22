@@ -27,4 +27,18 @@ describe('SellerCloud sales report upload', () => {
     expect(() => parseSalesReportRows([['Date', 'Amount'], ['2026-10-01', 10]]))
       .toThrow(/required columns/i)
   })
+
+  it('accepts compact SellerCloud column names from SalesByDateRange exports', () => {
+    const report = parseSalesReportRows([
+      ['Order #', 'OrderDate', 'ShipDate', 'GrandTotal'],
+      [1001, '10/01/2026', '2026-09-30T23:09:00.607Z', 65],
+    ], 'sales.xlsx', { dateFrom: '2026-10-01', dateTo: '2026-10-21' })
+
+    expect(report).toMatchObject({
+      dateFrom: '2026-10-01',
+      dateTo: '2026-10-21',
+      rowCount: 1,
+      totalRevenue: 65,
+    })
+  })
 })
