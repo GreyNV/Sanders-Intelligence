@@ -65,7 +65,8 @@ export default function SlideFrame({ html, title, active = true, onKeyDown, onAc
     doc.addEventListener('pointerdown', activity)
     doc.addEventListener('load', schedule, true)
     const observer = new MutationObserver(schedule)
-    observer.observe(doc.documentElement, { childList: true, subtree: true, characterData: true })
+    // Native details elements can expand a script-free slide after it loads.
+    observer.observe(doc.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['open'] })
     void doc.fonts.ready.then(() => { if (!disposed) schedule() })
     measure()
     cleanup.current = () => {

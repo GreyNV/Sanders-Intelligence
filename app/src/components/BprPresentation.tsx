@@ -41,6 +41,12 @@ export default function BprPresentation({ presenters, initialPresenter = 0, init
   const previous = useCallback(() => { activity(); setPosition(value => Math.max(0, value - 1)) }, [activity])
   const key = useCallback((event: KeyboardEvent) => {
     if (event.altKey || event.ctrlKey || event.metaKey) return
+    const target = event.target as Element | null
+    const table = typeof target?.closest === 'function' ? target.closest<HTMLElement>('[data-finance-scroll]') : null
+    if (table && ['ArrowLeft', 'ArrowRight'].includes(event.key) && table.scrollWidth > table.clientWidth) {
+      activity()
+      return
+    }
     if (['ArrowRight', ' ', 'PageDown', 'ArrowLeft', 'PageUp', 'Escape'].includes(event.key)) {
       event.preventDefault()
       if (event.repeat) return
@@ -85,7 +91,8 @@ export default function BprPresentation({ presenters, initialPresenter = 0, init
   return createPortal(
     <div ref={overlay} role="dialog" aria-modal="true" aria-label="BPR presentation" tabIndex={-1} onPointerMove={activity} onPointerDown={activity}
       style={{ position: 'fixed', inset: 0, zIndex: 10000, background: '#080b10', color: 'white', outline: 'none' }}>
-      {slides.map((slide, index) => index >= position - 1 && index <= position + 1 && (
+      {slides.map((slide, index) => index >= position - 1 && index <= position + 1 &&
+        (!slide.id.startsWith('custom:ryan-html-deck:') || index === position) && (
         <SlideFrame key={`${slide.presenter.id}:${slide.id}`} html={slide.html} title={`${slide.presenter.name} · ${slide.index + 1}`} active={index === position} onKeyDown={key} onActivity={activity} />
       ))}
       <nav aria-label="Presentation controls" onFocusCapture={activity} style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 12, padding: 10, borderRadius: 14, background: 'rgba(15,23,42,.85)', opacity: visible ? 1 : 0, pointerEvents: visible ? 'auto' : 'none', transition: 'opacity 200ms', whiteSpace: 'nowrap' }}>

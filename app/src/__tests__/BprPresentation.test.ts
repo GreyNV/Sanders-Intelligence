@@ -2,7 +2,7 @@ import { describe, expect, it, afterEach, vi } from 'vitest'
 import { createElement, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import BprPresentation from '../components/BprPresentation'
-import { slideScale } from '../components/SlideFrame'
+import SlideFrame, { slideScale } from '../components/SlideFrame'
 
 const originalScrollTo = Element.prototype.scrollTo
 let root: Root | undefined
@@ -21,6 +21,31 @@ describe('BPR presentation', () => {
     expect(slideScale(1920, 1080, 1200)).toBe(1.5)
     expect(slideScale(800, 600, 1200)).toBe(.625)
   })
+  it('remeasures a sandboxed slide when its native details open', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    Object.defineProperty(Element.prototype, 'scrollTo', { configurable:true, writable:true, value:vi.fn() })
+    const observe = vi.fn()
+    let changed: MutationCallback | undefined
+    vi.stubGlobal('MutationObserver', class {
+      constructor(callback:MutationCallback) { changed=callback }
+      observe = observe
+      disconnect() {}
+    })
+    vi.stubGlobal('requestAnimationFrame', (callback:FrameRequestCallback) => { callback(0); return 1 })
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+    host=document.createElement('div');document.body.append(host);root=createRoot(host)
+    act(() => root!.render(createElement(SlideFrame,{html:'<details><summary>Evidence</summary>Details</details>',title:'Finance'})))
+    const frame=host.querySelector('iframe')!, doc=frame.contentDocument!
+    Object.defineProperty(doc,'fonts',{configurable:true,value:{ready:Promise.resolve()}})
+    let height=720
+    Object.defineProperty(doc.documentElement,'scrollHeight',{configurable:true,get:()=>height})
+    await act(async () => { frame.dispatchEvent(new Event('load')); await Promise.resolve() })
+    expect(observe).toHaveBeenCalledWith(doc.documentElement,expect.objectContaining({attributes:true,attributeFilter:['open']}))
+    height=1100
+    act(() => { changed!([],{} as MutationObserver) })
+    expect(frame.style.height).toBe('1100px')
+  })
   it('orders presenters and slides, hands off, walks backward, and ends the meeting', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
@@ -38,6 +63,15 @@ describe('BPR presentation', () => {
     const text = () => document.querySelector('nav')!.textContent
     expect(text()).toContain('Mendy · 1 / 2')
     expect(document.querySelector('iframe')!.srcdoc).toBe('<p>A</p>')
+    const table = document.createElement('div')
+    table.setAttribute('data-finance-scroll','')
+    Object.defineProperties(table, { scrollWidth:{ value:1000 }, clientWidth:{ value:500 } })
+    document.body.append(table)
+    const tableKey = new KeyboardEvent('keydown', { key:'ArrowRight', bubbles:true, cancelable:true })
+    act(() => { table.dispatchEvent(tableKey) })
+    expect(tableKey.defaultPrevented).toBe(false)
+    expect(text()).toContain('Mendy · 1 / 2')
+    table.remove()
     const preloaded = document.querySelectorAll('iframe')[1]
     press('ArrowRight')
     expect(text()).toContain('Next presenter: Ryan →')

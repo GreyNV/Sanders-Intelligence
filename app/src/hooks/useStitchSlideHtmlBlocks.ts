@@ -31,6 +31,24 @@ export function useStitchSlideHtmlBlocks(periodMonth: string) {
   })
 }
 
+/** Most recent Ryan deck, used to carry historical baselines and milestone answers forward. */
+export function useLatestRyanFinanceDeck(periodMonth: string) {
+  return useQuery({
+    queryKey: ['stitch_slide_html_blocks', 'ryan-latest', periodMonth],
+    queryFn: async (): Promise<StitchSlideHtmlBlock | null> => {
+      const { data, error } = await supabase.from('stitch_slide_html_blocks').select('*')
+        .eq('slide_key', 'custom:ryan-html-deck').lte('period_month', periodMonth)
+        .order('period_month', { ascending: false }).limit(1).maybeSingle()
+      if (error) {
+        if (isMissingRelationError(error)) return null
+        throw error
+      }
+      return data as StitchSlideHtmlBlock | null
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
 export function useUpsertStitchSlideHtmlBlock() {
   const qc = useQueryClient()
   const { profile } = useAuth()
@@ -59,8 +77,11 @@ export function useUpsertStitchSlideHtmlBlock() {
       if (error) throw error
       return data as StitchSlideHtmlBlock
     },
-    onSuccess: (_data, payload) => {
-      qc.invalidateQueries({ queryKey: ['stitch_slide_html_blocks', payload.period_month] })
+    onSuccess: async (_data, payload) => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['stitch_slide_html_blocks', payload.period_month] }),
+        qc.invalidateQueries({ queryKey: ['stitch_slide_html_blocks', 'ryan-latest'] }),
+      ])
     },
   })
 }

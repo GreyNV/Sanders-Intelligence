@@ -49,6 +49,8 @@ export interface StitchPresenterOrderEntry {
 
 export interface StitchPayrollSalesContext {
   currentMonthProjectedSales?: number | null
+  expenseAnchorMonth?: string
+  allowBelowFloorForecast?: boolean
 }
 
 export function readMonthlyStarPresentationOverrides(
@@ -648,7 +650,7 @@ function buildPnlRow(
   })
 }
 
-function buildPnlForecastPath(
+export function buildPnlForecastPath(
   snapshot: Pick<LeadershipToolSnapshot, 'pnl'> & Partial<Pick<LeadershipToolSnapshot, 'budget'>>,
   benchmarkPct: number,
   periodMonth: string,
@@ -661,8 +663,9 @@ function buildPnlForecastPath(
   const shipping = findPnlAccount(snapshot, 'Shipping')
   const expense = findPnlAccount(snapshot, 'Expense')
   const latestActualMonth = latestActualIncomeMonth(income?.periods ?? []) ?? periodMonth
+  const expenseAnchorMonth = salesContext.expenseAnchorMonth ?? latestActualMonth
   const budgetRows = snapshot.budget?.sales ?? []
-  const expenseBaseMonths = previousMonths(latestActualMonth, 4)
+  const expenseBaseMonths = previousMonths(expenseAnchorMonth, 4)
   const baseMonthStats = expenseBaseMonths.map(month => {
     const incomeValue = findExactPeriod(income?.periods ?? [], month)?.current_year ?? null
     const cogsValue = findExactPeriod(cogs?.periods ?? [], month)?.current_year ?? null
@@ -708,7 +711,7 @@ function buildPnlForecastPath(
     : 0
   const forecastStart = periodMonth
   const forecastMonths = Array.from({ length: 12 }, (_, index) => addMonthsToPeriod(forecastStart, index))
-  const latestFullMonth = latestFullNoiMonth(snapshot, latestActualMonth) ?? populatedExpenseBaseMonths[populatedExpenseBaseMonths.length - 1] ?? null
+  const latestFullMonth = latestFullNoiMonth(snapshot, expenseAnchorMonth) ?? populatedExpenseBaseMonths[populatedExpenseBaseMonths.length - 1] ?? null
   const base = {
     benchmarkPct,
     latestActualMonth,
@@ -726,7 +729,7 @@ function buildPnlForecastPath(
     requiredMonthlySales: roundChartNumber(requiredMonthlySales),
   }
 
-  if (monthlyExpenseRunRate <= 0 || !Number.isFinite(monthlyExpenseRunRate) || contributionMarginPct === null || !Number.isFinite(contributionMarginPct) || contributionMarginPct <= benchmarkPct) {
+  if (monthlyExpenseRunRate <= 0 || !Number.isFinite(monthlyExpenseRunRate) || contributionMarginPct === null || !Number.isFinite(contributionMarginPct) || (contributionMarginPct <= benchmarkPct && !salesContext.allowBelowFloorForecast)) {
     return buildUnavailablePnlForecast({
       ...base,
       dataStatus: 'missing_expenses',
@@ -745,7 +748,7 @@ function buildPnlForecastPath(
   }
 
   const budgetByMonth = new Map(budgetRows.map(row => [row.month, row]))
-  const budgetFulfillment = budgetFulfillmentPct(income?.periods ?? [], budgetByMonth, latestActualMonth)
+  const budgetFulfillment = budgetFulfillmentPct(income?.periods ?? [], budgetByMonth, expenseAnchorMonth)
   if (budgetFulfillment === null || budgetFulfillment <= 0) {
     return buildUnavailablePnlForecast({
       ...base,
@@ -771,7 +774,7 @@ function buildPnlForecastPath(
     const totalExpenses = roundChartNumber(forecastedSalesRateCosts + operatingExpenses)
     const noi = roundChartNumber(forecastedSales - totalExpenses)
     const noiPct = forecastedSales > 0 ? noi / forecastedSales : null
-    const salesGap = Math.max(0, requiredMonthlySales - forecastedSales)
+    const salesGap = contributionMarginPct <= benchmarkPct ? null : Math.max(0, requiredMonthlySales - forecastedSales)
     const status: 'on_plan' | 'at_risk' = noiPct !== null && noiPct >= benchmarkPct ? 'on_plan' : 'at_risk'
 
     return {
@@ -788,7 +791,7 @@ function buildPnlForecastPath(
       requiredSales: roundChartNumber(requiredMonthlySales),
       noi,
       noiPct,
-      salesGap: roundChartNumber(salesGap),
+      salesGap: salesGap === null ? null : roundChartNumber(salesGap),
       status,
     }
   })
@@ -814,7 +817,7 @@ function buildPnlForecastPath(
 
   return {
     dataStatus: 'ready',
-    warning: null,
+    warning: contributionMarginPct <= benchmarkPct ? 'At the current cost rates, sales growth alone cannot reach the NOI floor.' : null,
     benchmarkPct,
     latestActualMonth,
     latestFullMonth,
@@ -833,7 +836,7 @@ function buildPnlForecastPath(
     forecastSalesTotal: roundChartNumber(forecastSalesTotal),
     forecastNoiTotal: roundChartNumber(forecastNoiTotal),
     forecastNoiPct,
-    totalSalesGap: roundChartNumber(totalSalesGap),
+    totalSalesGap: contributionMarginPct <= benchmarkPct ? null : roundChartNumber(totalSalesGap),
     belowTargetCount,
     months,
   }

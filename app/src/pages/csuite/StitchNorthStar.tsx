@@ -3,6 +3,9 @@ import type { KeyboardEvent } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import BprPresentation, { type PresentationPresenter } from '@/components/BprPresentation'
 import SlideFrame from '@/components/SlideFrame'
+import Modal from '@/components/ui/Modal'
+import FinanceDeckBuilder from '@/components/FinanceDeckBuilder'
+import { splitFinanceDeckHtml } from '@/lib/financeDeckGenerator'
 import {
   AlertTriangle,
   ArrowDown,
@@ -16,6 +19,7 @@ import {
   Layers,
   Maximize2,
   Monitor,
+  Plus,
   Search,
   Sparkles,
   Target,
@@ -35,7 +39,7 @@ import {
   useUpsertStitchAutoRowOverride,
 } from '@/hooks/useStitchAutoRowOverrides'
 import { useStitchPresenterOrder, useUpdateStitchPresenterOrder } from '@/hooks/useStitchPresenterOrder'
-import { useStitchSlideHtmlBlocks, useUpsertStitchSlideHtmlBlock } from '@/hooks/useStitchSlideHtmlBlocks'
+import { useLatestRyanFinanceDeck, useStitchSlideHtmlBlocks, useUpsertStitchSlideHtmlBlock } from '@/hooks/useStitchSlideHtmlBlocks'
 import { cn, fmtCurrency, fmtNumber } from '@/lib/utils'
 import type { NorthStarStatus, StitchSlideHtmlBlock, StitchSlideHtmlViewMode } from '@/types'
 import {
@@ -107,6 +111,7 @@ const STATUS_PRESENTATION_COLOR: Record<NorthStarStatus, string> = {
 }
 
 const COMPACT_FIELDS = new Set<NorthStarEditableField>(['pillar', 'owner', 'plan_value', 'actual_mtd', 'forecast'])
+const RYAN_CUSTOM_DECK_KEY = 'custom:ryan-html-deck'
 
 type StitchHtmlSaveHandler = (row: NorthStarDisplayRow, viewMode: StitchSlideHtmlViewMode, htmlCode: string) => Promise<void>
 
@@ -123,6 +128,10 @@ export default function StitchNorthStar() {
   const [activeSlide, setActiveSlide] = useState(0)
   const [presentation, setPresentation] = useState<{ presenters: PresentationPresenter[]; owner: number; slide: number } | null>(null)
   const [presentationError, setPresentationError] = useState('')
+  const [ryanDeckEditorOpen, setRyanDeckEditorOpen] = useState(false)
+  const [financeBuilderOpen, setFinanceBuilderOpen] = useState(false)
+  const [ryanDeckDraft, setRyanDeckDraft] = useState('')
+  const [ryanDeckError, setRyanDeckError] = useState('')
   const [generatedRowOverrides, setGeneratedRowOverrides] = useState<StitchAutoRowOverrideMap>({})
   const migratedLocalOverridesRef = useRef('')
 
@@ -132,6 +141,7 @@ export default function StitchNorthStar() {
   const { data: leadershipSnapshot = null, isLoading: leadershipLoading, error: leadershipError } = useLeadershipSnapshot()
   const { data: sharedAutoRowOverrides = [], isLoading: autoRowOverridesLoading, error: autoRowOverridesError } = useStitchAutoRowOverrides(selectedMonth)
   const { data: htmlBlocks = [], isLoading: htmlLoading, error: htmlError } = useStitchSlideHtmlBlocks(selectedMonth)
+  const { data: previousRyanDeck = null, isLoading: previousRyanDeckLoading, error: previousRyanDeckError } = useLatestRyanFinanceDeck(selectedMonth)
   const { data: presenterOrder = [], isLoading: presenterOrderLoading, error: presenterOrderError } = useStitchPresenterOrder()
   const updateRow = useUpdateNorthStarRow()
   const updateProgress = useUpdateNorthStarProgress()
@@ -216,6 +226,8 @@ export default function StitchNorthStar() {
   const selectedDeckIndex = selectedDeck ? ownerDecks.findIndex(deck => deck.owner === selectedDeck.owner) : -1
   const statusCounts = useMemo(() => countStatuses(rows), [rows])
   const htmlBlocksByKey = useMemo(() => new Map(htmlBlocks.map(block => [block.slide_key, block])), [htmlBlocks])
+  const ryanDeckHtml = htmlBlocksByKey.get(RYAN_CUSTOM_DECK_KEY)?.html_code ?? ''
+  const ryanDeckSlideCount = useMemo(() => ryanDeckHtml ? Math.max(1, splitFinanceDeckHtml(ryanDeckHtml).length) : 0, [ryanDeckHtml])
   const dailyLift = Math.max(0, displayedMonthlyMetrics.dailyNeeded - displayedMonthlyMetrics.dailyPace)
   const liftPct = displayedMonthlyMetrics.liftNeededPct === null ? 'n/a' : `${Math.max(0, displayedMonthlyMetrics.liftNeededPct).toFixed(1)}%`
 
@@ -293,11 +305,40 @@ export default function StitchNorthStar() {
             : buildFieldSlideHtml(row, deck.owner, css),
         })),
       }))
+      if (ryanDeckHtml.trim()) {
+        let ryanPresenter = presenters.find(presenter => presenter.name.trim().toLowerCase() === 'ryan')
+        if (!ryanPresenter) {
+          ryanPresenter = { id: 'ryan', name: 'Ryan', order: presenters.length, slides: [] }
+          presenters.push(ryanPresenter)
+        }
+        const generatedSlides = splitFinanceDeckHtml(ryanDeckHtml)
+        for (const [index, html] of (generatedSlides.length ? generatedSlides : [ryanDeckHtml]).entries()) {
+          ryanPresenter.slides.push({ id: `${RYAN_CUSTOM_DECK_KEY}:${index}`, order: ryanPresenter.slides.length, html })
+        }
+      }
       await fullscreen
       setPresentation({ presenters, owner, slide })
     } catch (error) {
       if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
       setPresentationError(`Could not enter fullscreen: ${error instanceof Error ? error.message : 'Please try again.'}`)
+    }
+  }
+
+  async function saveRyanDeck() {
+    if (!isAdmin) return
+    const html = ryanDeckDraft.trim()
+    if (!html) return
+    setRyanDeckError('')
+    try {
+      await upsertHtmlBlock.mutateAsync({
+        period_month: selectedMonth,
+        slide_key: RYAN_CUSTOM_DECK_KEY,
+        view_mode: 'html',
+        html_code: html,
+      })
+      setRyanDeckEditorOpen(false)
+    } catch (error) {
+      setRyanDeckError(error instanceof Error ? error.message : 'Could not save Ryan’s deck.')
     }
   }
 
@@ -503,7 +544,24 @@ export default function StitchNorthStar() {
                 <div className="text-sm font-semibold text-text1">Owner decks</div>
                 <div className="mt-0.5 text-xs text-text2">By owner</div>
               </div>
-              <Users size={16} className="text-accent" />
+              <div className="flex items-center gap-2">
+                {isAdmin && (
+                  <button type="button" className="btn-secondary text-xs" disabled={previousRyanDeckLoading && !ryanDeckHtml} onClick={() => setFinanceBuilderOpen(true)}>
+                    <Sparkles size={14} /> Generate Finance deck
+                  </button>
+                )}
+                {isAdmin && (
+                  <button
+                    type="button"
+                    className="btn-secondary text-xs"
+                    onClick={() => { setRyanDeckDraft(ryanDeckHtml); setRyanDeckEditorOpen(true) }}
+                  >
+                    <Plus size={14} />
+                    {ryanDeckHtml ? 'Edit Ryan deck' : 'Add Ryan deck'}
+                  </button>
+                )}
+                <Users size={16} className="text-accent" />
+              </div>
             </div>
             <div className="space-y-2">
               {ownerDecks.map((deck, index) => (
@@ -542,7 +600,7 @@ export default function StitchNorthStar() {
                   >
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-semibold text-text1">{deck.owner}</span>
-                      <span className="text-xs text-text2">{deck.rows.length} slides</span>
+                      <span className="text-xs text-text2">{deck.rows.length + (deck.owner.trim().toLowerCase() === 'ryan' ? ryanDeckSlideCount : 0)} slides</span>
                     </span>
                     <Maximize2 size={14} className="shrink-0 text-text2" />
                   </button>
@@ -597,6 +655,54 @@ export default function StitchNorthStar() {
           onClose={() => setPresentingOwner(null)}
         />
       )}
+      <Modal
+        open={financeBuilderOpen}
+        onClose={() => setFinanceBuilderOpen(false)}
+        title="Generate Ryan’s Finance deck"
+        width="max-w-5xl"
+      >
+        {previousRyanDeckError && !ryanDeckHtml && <p role="alert" className="mb-3 text-sm text-warning">Could not load prior Finance inputs. Upload the historical statements again for this run.</p>}
+        <FinanceDeckBuilder
+          savedHtml={ryanDeckHtml || previousRyanDeck?.html_code || ''}
+          periodMonth={selectedMonth}
+          currentMonthProjectedSales={selectedMonth === currentMonth ? displayedMonthlyMetrics.projectedMonthEnd : null}
+          onCancel={() => setFinanceBuilderOpen(false)}
+          onGenerated={html => { setRyanDeckDraft(html); setFinanceBuilderOpen(false); setRyanDeckEditorOpen(true) }}
+        />
+      </Modal>
+      <Modal
+        open={ryanDeckEditorOpen}
+        onClose={() => setRyanDeckEditorOpen(false)}
+        title="Add to Ryan’s deck"
+        width="max-w-4xl"
+      >
+        <p className="mb-3 text-sm text-text2">
+          Paste the HTML slide here. It will be saved for {formatPeriodMonth(selectedMonth)} and appended after Ryan’s generated slides.
+        </p>
+        <textarea
+          className="input min-h-[420px] w-full resize-y font-mono text-xs leading-relaxed"
+          value={ryanDeckDraft}
+          onChange={event => setRyanDeckDraft(event.target.value)}
+          placeholder="Paste a complete HTML document or slide markup…"
+          aria-label="Ryan deck HTML"
+        />
+        {ryanDeckError && <div role="alert" className="mt-3 text-sm text-danger">{ryanDeckError}</div>}
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" className="btn-secondary" disabled={!ryanDeckDraft.trim()} onClick={() => {
+            const url = URL.createObjectURL(new Blob([ryanDeckDraft], { type: 'text/html;charset=utf-8' }))
+            const link = document.createElement('a'); link.href = url; link.download = `ryan-finance-${selectedMonth}.html`; link.click(); URL.revokeObjectURL(url)
+          }}>Download HTML</button>
+          <button type="button" className="btn-secondary" onClick={() => setRyanDeckEditorOpen(false)}>Cancel</button>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={!ryanDeckDraft.trim() || upsertHtmlBlock.isPending}
+            onClick={() => void saveRyanDeck()}
+          >
+            {upsertHtmlBlock.isPending ? 'Saving…' : 'Save to Ryan’s deck'}
+          </button>
+        </div>
+      </Modal>
     </div>
   )
 }
