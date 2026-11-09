@@ -5,6 +5,7 @@ import FinanceDeckBuilder from '@/components/FinanceDeckBuilder'
 import { generateFinanceDeck } from '@/lib/financeDeckGenerator'
 import { parseHistoricalClassStatement } from '@/lib/financeHistoricalStatements'
 import { readFinanceLeadershipWorkbook } from '@/lib/financeLeadershipDetails'
+import type { RyanFinanceBaseline } from '@/hooks/useStitchSlideHtmlBlocks'
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -18,6 +19,55 @@ vi.mock('@/lib/financeDeckGenerator', async importOriginal => {
 
 describe('Finance deck workflow', () => {
   afterEach(() => { document.body.innerHTML=''; vi.clearAllMocks() })
+  it('saves a historical upload immediately and reuses it on a later visit', async () => {
+    const container=document.createElement('div');document.body.append(container)
+    const root=createRoot(container), save=vi.fn(async(_baseline:RyanFinanceBaseline)=>{})
+    const props={savedHtml:'',periodMonth:'2026-11-01',onGenerated:vi.fn(),onCancel:()=>{},onSaveBaseline:save}
+    await act(async()=>{root.render(createElement(FinanceDeckBuilder,props))})
+    const historical=container.querySelectorAll<HTMLInputElement>('input[type=file]')[2]
+    await act(async()=>{Object.defineProperty(historical,'files',{configurable:true,value:[new File(['x'],'company.csv')]});historical.dispatchEvent(new Event('change',{bubbles:true}))})
+    expect(save).toHaveBeenCalledWith({history:[{month:'2025-11-01',income:100,cogs:null,expenses:null,ordinaryIncome:null,netIncome:null}],channelHistory:[]})
+    await act(async()=>root.unmount())
+    const reopened=createRoot(container)
+    await act(async()=>{reopened.render(createElement(FinanceDeckBuilder,{...props,savedBaseline:save.mock.calls[0][0]}))})
+    const inputs=container.querySelectorAll<HTMLInputElement>('input[type=file]')
+    await act(async()=>{for(const [i,name] of ['leadership.xlsm','warehouse.xlsm'].entries()){Object.defineProperty(inputs[i],'files',{configurable:true,value:[new File(['x'],name)]});inputs[i].dispatchEvent(new Event('change',{bubbles:true}))}})
+    expect([...container.querySelectorAll('button')].find(b=>b.textContent==='Generate HTML')?.disabled).toBe(false)
+    await act(async()=>reopened.unmount())
+  })
+  it('adds a manually owned milestone to the generated deck', async () => {
+    const container=document.createElement('div');document.body.append(container)
+    const root=createRoot(container)
+    const saved=`<script type="application/json" data-finance-inputs>${JSON.stringify({version:1,history:[{month:'2025-11-01',income:100}],channelHistory:[],statuses:{},notes:{}})}</script>`
+    await act(async()=>root.render(createElement(FinanceDeckBuilder,{savedHtml:saved,periodMonth:'2026-11-01',onGenerated:vi.fn(),onCancel:()=>{}})))
+    const inputs=container.querySelectorAll<HTMLInputElement>('input[type=file]')
+    await act(async()=>{for(const [i,name] of ['leadership.xlsm','warehouse.xlsm'].entries()){Object.defineProperty(inputs[i],'files',{configurable:true,value:[new File(['x'],name)]});inputs[i].dispatchEvent(new Event('change',{bubbles:true}))}})
+    await act(async()=>{[...container.querySelectorAll('button')].find(b=>b.textContent==='Answer milestone questions')!.click()})
+    const label=container.querySelector<HTMLInputElement>('input[aria-label="New milestone description"]')!
+    const date=container.querySelector<HTMLInputElement>('input[aria-label="New milestone date"]')!
+    const lane=container.querySelector<HTMLSelectElement>('select[aria-label="New milestone category"]')!
+    await act(async()=>{
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(label,'Review cash reporting');label.dispatchEvent(new Event('input',{bubbles:true}))
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(date,'2027-01-10');date.dispatchEvent(new Event('input',{bubbles:true}));date.dispatchEvent(new Event('change',{bubbles:true}))
+      lane.value='Execution';lane.dispatchEvent(new Event('change',{bubbles:true}))
+    })
+    await act(async()=>{[...container.querySelectorAll('button')].find(b=>b.textContent==='Add milestone')!.click()})
+    await act(async()=>{[...container.querySelectorAll('button')].find(b=>b.textContent==='Generate HTML')!.click()})
+    const calls=vi.mocked(generateFinanceDeck).mock.calls
+    expect(calls[calls.length-1]?.[0].customMilestones).toMatchObject([{label:'Review cash reporting',date:'2027-01-10',lane:'Execution'}])
+    await act(async()=>root.unmount())
+  })
+  it('saves class history independently while preserving the company baseline', async () => {
+    const container=document.createElement('div');document.body.append(container)
+    const root=createRoot(container), save=vi.fn(async(_baseline:RyanFinanceBaseline)=>{})
+    const company={month:'2025-11-01',income:100,cogs:null,expenses:null,ordinaryIncome:null,netIncome:null}
+    vi.mocked(parseHistoricalClassStatement).mockReturnValueOnce([{...company,channel:'Shop',income:50}])
+    await act(async()=>root.render(createElement(FinanceDeckBuilder,{savedHtml:'',periodMonth:'2026-11-01',onGenerated:vi.fn(),onCancel:()=>{},savedBaseline:{history:[company],channelHistory:[]},onSaveBaseline:save})))
+    const input=container.querySelectorAll<HTMLInputElement>('input[type=file]')[3]
+    await act(async()=>{Object.defineProperty(input,'files',{configurable:true,value:[new File(['x'],'Nov 2025.csv')]});input.dispatchEvent(new Event('change',{bubbles:true}))})
+    expect(save).toHaveBeenCalledWith({history:[company],channelHistory:[{...company,channel:'Shop',income:50}]})
+    await act(async()=>root.unmount())
+  })
   it('collects the two workbooks, history, milestone status and note before generating', async () => {
     const container=document.createElement('div');document.body.append(container)
     const root=createRoot(container), done=vi.fn()
@@ -29,7 +79,7 @@ describe('Finance deck workflow', () => {
     await act(async()=>{for(const [i,name] of ['leadership.xlsm','warehouse.xlsm','history.csv'].entries()){Object.defineProperty(inputs[i],'files',{configurable:true,value:[new File(['x'],name)]});inputs[i].dispatchEvent(new Event('change',{bubbles:true}))}})
     expect(generate().disabled).toBe(false)
     await act(async()=>{[...container.querySelectorAll('button')].find(b=>b.textContent==='Answer milestone questions')!.click()})
-    const first=container.querySelector<HTMLSelectElement>('select')!
+    const first=container.querySelector<HTMLSelectElement>('select[aria-label="Finance close workflows mapped status"]')!
     const note=container.querySelector<HTMLInputElement>('input[placeholder="Outcome / evidence"]')!
     const adoption=container.querySelector<HTMLInputElement>('input[aria-label="Current finance workflow adoption percentage"]')!
     const description=container.querySelector<HTMLInputElement>('input[aria-label="Finance close workflows mapped description"]')!

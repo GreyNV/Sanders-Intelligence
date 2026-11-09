@@ -2,6 +2,32 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
 import type { StitchSlideHtmlBlock, StitchSlideHtmlViewMode } from '@/types'
+import type { HistoricalChannelStatement, HistoricalStatementMonth } from '@/lib/financeHistoricalStatements'
+
+export const RYAN_FINANCE_BASELINE_PERIOD = '2000-01-01'
+export const RYAN_FINANCE_BASELINE_KEY = 'internal:ryan-finance-baseline'
+export interface RyanFinanceBaseline { history: HistoricalStatementMonth[]; channelHistory: HistoricalChannelStatement[] }
+
+/** Historical source rows are stored independently of any generated deck. */
+export function useRyanFinanceBaseline() {
+  return useQuery({
+    queryKey:['stitch_slide_html_blocks','ryan-finance-baseline'],
+    queryFn:async ():Promise<RyanFinanceBaseline|null> => {
+      const {data,error}=await supabase.from('stitch_slide_html_blocks').select('html_code')
+        .eq('period_month',RYAN_FINANCE_BASELINE_PERIOD).eq('slide_key',RYAN_FINANCE_BASELINE_KEY).maybeSingle()
+      if(error) { if(isMissingRelationError(error)) return null; throw error }
+      if(!data?.html_code) return null
+      try {
+        const parsed=JSON.parse(data.html_code) as Partial<RyanFinanceBaseline>
+        if(!Array.isArray(parsed.history)||!Array.isArray(parsed.channelHistory)) throw new Error('invalid')
+        const valid=(row:{month?:unknown;income?:unknown})=>typeof row.month==='string'&&(row.income===null||(typeof row.income==='number'&&Number.isFinite(row.income)))
+        if(!parsed.history.every(valid)||!parsed.channelHistory.every(row=>valid(row)&&typeof row.channel==='string')) throw new Error('invalid')
+        return {history:parsed.history,channelHistory:parsed.channelHistory}
+      } catch { throw new Error('The saved Finance historical inputs could not be read. Re-upload the statements to replace them.') }
+    },
+    staleTime:5*60*1000,
+  })
+}
 
 export interface UpsertStitchSlideHtmlBlockPayload {
   period_month: string
@@ -81,6 +107,7 @@ export function useUpsertStitchSlideHtmlBlock() {
       await Promise.all([
         qc.invalidateQueries({ queryKey: ['stitch_slide_html_blocks', payload.period_month] }),
         qc.invalidateQueries({ queryKey: ['stitch_slide_html_blocks', 'ryan-latest'] }),
+        qc.invalidateQueries({ queryKey: ['stitch_slide_html_blocks', 'ryan-finance-baseline'] }),
       ])
     },
   })

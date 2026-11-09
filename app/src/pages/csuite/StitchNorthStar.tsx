@@ -39,7 +39,7 @@ import {
   useUpsertStitchAutoRowOverride,
 } from '@/hooks/useStitchAutoRowOverrides'
 import { useStitchPresenterOrder, useUpdateStitchPresenterOrder } from '@/hooks/useStitchPresenterOrder'
-import { useLatestRyanFinanceDeck, useStitchSlideHtmlBlocks, useUpsertStitchSlideHtmlBlock } from '@/hooks/useStitchSlideHtmlBlocks'
+import { RYAN_FINANCE_BASELINE_KEY, RYAN_FINANCE_BASELINE_PERIOD, useLatestRyanFinanceDeck, useRyanFinanceBaseline, useStitchSlideHtmlBlocks, useUpsertStitchSlideHtmlBlock } from '@/hooks/useStitchSlideHtmlBlocks'
 import { cn, fmtCurrency, fmtNumber } from '@/lib/utils'
 import type { NorthStarStatus, StitchSlideHtmlBlock, StitchSlideHtmlViewMode } from '@/types'
 import {
@@ -142,6 +142,7 @@ export default function StitchNorthStar() {
   const { data: sharedAutoRowOverrides = [], isLoading: autoRowOverridesLoading, error: autoRowOverridesError } = useStitchAutoRowOverrides(selectedMonth)
   const { data: htmlBlocks = [], isLoading: htmlLoading, error: htmlError } = useStitchSlideHtmlBlocks(selectedMonth)
   const { data: previousRyanDeck = null, isLoading: previousRyanDeckLoading, error: previousRyanDeckError } = useLatestRyanFinanceDeck(selectedMonth)
+  const { data: financeBaseline = null, isLoading: financeBaselineLoading, error: financeBaselineError } = useRyanFinanceBaseline()
   const { data: presenterOrder = [], isLoading: presenterOrderLoading, error: presenterOrderError } = useStitchPresenterOrder()
   const updateRow = useUpdateNorthStarRow()
   const updateProgress = useUpdateNorthStarProgress()
@@ -221,13 +222,18 @@ export default function StitchNorthStar() {
         .some(value => (value ?? '').toLowerCase().includes(query))
     })
   }, [rows, selectedPillar, search])
-  const ownerDecks = useMemo(() => buildOwnerSlideDeck(rows, presenterOrder), [rows, presenterOrder])
+  const htmlBlocksByKey = useMemo(() => new Map(htmlBlocks.map(block => [block.slide_key, block])), [htmlBlocks])
+  const ryanDeckHtml = htmlBlocksByKey.get(RYAN_CUSTOM_DECK_KEY)?.html_code ?? ''
+  const ownerDecks = useMemo(() => {
+    const decks=buildOwnerSlideDeck(rows,presenterOrder)
+    if(ryanDeckHtml.trim()&&!decks.some(deck=>deck.owner.trim().toLowerCase()==='ryan')) decks.push({ownerKey:'ryan',owner:'Ryan',rows:[]})
+    return decks
+  }, [rows, presenterOrder, ryanDeckHtml])
   const selectedDeck = ownerDecks.find(deck => deck.owner === presentingOwner) ?? null
   const selectedDeckIndex = selectedDeck ? ownerDecks.findIndex(deck => deck.owner === selectedDeck.owner) : -1
   const statusCounts = useMemo(() => countStatuses(rows), [rows])
-  const htmlBlocksByKey = useMemo(() => new Map(htmlBlocks.map(block => [block.slide_key, block])), [htmlBlocks])
-  const ryanDeckHtml = htmlBlocksByKey.get(RYAN_CUSTOM_DECK_KEY)?.html_code ?? ''
-  const ryanDeckSlideCount = useMemo(() => ryanDeckHtml ? Math.max(1, splitFinanceDeckHtml(ryanDeckHtml).length) : 0, [ryanDeckHtml])
+  const ryanFinanceSlides = useMemo(() => { if(!ryanDeckHtml.trim()) return []; const slides=splitFinanceDeckHtml(ryanDeckHtml); return slides.length?slides:[ryanDeckHtml] }, [ryanDeckHtml])
+  const ryanDeckSlideCount = ryanFinanceSlides.length
   const dailyLift = Math.max(0, displayedMonthlyMetrics.dailyNeeded - displayedMonthlyMetrics.dailyPace)
   const liftPct = displayedMonthlyMetrics.liftNeededPct === null ? 'n/a' : `${Math.max(0, displayedMonthlyMetrics.liftNeededPct).toFixed(1)}%`
 
@@ -298,7 +304,7 @@ export default function StitchNorthStar() {
       }).join('\n')
       const presenters = ownerDecks.map((deck, order) => ({
         id: deck.ownerKey, name: deck.owner, order,
-        slides: deck.rows.map((row, index) => ({
+        slides: deck.owner.trim().toLowerCase()==='ryan' ? [] : deck.rows.map((row, index) => ({
           id: stitchSlideHtmlKey(row), order: index,
           html: htmlBlocksByKey.get(stitchSlideHtmlKey(row))?.view_mode === 'html'
             ? htmlBlocksByKey.get(stitchSlideHtmlKey(row))!.html_code
@@ -311,8 +317,7 @@ export default function StitchNorthStar() {
           ryanPresenter = { id: 'ryan', name: 'Ryan', order: presenters.length, slides: [] }
           presenters.push(ryanPresenter)
         }
-        const generatedSlides = splitFinanceDeckHtml(ryanDeckHtml)
-        for (const [index, html] of (generatedSlides.length ? generatedSlides : [ryanDeckHtml]).entries()) {
+        for (const [index, html] of ryanFinanceSlides.entries()) {
           ryanPresenter.slides.push({ id: `${RYAN_CUSTOM_DECK_KEY}:${index}`, order: ryanPresenter.slides.length, html })
         }
       }
@@ -546,7 +551,7 @@ export default function StitchNorthStar() {
               </div>
               <div className="flex items-center gap-2">
                 {isAdmin && (
-                  <button type="button" className="btn-secondary text-xs" disabled={previousRyanDeckLoading && !ryanDeckHtml} onClick={() => setFinanceBuilderOpen(true)}>
+                  <button type="button" className="btn-secondary text-xs" disabled={(previousRyanDeckLoading && !ryanDeckHtml) || financeBaselineLoading} onClick={() => setFinanceBuilderOpen(true)}>
                     <Sparkles size={14} /> Generate Finance deck
                   </button>
                 )}
@@ -600,7 +605,7 @@ export default function StitchNorthStar() {
                   >
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-semibold text-text1">{deck.owner}</span>
-                      <span className="text-xs text-text2">{deck.rows.length + (deck.owner.trim().toLowerCase() === 'ryan' ? ryanDeckSlideCount : 0)} slides</span>
+                      <span className="text-xs text-text2">{deck.owner.trim().toLowerCase() === 'ryan' ? ryanDeckSlideCount : deck.rows.length} slides</span>
                     </span>
                     <Maximize2 size={14} className="shrink-0 text-text2" />
                   </button>
@@ -637,7 +642,9 @@ export default function StitchNorthStar() {
         </aside>
       </div>
 
-      {selectedDeck && (
+      {selectedDeck && selectedDeck.owner.trim().toLowerCase()==='ryan' ? (
+        <RyanFinanceDeckModal slides={ryanFinanceSlides} activeSlide={Math.min(activeSlide,Math.max(0,ryanFinanceSlides.length-1))} onSlideChange={setActiveSlide} onPresent={()=>void startPresentation(selectedDeckIndex,activeSlide)} onClose={()=>setPresentingOwner(null)} />
+      ) : selectedDeck && (
         <OwnerDeckModal
           deck={selectedDeck}
           activeSlide={Math.min(activeSlide, selectedDeck.rows.length - 1)}
@@ -662,13 +669,15 @@ export default function StitchNorthStar() {
         width="max-w-5xl"
       >
         {previousRyanDeckError && !ryanDeckHtml && <p role="alert" className="mb-3 text-sm text-warning">Could not load prior Finance inputs. Upload the historical statements again for this run.</p>}
-        <FinanceDeckBuilder
+        {financeBaselineError ? <p role="alert" className="mb-3 text-sm text-danger">Could not load saved historical statements. Refresh the page and try again before replacing them.</p> : <FinanceDeckBuilder
           savedHtml={ryanDeckHtml || previousRyanDeck?.html_code || ''}
+          savedBaseline={financeBaseline}
+          onSaveBaseline={async baseline=>{await upsertHtmlBlock.mutateAsync({period_month:RYAN_FINANCE_BASELINE_PERIOD,slide_key:RYAN_FINANCE_BASELINE_KEY,view_mode:'fields',html_code:JSON.stringify(baseline)})}}
           periodMonth={selectedMonth}
           currentMonthProjectedSales={selectedMonth === currentMonth ? displayedMonthlyMetrics.projectedMonthEnd : null}
           onCancel={() => setFinanceBuilderOpen(false)}
           onGenerated={html => { setRyanDeckDraft(html); setFinanceBuilderOpen(false); setRyanDeckEditorOpen(true) }}
-        />
+        />}
       </Modal>
       <Modal
         open={ryanDeckEditorOpen}
@@ -677,7 +686,7 @@ export default function StitchNorthStar() {
         width="max-w-4xl"
       >
         <p className="mb-3 text-sm text-text2">
-          Paste the HTML slide here. It will be saved for {formatPeriodMonth(selectedMonth)} and appended after Ryan’s generated slides.
+          Save the generated Finance HTML for {formatPeriodMonth(selectedMonth)}. This replaces the current Ryan deck for that month.
         </p>
         <textarea
           className="input min-h-[420px] w-full resize-y font-mono text-xs leading-relaxed"
@@ -843,6 +852,16 @@ function PillarWorkspaceCard({
       )}
     </article>
   )
+}
+
+function RyanFinanceDeckModal({slides,activeSlide,onSlideChange,onPresent,onClose}:{slides:string[];activeSlide:number;onSlideChange:(slide:number)=>void;onPresent:()=>void;onClose:()=>void}) {
+  return <div className="fixed inset-0 z-50 flex flex-col bg-surface">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4">
+      <div><div className="text-xs uppercase tracking-wider text-text2">Ryan · Finance North Star</div><div className="font-semibold">{slides.length?`Slide ${activeSlide+1} of ${slides.length}`:'No Finance deck saved yet'}</div></div>
+      <div className="flex gap-2"><button type="button" className="btn-secondary" disabled={slides.length<2} onClick={()=>onSlideChange((activeSlide+slides.length-1)%slides.length)} aria-label="Previous slide">‹</button><button type="button" className="btn-secondary" disabled={slides.length<2} onClick={()=>onSlideChange((activeSlide+1)%slides.length)} aria-label="Next slide">›</button><button type="button" className="btn-primary" disabled={!slides.length} onClick={onPresent}><Monitor size={16}/> Present</button><button type="button" className="btn-secondary" onClick={onClose} aria-label="Close presentation"><X size={16}/></button></div>
+    </div>
+    {slides.length?<div className="relative min-h-0 flex-1"><SlideFrame key={activeSlide} html={slides[activeSlide]} title={`Ryan · ${activeSlide+1}`} /></div>:<p className="p-6 text-sm text-text2">An administrator can generate and save Ryan’s Finance deck from the owner deck controls.</p>}
+  </div>
 }
 
 function OwnerDeckModal({

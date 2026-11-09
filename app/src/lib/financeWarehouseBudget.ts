@@ -71,7 +71,9 @@ export function parseWarehouseBudgetSheets(sheets: Record<string, unknown[][]>):
 }
 
 export async function parseWarehouseBudgetFile(file: File): Promise<WarehouseVariance[]> {
-  const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
+  // Read Excel serial dates directly: converting to Date can shift the encoded
+  // day (which represents the budget year) across time zones.
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false })
   const sheets = Object.fromEntries(workbook.SheetNames.map(name => [name,
     XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, raw: true, defval: null }) as unknown[][],
   ]))

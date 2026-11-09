@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { parseWarehouseBudgetFile } from '@/lib/financeWarehouseBudget'
 import { normalizeFinanceClassName, readFinanceLeadershipWorkbook, type FinanceClassMappings } from '@/lib/financeLeadershipDetails'
 import { assertUniqueHistoricalMonths, parseHistoricalCompanyStatement, parseHistoricalClassStatement, readHistoricalCsv, type HistoricalChannelStatement } from '@/lib/financeHistoricalStatements'
-import { FINANCE_MILESTONES, generateFinanceDeck, readFinanceDeckSavedInputs, validFinanceMilestoneDate, type FinanceDeckInput, type FinanceMilestoneEdits, type MilestoneStatus, type MilestoneCompletion } from '@/lib/financeDeckGenerator'
+import { FINANCE_MILESTONES, generateFinanceDeck, readFinanceDeckSavedInputs, topFinanceChannels, validFinanceMilestoneDate, type FinanceDeckInput, type FinanceMilestone, type FinanceMilestoneEdits, type MilestoneStatus, type MilestoneCompletion } from '@/lib/financeDeckGenerator'
 import type { LeadershipToolSnapshot } from '@/types'
 
 function today() {
@@ -20,14 +20,20 @@ function monthFromFilename(name: string): string | null {
   return `${m[2]}-${String(month).padStart(2,'0')}-01`
 }
 
-export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonthProjectedSales, savedHtml, periodMonth }: {
+export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonthProjectedSales, savedHtml, periodMonth, savedBaseline, onSaveBaseline }: {
   onGenerated: (html: string) => void
   onCancel: () => void
   currentMonthProjectedSales?: number | null
   savedHtml: string
   periodMonth: string
+  savedBaseline?: { history: FinanceDeckInput['history']; channelHistory: HistoricalChannelStatement[] } | null
+  onSaveBaseline?: (baseline: { history: FinanceDeckInput['history']; channelHistory: HistoricalChannelStatement[] }) => Promise<void>
 }) {
   const [saved] = useState(() => readFinanceDeckSavedInputs(savedHtml))
+  const [baseline, setBaseline] = useState(() => ({
+    history:savedBaseline?.history.length ? savedBaseline.history : saved?.history??[],
+    channelHistory:savedBaseline?.channelHistory.length ? savedBaseline.channelHistory : saved?.channelHistory??[],
+  }))
   const [leadership, setLeadership] = useState<File | null>(null)
   const [inspected, setInspected] = useState<{file:File; data:Awaited<ReturnType<typeof readFinanceLeadershipWorkbook>>} | null>(null)
   const [warehouse, setWarehouse] = useState<File | null>(null)
@@ -40,6 +46,10 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
   const [questions, setQuestions] = useState(false)
   const [statuses, setStatuses] = useState<Record<string, MilestoneStatus>>(saved?.statuses ?? {})
   const [notes, setNotes] = useState<Record<string, string>>(saved?.notes ?? {})
+  const [customMilestones, setCustomMilestones] = useState<FinanceMilestone[]>(saved?.customMilestones ?? [])
+  const [newMilestoneLane, setNewMilestoneLane] = useState<FinanceMilestone['lane']>('Guardrail')
+  const [newMilestoneLabel, setNewMilestoneLabel] = useState('')
+  const [newMilestoneDate, setNewMilestoneDate] = useState('')
   const [milestoneEdits, setMilestoneEdits] = useState<FinanceMilestoneEdits>(saved?.milestoneEdits ?? {})
   const [completion, setCompletion] = useState<Record<string, MilestoneCompletion>>(saved?.completion ?? {})
   const [classMappings, setClassMappings] = useState<FinanceClassMappings>(saved?.classMappings ?? {})
@@ -57,10 +67,35 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
   const comparisonRows=inspected?.data.details.classBudgets.filter(row=>row.month===comparisonMonth)??[]
   const unmatchedBudgets=comparisonRows.filter(row=>row.budget!==null&&row.actual===null).sort((a,b)=>a.channel.localeCompare(b.channel))
   const unmatchedActuals=comparisonRows.filter(row=>row.actual!==null&&row.budget===null).sort((a,b)=>a.channel.localeCompare(b.channel))
-  const topChannels=(inspected?.data.details.channels??[]).filter(row=>row.month===comparisonMonth&&row.income!==null&&row.income>0).sort((a,b)=>(b.income??0)-(a.income??0)).slice(0,10)
+  const topChannels=topFinanceChannels(inspected?.data.details.channels??[],`${asOf.slice(0,7)}-01`)
   const historyNames=[...new Map((channelReview??[]).map(row=>[normalizeFinanceClassName(row.channel),row.channel])).values()].sort((a,b)=>a.localeCompare(b))
   const priorMonths=new Set(validAsOf?Array.from({length:12},(_,i)=>new Date(Date.UTC(year-1,monthNumber-1+i,1)).toISOString().slice(0,10)):[])
   const historyCoverage=(name:string)=>new Set((channelReview??[]).filter(row=>normalizeFinanceClassName(row.channel)===normalizeFinanceClassName(name)&&priorMonths.has(row.month)&&row.income!==null).map(row=>row.month)).size
+
+  async function saveUploadedBaseline(companyFile:File|null, classFiles:File[]) {
+    if (!onSaveBaseline) { if(companyFile) setHistory(companyFile); if(classFiles.length) setClasses(classFiles); return }
+    setBusy(true); setError('')
+    try {
+      const nextHistory=companyFile?parseHistoricalCompanyStatement(await readHistoricalCsv(companyFile)):baseline.history
+      assertUniqueHistoricalMonths(nextHistory)
+      if (companyFile && !nextHistory.length) throw new Error('No historical income data was found in the company file.')
+      const selected=new Set<string>()
+      const statements=await Promise.all(classFiles.map(async file=>{
+        const month=monthFromFilename(file.name)
+        if(!month) throw new Error(`Cannot identify the month in ${file.name}; use a name such as Jan 2026.csv.`)
+        if(selected.has(month)) throw new Error(`More than one class statement was selected for ${month}.`)
+        selected.add(month)
+        const rows=parseHistoricalClassStatement(await readHistoricalCsv(file),month)
+        if(!rows.length) throw new Error(`No class data was found in ${file.name}.`)
+        return rows
+      }))
+      // The deck needs income only; do not persist unrelated statement details.
+      const next={history:nextHistory.map(row=>({month:row.month,income:row.income,cogs:null,expenses:null,ordinaryIncome:null,netIncome:null})),channelHistory:[...baseline.channelHistory.filter(row=>!selected.has(row.month)),...statements.flat()].map(row=>({month:row.month,channel:row.channel,income:row.income,cogs:null,expenses:null,ordinaryIncome:null,netIncome:null}))}
+      await onSaveBaseline(next)
+      setBaseline(next);setHistory(null);setClasses([]);setChannelReview(null)
+    } catch(e) {setError(e instanceof Error?`Could not save historical inputs: ${e.message}`:'Could not save historical inputs.')}
+    finally {setBusy(false)}
+  }
 
   async function loadChannelHistory(): Promise<HistoricalChannelStatement[]> {
     const selectedMonths=new Set<string>()
@@ -70,13 +105,13 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
       if(selectedMonths.has(month))throw new Error(`More than one class statement was selected for ${month}. Select only one per month.`)
       selectedMonths.add(month);return {file,month}
     })
-    if(!classFiles.length)return saved?.channelHistory??[]
+    if(!classFiles.length)return baseline.channelHistory
     const rows=await Promise.all(classFiles.map(async ({file,month})=>{
       const result=parseHistoricalClassStatement(await readHistoricalCsv(file),month)
       if(!result.length)throw new Error(`No class data was found in ${file.name}.`)
       return result
     }))
-    return [...(saved?.channelHistory??[]).filter(row=>!selectedMonths.has(row.month)),...rows.flat()]
+    return [...baseline.channelHistory.filter(row=>!selectedMonths.has(row.month)),...rows.flat()]
   }
 
   async function inspectClassMatches() {
@@ -98,17 +133,17 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
   }
 
   async function generate() {
-    if (!leadership || !warehouse || !validAsOf || !validWorkflowAdoption || !validMilestones || (!history && !saved?.history.length)) return
+    if (!leadership || !warehouse || !validAsOf || !validWorkflowAdoption || !validMilestones || (!history && !baseline.history.length)) return
     setBusy(true); setError('')
     try {
       const [leadershipData, warehouseRows, historyRows, channelRows] = await Promise.all([
         inspected?.file===leadership ? Promise.resolve(inspected.data) : readFinanceLeadershipWorkbook(leadership), parseWarehouseBudgetFile(warehouse),
-        history ? readHistoricalCsv(history).then(parseHistoricalCompanyStatement) : Promise.resolve(saved?.history ?? []),
+        history ? readHistoricalCsv(history).then(parseHistoricalCompanyStatement) : Promise.resolve(baseline.history),
         channelReview!==null ? Promise.resolve(channelReview) : loadChannelHistory(),
       ])
       assertUniqueHistoricalMonths(historyRows)
       const snapshot: LeadershipToolSnapshot = { id:'local-preview', snapshot_key:'current', filename:leadership.name, uploaded_by:null, uploaded_at:new Date().toISOString(), ...leadershipData.parsed }
-      const input: FinanceDeckInput = { snapshot, details:leadershipData.details, warehouse:warehouseRows, history:historyRows, channelHistory:channelRows, statuses, notes, milestoneEdits, completion, classMappings, channelMappings, workflowAdoptionPct, workflowAdoptionDate:workflowAdoptionPct === null ? null : workflowAdoptionDate, asOf, currentMonthProjectedSales: asOf === today() ? currentMonthProjectedSales : null }
+      const input: FinanceDeckInput = { snapshot, details:leadershipData.details, warehouse:warehouseRows, history:historyRows, channelHistory:channelRows, statuses, notes, customMilestones, milestoneEdits, completion, classMappings, channelMappings, workflowAdoptionPct, workflowAdoptionDate:workflowAdoptionPct === null ? null : workflowAdoptionDate, asOf, currentMonthProjectedSales: asOf === today() ? currentMonthProjectedSales : null }
       onGenerated(generateFinanceDeck(input))
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not read the supplied files.') }
     finally { setBusy(false) }
@@ -119,13 +154,13 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
     <div className="grid gap-4 md:grid-cols-2">
       <label className="text-sm font-semibold">Leadership Tool <span className="text-danger">*</span><input type="file" accept=".xlsx,.xlsm" className="input mt-1 w-full text-xs" onChange={e => {setLeadership(e.target.files?.[0] ?? null);setInspected(null);setChannelReview(null);setError('')}} /></label>
       <label className="text-sm font-semibold">Warehouse Budget <span className="text-danger">*</span><input type="file" accept=".xlsx,.xlsm" className="input mt-1 w-full text-xs" onChange={e => setWarehouse(e.target.files?.[0] ?? null)} /></label>
-      <label className="text-sm font-semibold">Prior-year company income statement <span className="font-normal text-text2">· required once for the 30% line</span><input type="file" accept=".csv" className="input mt-1 w-full text-xs" onChange={e => setHistory(e.target.files?.[0] ?? null)} /></label>
-      <label className="text-sm font-semibold">Prior-year class statements <span className="font-normal text-text2">· optional, one file per month</span><input type="file" accept=".csv" multiple className="input mt-1 w-full text-xs" onChange={e => {setClasses(Array.from(e.target.files ?? []));setChannelReview(null)}} /></label>
+      <label className="text-sm font-semibold">Prior-year company income statement <span className="font-normal text-text2">· required once for the 30% line</span><input type="file" accept=".csv" disabled={busy} className="input mt-1 w-full text-xs" onChange={e => {const file=e.target.files?.[0]??null;if(file) void saveUploadedBaseline(file,[])}} /></label>
+      <label className="text-sm font-semibold">Prior-year class statements <span className="font-normal text-text2">· optional, one file per month</span><input type="file" accept=".csv" multiple disabled={busy} className="input mt-1 w-full text-xs" onChange={e => {const files=Array.from(e.target.files??[]);if(files.length) void saveUploadedBaseline(null,files);setChannelReview(null)}} /></label>
       <label className="text-sm font-semibold">As of date<input type="date" className="input mt-1 w-full" min={periodStart} max={periodEnd} value={asOf} onChange={e => setAsOf(e.target.value)} /></label>
     </div>
     {!validAsOf && <p role="alert" className="text-xs text-danger">Choose a date in the month selected in Stitch North Star.</p>}
-    {!history && !saved?.history.length && <p className="rounded-lg bg-warning/10 p-3 text-xs text-text2">The 30% scenario remains pending until the prior-year company income statement is selected.</p>}
-    {saved?.history.length ? <p className="text-xs text-text2">Using the saved historical baseline and milestone answers from Ryan’s most recent generated deck. A company CSV replaces the company baseline; class CSVs replace only the months supplied.</p> : null}
+    {!history && !baseline.history.length && <p className="rounded-lg bg-warning/10 p-3 text-xs text-text2">The 30% scenario remains pending until the prior-year company income statement is selected.</p>}
+    {baseline.history.length || baseline.channelHistory.length ? <p className="text-xs text-text2">Saved historical inputs: {baseline.history.length} company month(s) and {new Set(baseline.channelHistory.map(row=>row.month)).size} class month(s). A company CSV replaces its baseline; class CSVs replace only the months supplied.</p> : null}
     <div><button type="button" className="btn-secondary" disabled={!leadership || busy || !validAsOf} onClick={() => void inspectClassMatches()}>Review class matches</button></div>
     {Object.keys(classMappings).length>0 && <div className="rounded-lg border border-border p-3 text-xs"><strong>Saved manual matches</strong>{Object.entries(classMappings).map(([source,target])=><div key={source} className="mt-2 flex items-center justify-between gap-3"><span>{source} → {target}</span><button type="button" className="btn-secondary text-xs" aria-label={`Remove match ${source}`} onClick={()=>setClassMappings(old=>{const next={...old};delete next[source];return next})}>Remove</button></div>)}</div>}
     {inspected && <div className="space-y-3 rounded-lg border border-border p-3"><p className="text-xs text-text2">Before manual matches, {comparisonMonth.slice(0,7)} has {unmatchedActuals.length} actual class(es) without a matched budget and {unmatchedBudgets.length} budget class(es) without a matched actual. Match only names you know refer to the same class; the match applies across all months. Missing budgets stay pending.</p>{unmatchedActuals.length>0 && <details className="text-xs text-text2"><summary className="cursor-pointer font-semibold">Actual classes without a matched budget</summary><ul className="mt-2 list-disc pl-5">{unmatchedActuals.map(row=><li key={row.channel}>{row.channel}</li>)}</ul></details>}{unmatchedBudgets.map(source=>{
@@ -147,14 +182,20 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
       {workflowAdoptionPct !== null && <label className="block text-sm font-semibold">Adoption reported as of <input type="date" aria-label="Workflow adoption date" max={asOf} className="input ml-2 text-sm" value={workflowAdoptionDate} onChange={e => setWorkflowAdoptionDate(e.target.value)} /></label>}
       {!validWorkflowAdoption && <p role="alert" className="text-xs text-danger">Enter an adoption percentage from 0 to 100 and a reporting date no later than the deck’s as-of date.</p>}
       <p className="text-xs text-text2">Enter status and completion separately. A milestone marked unfinished turns red after its due date; unconfirmed completion is never assumed to be unfinished. Changing the date or description resets both fields. Dates outside November 2026–October 2027 appear in the milestone details.</p>
-      {FINANCE_MILESTONES.map(m => <div key={m.id} className="grid gap-2 border-b border-border pb-3 md:grid-cols-[1fr_125px_1fr]">
-      <div className="space-y-1 text-sm"><div className="text-xs text-text2">{m.lane}</div><input className="input w-full text-sm" aria-label={`${m.label} description`} maxLength={80} value={milestoneEdits[m.id]?.label ?? m.label} onChange={e => {const label=e.target.value;setMilestoneEdits(old=>({...old,[m.id]:{date:old[m.id]?.date??m.date,label}}));setStatuses(old=>({...old,[m.id]:'pending'}));setCompletion(old=>({...old,[m.id]:'unknown'}))}} /><input type="date" className="input w-full text-sm" aria-label={`${m.label} date`} value={milestoneEdits[m.id]?.date ?? m.date} onChange={e => {const date=e.target.value;setMilestoneEdits(old=>({...old,[m.id]:{label:old[m.id]?.label??m.label,date}}));setStatuses(old=>({...old,[m.id]:'pending'}));setCompletion(old=>({...old,[m.id]:'unknown'}))}} /></div>
+      <div className="grid gap-2 rounded-lg bg-surface2 p-3 md:grid-cols-[140px_1fr_150px_auto]">
+        <select aria-label="New milestone category" className="input text-sm" value={newMilestoneLane} onChange={e=>setNewMilestoneLane(e.target.value as FinanceMilestone['lane'])}><option>Guardrail</option><option>Growth lever</option><option>Execution</option></select>
+        <input aria-label="New milestone description" className="input text-sm" maxLength={80} placeholder="Milestone description" value={newMilestoneLabel} onChange={e=>setNewMilestoneLabel(e.target.value)} />
+        <input aria-label="New milestone date" className="input text-sm" type="date" value={newMilestoneDate} onChange={e=>setNewMilestoneDate(e.target.value)} />
+        <button type="button" className="btn-secondary text-xs" disabled={!newMilestoneLabel.trim()||!validFinanceMilestoneDate(newMilestoneDate)} onClick={()=>{setCustomMilestones(old=>[...old,{id:`custom-${crypto.randomUUID()}`,lane:newMilestoneLane,label:newMilestoneLabel.trim(),date:newMilestoneDate}]);setNewMilestoneLabel('');setNewMilestoneDate('')}}>Add milestone</button>
+      </div>
+      {[...FINANCE_MILESTONES,...customMilestones].map(m => <div key={m.id} className="grid gap-2 border-b border-border pb-3 md:grid-cols-[1fr_125px_1fr]">
+      <div className="space-y-1 text-sm"><div className="text-xs text-text2">{m.lane} {m.id.startsWith('custom-')&&<button type="button" className="underline" aria-label={`Remove ${m.label}`} onClick={()=>{setCustomMilestones(old=>old.filter(item=>item.id!==m.id));setMilestoneEdits(old=>{const next={...old};delete next[m.id];return next})}}>Remove</button>}</div><input className="input w-full text-sm" aria-label={`${m.label} description`} maxLength={80} value={milestoneEdits[m.id]?.label ?? m.label} onChange={e => {const label=e.target.value;setMilestoneEdits(old=>({...old,[m.id]:{date:old[m.id]?.date??m.date,label}}));setStatuses(old=>({...old,[m.id]:'pending'}));setCompletion(old=>({...old,[m.id]:'unknown'}))}} /><input type="date" className="input w-full text-sm" aria-label={`${m.label} date`} value={milestoneEdits[m.id]?.date ?? m.date} onChange={e => {const date=e.target.value;setMilestoneEdits(old=>({...old,[m.id]:{label:old[m.id]?.label??m.label,date}}));setStatuses(old=>({...old,[m.id]:'pending'}));setCompletion(old=>({...old,[m.id]:'unknown'}))}} /></div>
       <select aria-label={`${m.label} status`} className="input text-sm" value={statuses[m.id] ?? 'pending'} onChange={e => setStatuses(old => ({ ...old, [m.id]:e.target.value as MilestoneStatus }))}><option value="pending">Pending</option><option value="green">Green</option><option value="yellow">Yellow</option><option value="red">Red</option></select>
       <div className="space-y-1"><select aria-label={`${m.label} completion`} className="input w-full text-sm" value={completion[m.id] ?? 'unknown'} onChange={e => setCompletion(old=>({...old,[m.id]:e.target.value as MilestoneCompletion}))}><option value="unknown">Completion unconfirmed</option><option value="unfinished">Unfinished</option><option value="achieved">Action and outcome achieved by due date</option></select><input className="input w-full text-sm" aria-label={`${m.label} note`} placeholder="Outcome / evidence" value={notes[m.id] ?? ''} onChange={e => setNotes(old => ({ ...old, [m.id]:e.target.value }))} /></div>
     </div>)}</div>}
     {!validMilestones && <p role="alert" className="text-xs text-danger">Every edited milestone needs a valid date and a description of at most 80 characters.</p>}
     <p className="text-xs text-text2">Unanswered milestones remain pending. The workbooks do not establish when these actions were completed. NOI, payroll and cash indicators are calculated separately; cash uses the Leadership Tool’s column L and ending cash.</p>
     {error && <div role="alert" className="rounded-lg bg-danger/10 p-3 text-sm text-danger">{error}</div>}
-    <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button><button type="button" className="btn-primary" disabled={!leadership || !warehouse || !validAsOf || !validWorkflowAdoption || !validMilestones || (!history && !saved?.history.length) || busy} onClick={() => void generate()}>{busy ? 'Preparing deck…' : 'Generate HTML'}</button></div>
+    <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button><button type="button" className="btn-primary" disabled={!leadership || !warehouse || !validAsOf || !validWorkflowAdoption || !validMilestones || (!history && !baseline.history.length) || busy} onClick={() => void generate()}>{busy ? 'Saving or preparing…' : 'Generate HTML'}</button></div>
   </div>
 }

@@ -6,7 +6,8 @@ export interface FinanceChannelMonth { month: string; channel: string; income: n
 export interface FinanceClassBudget { month: string; channel: string; budget: number | null; actual: number | null; variance: number | null }
 export interface FinanceCashWeek { week: number; date: string | null; endingCash: number | null; vsFloor: number | null }
 export interface FinancePayrollMonth { month: string; payroll: number | null }
-export interface FinanceLeadershipDetails { channels: FinanceChannelMonth[]; classBudgets: FinanceClassBudget[]; cashWeeks: FinanceCashWeek[]; payrollTotals: FinancePayrollMonth[] }
+export interface FinancePayrollDepartmentMonth extends FinancePayrollMonth { department: string }
+export interface FinanceLeadershipDetails { channels: FinanceChannelMonth[]; classBudgets: FinanceClassBudget[]; cashWeeks: FinanceCashWeek[]; payrollTotals: FinancePayrollMonth[]; payrollDepartments?: FinancePayrollDepartmentMonth[] }
 /** Budget class name (normalized) -> actual class name, explicitly confirmed by Ryan. */
 export type FinanceClassMappings = Record<string, string>
 
@@ -93,14 +94,23 @@ export function parseFinanceLeadershipDetails(sheets: Record<string, Matrix>): F
   const payrollHeader = payroll.findIndex(row => normalize(row[0]) === 'department')
   const payrollTotal = payrollHeader < 0 ? undefined : payroll.slice(payrollHeader + 1).find(row => normalize(row[0]) === 'grand total')
   const payrollTotals: FinancePayrollMonth[] = []
+  const payrollDepartments: FinancePayrollDepartmentMonth[] = []
   if (payrollHeader > 0 && payrollTotal) {
     const payrollMonths = payroll[payrollHeader - 1]
     for (let i = 1; i < payrollTotal.length; i += 3) {
       const m = month(payrollMonths[i]) ?? month(payrollMonths[i - 1])
       if (m) payrollTotals.push({ month: m, payroll: number(payrollTotal[i]) })
     }
+    for (const row of payroll.slice(payrollHeader + 1)) {
+      const department = text(row[0])
+      if (!department || normalize(department) === 'grand total') continue
+      for (let i = 1; i < payrollTotal.length; i += 3) {
+        const m = month(payrollMonths[i]) ?? month(payrollMonths[i - 1])
+        if (m) payrollDepartments.push({ department, month: m, payroll: number(row[i]) })
+      }
+    }
   }
-  return { channels, classBudgets, cashWeeks, payrollTotals }
+  return { channels, classBudgets, cashWeeks, payrollTotals, payrollDepartments }
 }
 
 /** Apply only explicit budget-to-actual mappings, rejecting ambiguous merges. */

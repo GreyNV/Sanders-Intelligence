@@ -25,4 +25,13 @@ describe('warehouse budget import', () => {
     expect(cashFloorStatus(1, null)).toBe('pending')
     expect(cashFloorStatus(null, 0)).toBe('pending')
   })
+
+  it('interprets Excel serial headings without a time-zone shift', () => {
+    const serial=Math.round((Date.UTC(2026,0,27)-Date.UTC(1899,11,30))/86400000)
+    const rows=parseWarehouseBudgetSheets({
+      'Budget Source':[['Account','Jan 26','Jan 27']],
+      'Variance Table':[['Section','Account','Status','Month','Budget','Actual'],['Expense','Rent','Matched',serial,100,120]],
+    })
+    expect(rows[0]).toMatchObject({month:'2027-01-01',budget:100,actual:120,variance:-20})
+  })
 })

@@ -74,7 +74,7 @@ describe('Finance deck upload integration', () => {
     expect(slides[0]).toMatch(/<polyline[^>]+stroke="#234b38"/)
     expect(slides[0]).toMatch(/<polyline[^>]+stroke="#bf7540"/)
     expect(slides[0]).toContain('$1,300')
-    expect(slides[1]).toContain('-20.0% / -1.5%')
+    expect(slides[1]).toContain('−$100 (-20.0%) / −$10 (-1.5%)')
     expect(slides[3]).toContain('−$25')
     expect(slides[3]).toContain('Manually confirmed budget class matches')
     expect(slides[3]).toContain('New Actual')

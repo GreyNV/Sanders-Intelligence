@@ -1,9 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
-import { generateFinanceDeck, readFinanceDeckSavedInputs, splitFinanceDeckHtml, type FinanceDeckInput } from '@/lib/financeDeckGenerator'
+import { generateFinanceDeck, readFinanceDeckSavedInputs, splitFinanceDeckHtml, topFinanceChannels, type FinanceDeckInput } from '@/lib/financeDeckGenerator'
 import type { LeadershipToolSnapshot } from '@/types'
 import { buildPnlForecastPath } from '@/pages/csuite/StitchNorthStar.helpers'
 
 describe('Finance deck generation', () => {
+  it('ranks channels by four completed months, retaining a missing last month as pending', () => {
+    const row=(month:string,channel:string,income:number)=>({month,channel,income,grossMargin:.5,operatingMargin:.1})
+    const channels=topFinanceChannels([row('2026-07-01','A',1000),row('2026-10-01','B',800),row('2026-11-01','B',5000)],'2026-11-01')
+    expect(channels.map(c=>c.channel)).toEqual(['A','B'])
+    expect(channels[0]).toMatchObject({fourMonthIncome:1000,income:null,operatingMargin:null})
+    expect(channels[1]).toMatchObject({fourMonthIncome:800,income:800})
+  })
   it('generates distinct forecast and 30% goal lines and seven sandbox-ready slides', () => {
     const closed=['2026-07-01','2026-08-01','2026-09-01','2026-10-01']
     const future=Array.from({length:12},(_,i)=>new Date(Date.UTC(2026,10+i,1)).toISOString().slice(0,10))
@@ -24,8 +31,8 @@ describe('Finance deck generation', () => {
     expect(slides).toHaveLength(7)
     const graph=new DOMParser().parseFromString(slides[0],'text/html').querySelector('svg.graph')!
     expect(graph.querySelectorAll('line[stroke="#e2dfd5"]')).toHaveLength(5)
-    expect(graph.querySelector('circle[fill="#234b38"] title')?.textContent).toBe('Nov 26 · Current forecast: 20.0%')
-    expect(graph.querySelector('circle[fill="#bf7540"] title')?.textContent).toBe('Nov 26 · 30% growth goal: 29.2%')
+    expect(graph.querySelector('circle[fill="#234b38"] title')?.textContent).toBe('Nov 26 · Current forecast: 20.0% · NOI $200')
+    expect(graph.querySelector('circle[fill="#bf7540"] title')?.textContent).toBe('Nov 26 · 30% growth goal: 29.2% · NOI $380')
     expect(slides.every(slide=>slide.includes('As of 2026-11-06 · Leadership Tool: test'))).toBe(true)
     expect(slides[0]).toContain('30% growth goal scenario')
     expect(slides[0]).toContain('Current-year budget × fulfillment')
@@ -43,7 +50,11 @@ describe('Finance deck generation', () => {
     expect(lowMarginSlide).toContain('-25.8%')
     expect(lowMarginSlide).toMatch(/<polyline[^>]+stroke="#234b38"/)
     const withPace = splitFinanceDeckHtml(generateFinanceDeck({ ...input, currentMonthProjectedSales: 1200 }))[0]
-    expect(withPace).toContain('Current-month sales pace')
+    expect(withPace).not.toContain('Current-month sales pace')
+    expect(withPace).toContain('Current-year budget × fulfillment')
+    const paceTable=new DOMParser().parseFromString(withPace,'text/html').querySelector('table')!
+    const firstTwoRows=[...paceTable.querySelectorAll('tbody tr')].slice(0,2).map(row=>[...row.querySelectorAll('td')].slice(0,3).map(cell=>cell.textContent))
+    expect(firstTwoRows).toEqual([['Nov 26','$1,000','Current-year budget × fulfillment'],['Dec 26','$1,000','Current-year budget × fulfillment']])
     const fallbackSnapshot = { ...snapshot, budget: { ...snapshot.budget, sales: [...snapshot.budget.sales.filter(row=>row.month!=='2026-11-01'), { month:'2025-11-01', budgeted_sales:900 }] } }
     const withFallback = splitFinanceDeckHtml(generateFinanceDeck({ ...input, snapshot:fallbackSnapshot }))[0]
     expect(withFallback).toContain('Prior-year budget × fulfillment')
@@ -60,6 +71,10 @@ describe('Finance deck generation', () => {
     expect(payrollGraph.querySelector('polyline[stroke="#234b38"]')).not.toBeNull()
     expect(payrollGraph.querySelector('polyline[stroke="#bf7540"]')).not.toBeNull()
     expect(payrollGraph.textContent).toContain('8% target')
+    const departmentSlide=splitFinanceDeckHtml(generateFinanceDeck({...input,details:{...input.details,payrollDepartments:closed.map(month=>({month,department:'Finance',payroll:30}))}}))[2]
+    const departmentPoint=new DOMParser().parseFromString(departmentSlide,'text/html').querySelector('svg.graph circle[fill="#234b38"] title')!
+    expect(departmentPoint.textContent).toContain('Projected payroll $80')
+    expect(departmentPoint.textContent).toContain('Finance: $30')
     const cashSlides=splitFinanceDeckHtml(generateFinanceDeck({...input,details:{...input.details,cashWeeks:[
       {week:1,date:'2026-11-02',endingCash:700000,vsFloor:100000},
       {week:2,date:'2026-11-09',endingCash:500000,vsFloor:-250000},
@@ -67,13 +82,12 @@ describe('Finance deck generation', () => {
       {week:4,date:'2026-11-23',endingCash:200000,vsFloor:null},
     ]}}))
     const cashGraph=new DOMParser().parseFromString(cashSlides[5],'text/html').querySelector('svg.graph')!
-    expect(cashGraph.getAttribute('aria-label')).toBe('Projected weekly ending cash and implied floor')
-    expect(cashGraph.querySelector('circle[fill="#31804e"] title')?.textContent).toContain('$700,000')
-    expect(cashGraph.querySelector('circle[fill="#c99425"] title')?.textContent).toContain('$500,000')
-    expect(cashGraph.querySelector('circle[fill="#b64d40"] title')?.textContent).toContain('−$10,000')
-    expect(cashGraph.querySelector('circle[fill="#9b9c94"] title')?.textContent).toContain('$200,000')
-    expect(cashGraph.textContent).toContain('Implied floor: $750,000')
-    expect(cashSlides[5]).toContain('ending cash minus the supplied column L difference')
+    expect(cashGraph.getAttribute('aria-label')).toBe('Projected weekly cash status')
+    expect(cashGraph.querySelector('circle[fill="#31804e"] title')?.textContent).toContain('GREEN')
+    expect(cashGraph.querySelector('circle[fill="#c99425"] title')?.textContent).toContain('YELLOW')
+    expect(cashGraph.querySelector('circle[fill="#b64d40"] title')?.textContent).toContain('RED')
+    expect(cashGraph.querySelector('circle[fill="#9b9c94"] title')?.textContent).toContain('PENDING')
+    expect(new DOMParser().parseFromString(cashSlides[5],'text/html').body.textContent).not.toContain('$')
     const milestoneDetails = waterfallDocument.querySelector<HTMLDetailsElement>('details.milestone-details')!
     expect(milestoneDetails.open).toBe(false)
     expect(milestoneDetails.textContent).toContain('2026-12-31 · Finance close workflows mapped')
@@ -88,6 +102,17 @@ describe('Finance deck generation', () => {
     expect(slides[3]).toContain('Budget missing')
     expect(slides[3]).toContain('No comparable class budgets and actuals')
     expect(slides[4]).toContain('No comparable warehouse budgets and actuals')
+    const budgetSlide=splitFinanceDeckHtml(generateFinanceDeck({...input,details:{...input.details,classBudgets:[
+      {month:'2026-10-01',channel:'Shop',budget:100,actual:125,variance:-25},
+      {month:'2026-11-01',channel:'Shop',budget:110,actual:null,variance:null},
+      {month:'2026-12-01',channel:'Shop',budget:120,actual:null,variance:null},
+    ]}}))[3]
+    expect(budgetSlide).toContain('Nov 26 budget')
+    expect(budgetSlide).toContain('Dec 26 budget')
+    expect(budgetSlide).toContain('$110')
+    expect(budgetSlide).toContain('$120')
+    expect(budgetSlide).toContain('Jan 27 budget')
+    expect(budgetSlide).toContain('Pending')
     const coverage = splitFinanceDeckHtml(generateFinanceDeck({ ...input,
       details: { ...input.details, classBudgets:[{month:'2026-10-01',channel:'Matched',budget:100,actual:90,variance:10}] },
       warehouse:[{month:'2026-10-01',section:'Shipping',account:'Freight',budget:100,actual:90,variance:10},{month:'2026-10-01',section:'Storage',account:'Unbudgeted',budget:null,actual:45,variance:null}],
@@ -110,7 +135,7 @@ describe('Finance deck generation', () => {
     expect(noHistoryMatch).toContain('Pending / Pending')
     const channelMappedHtml=generateFinanceDeck({...input,details:channelDetails,channelHistory,channelMappings:{'shop online':'Shop'}})
     const channelMapped=splitFinanceDeckHtml(channelMappedHtml)[1]
-    expect(channelMapped).toContain('-20.0% / -1.5%')
+    expect(channelMapped).toContain('−$100 (-20.0%) / −$10 (-1.5%)')
     expect(channelMapped).toContain('Manually confirmed historical channel matches')
     expect(readFinanceDeckSavedInputs(channelMappedHtml)?.channelMappings).toEqual({'shop online':'Shop'})
     expect(()=>generateFinanceDeck({...input,details:{...channelDetails,channels:[...channelDetails.channels,{month:'2026-10-01',channel:'Shop',income:900,grossMargin:.6,operatingMargin:.2}]},channelHistory,channelMappings:{'shop online':'Shop'}})).toThrow('assigned to more than one')
@@ -138,6 +163,11 @@ describe('Finance deck generation', () => {
     expect(editedDoc.querySelector('svg.waterfall')?.textContent).not.toContain('Open regional site')
     expect(edited).toContain('1 milestone(s) outside the plan appear in the details below.')
     expect(readFinanceDeckSavedInputs(editedHtml)?.milestoneEdits).toEqual(edits)
+    const custom={id:'custom-test-1',lane:'Execution' as const,date:'2027-05-09',label:'Review close process'}
+    const customHtml=generateFinanceDeck({...input,customMilestones:[custom],statuses:{...input.statuses,[custom.id]:'yellow'}})
+    expect(splitFinanceDeckHtml(customHtml)[6]).toContain('Review close process')
+    expect(readFinanceDeckSavedInputs(customHtml)?.customMilestones).toEqual([custom])
+    expect(readFinanceDeckSavedInputs(customHtml)?.statuses[custom.id]).toBe('yellow')
     expect(()=>generateFinanceDeck({...input,milestoneEdits:{warehouse1:{date:'2027-02-30',label:'Invalid'}}})).toThrow('valid date')
     const overdueInput={...input,milestoneEdits:{close:{date:'2026-11-05',label:'Close playbook'}},completion:{close:'unfinished' as const}}
     const overdueHtml=generateFinanceDeck(overdueInput)
