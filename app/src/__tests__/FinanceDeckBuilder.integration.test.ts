@@ -62,6 +62,8 @@ describe('Finance deck upload integration', () => {
     await act(async () => root.render(createElement(FinanceDeckBuilder,{...props,savedBaseline:persisted})))
     files = host.querySelectorAll<HTMLInputElement>('input[type=file]')
     await act(async () => { for (const [i,file] of [leadership,warehouse].entries()) { Object.defineProperty(files[i],'files',{configurable:true,value:[file]});files[i].dispatchEvent(new Event('change',{bubbles:true})) } })
+    const asOf=host.querySelector<HTMLInputElement>('input[type=date]')!
+    await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(asOf,'2026-11-10');asOf.dispatchEvent(new Event('input',{bubbles:true}));asOf.dispatchEvent(new Event('change',{bubbles:true}))})
     expect(host.textContent).toContain('Saved historical inputs: 12 company month(s) and 1 class month(s)')
     await act(async () => { [...host.querySelectorAll('button')].find(b=>b.textContent==='Review class matches')!.click(); await new Promise(resolve=>setTimeout(resolve,30)) })
     const classMatch=host.querySelector<HTMLSelectElement>('select[aria-label="Match budget class Legacy Budget"]')!
@@ -74,10 +76,20 @@ describe('Finance deck upload integration', () => {
     await act(async () => { [...host.querySelectorAll('button')].find(b=>b.textContent==='Answer milestone questions')!.click() })
     const status = host.querySelector<HTMLSelectElement>('select[aria-label="Finance close workflows mapped status"]')!
     const adoption = host.querySelector<HTMLInputElement>('input[aria-label="Current finance workflow adoption percentage"]')!
+    const newLabel=host.querySelector<HTMLInputElement>('input[aria-label="New milestone description"]')!
+    const newDate=host.querySelector<HTMLInputElement>('input[aria-label="New milestone date"]')!
+    const newLane=host.querySelector<HTMLSelectElement>('select[aria-label="New milestone category"]')!
     await act(async () => {
       status.value='yellow'; status.dispatchEvent(new Event('change',{bubbles:true}))
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(adoption,'35');adoption.dispatchEvent(new Event('input',{bubbles:true}))
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(newLabel,'Refresh close workflow');newLabel.dispatchEvent(new Event('input',{bubbles:true}))
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(newDate,'2026-11-01');newDate.dispatchEvent(new Event('input',{bubbles:true}));newDate.dispatchEvent(new Event('change',{bubbles:true}))
+      newLane.value='Execution';newLane.dispatchEvent(new Event('change',{bubbles:true}))
     })
+    await act(async()=>{[...host.querySelectorAll('button')].find(b=>b.textContent==='Add milestone')!.click()})
+    const customStatus=host.querySelector<HTMLSelectElement>('select[aria-label="Refresh close workflow status"]')!
+    const customCompletion=host.querySelector<HTMLSelectElement>('select[aria-label="Refresh close workflow completion"]')!
+    await act(async()=>{customStatus.value='green';customStatus.dispatchEvent(new Event('change',{bubbles:true}));customCompletion.value='unfinished';customCompletion.dispatchEvent(new Event('change',{bubbles:true}))})
     await act(async () => { [...host.querySelectorAll('button')].find(b=>b.textContent==='Generate HTML')!.click(); await new Promise(resolve=>setTimeout(resolve,30)) })
     expect(host.querySelector('[role=alert]')?.textContent).toBeUndefined()
     const slides = splitFinanceDeckHtml(generated)
@@ -92,6 +104,9 @@ describe('Finance deck upload integration', () => {
     expect(slides[4]).toContain('−$20')
     expect(slides[5]).toContain('YELLOW')
     expect(slides[6]).toContain('Workflow adoption · 35%')
+    const milestone=[...new DOMParser().parseFromString(slides[6],'text/html').querySelectorAll('svg.waterfall g')].find(g=>g.querySelector('title')?.textContent?.includes('Refresh close workflow'))!
+    expect(milestone.querySelector('circle')?.getAttribute('fill')).toBe('#b64d40')
+    expect(readFinanceDeckSavedInputs(generated)?.customMilestones).toMatchObject([{lane:'Execution',label:'Refresh close workflow',date:'2026-11-01'}])
     expect(readFinanceDeckSavedInputs(generated)).toMatchObject({statuses:{close:'yellow'},workflowAdoptionPct:35})
     expect(readFinanceDeckSavedInputs(generated)?.classMappings).toEqual({'legacy budget':'New Actual'})
     expect(readFinanceDeckSavedInputs(generated)?.channelMappings).toEqual({'shop':'Legacy Shop'})
