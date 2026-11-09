@@ -30,6 +30,13 @@ describe('Finance deck generation', () => {
     const slides=splitFinanceDeckHtml(html)
     expect(slides).toHaveLength(7)
     const graph=new DOMParser().parseFromString(slides[0],'text/html').querySelector('svg.graph')!
+    // Stitch strips scripts, so chart reveal must be a complete CSS animation
+    // with a full-size fallback when motion is disabled.
+    expect(slides[0]).not.toContain('<script')
+    expect(slides[0]).toContain('@keyframes reveal-plot{from{transform:scaleX(0)}to{transform:scaleX(1)}}')
+    expect(graph.querySelector('g[clip-path="url(#plot-reveal)"] polyline')).not.toBeNull()
+    expect(graph.querySelector('clipPath#plot-reveal rect')?.getAttribute('width')).toBe('1160')
+    expect(slides[0]).toContain('@media(prefers-reduced-motion:reduce){*{animation:none!important}}')
     expect(graph.querySelectorAll('line[stroke="#e2dfd5"]')).toHaveLength(5)
     expect(graph.querySelector('circle[fill="#234b38"] title')?.textContent).toBe('Nov 26 · Current forecast: 20.0% · NOI $200')
     expect(graph.querySelector('circle[fill="#bf7540"] title')?.textContent).toBe('Nov 26 · 30% growth goal: 29.2% · NOI $380')

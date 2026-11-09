@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import * as XLSX from 'xlsx'
 import FinanceDeckBuilder from '@/components/FinanceDeckBuilder'
 import { readFinanceDeckSavedInputs, splitFinanceDeckHtml } from '@/lib/financeDeckGenerator'
+import type { RyanFinanceBaseline } from '@/hooks/useStitchSlideHtmlBlocks'
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -47,11 +48,21 @@ describe('Finance deck upload integration', () => {
     const company = csvFile('Company.csv','Account,Nov 25,Dec 25,Jan 26,Feb 26,Mar 26,Apr 26,May 26,Jun 26,Jul 26,Aug 26,Sep 26,Oct 26\nTotal Income,1000,1000,1000,1000,1000,1000,1000,1000,1000,1000,1000,1000\nNet Ordinary Income,200,200,200,200,200,200,200,200,200,200,200,200')
     const historicalClass = csvFile('Nov 2025.csv',',Legacy Shop,Total Legacy Shop,Total\nTotal Income,0,500,500\nNet Ordinary Income,0,100,100')
     const host = document.createElement('div'); document.body.append(host)
-    const root = createRoot(host)
+    let root = createRoot(host)
     let generated = ''
-    await act(async () => root.render(createElement(FinanceDeckBuilder, { periodMonth:'2026-11-01',savedHtml:'',onGenerated:(html:string)=>{generated=html},onCancel:()=>{} })))
-    const files = host.querySelectorAll<HTMLInputElement>('input[type=file]')
-    await act(async () => { for (const [i,file] of [leadership,warehouse,company,historicalClass].entries()) { Object.defineProperty(files[i],'files',{configurable:true,value:[file]});files[i].dispatchEvent(new Event('change',{bubbles:true})) } })
+    let persisted:RyanFinanceBaseline|null=null
+    const props={ periodMonth:'2026-11-01',savedHtml:'',onGenerated:(html:string)=>{generated=html},onCancel:()=>{},onSaveBaseline:async (baseline:RyanFinanceBaseline)=>{persisted=JSON.parse(JSON.stringify(baseline)) as RyanFinanceBaseline} }
+    await act(async () => root.render(createElement(FinanceDeckBuilder,props)))
+    let files = host.querySelectorAll<HTMLInputElement>('input[type=file]')
+    await act(async () => { Object.defineProperty(files[2],'files',{configurable:true,value:[company]});files[2].dispatchEvent(new Event('change',{bubbles:true})) })
+    await act(async () => { Object.defineProperty(files[3],'files',{configurable:true,value:[historicalClass]});files[3].dispatchEvent(new Event('change',{bubbles:true})) })
+    expect(persisted).toMatchObject({history:expect.arrayContaining([expect.objectContaining({month:'2025-11-01',income:1000})]),channelHistory:expect.arrayContaining([expect.objectContaining({month:'2025-11-01',channel:'Legacy Shop',income:500})])})
+    await act(async () => root.unmount())
+    root=createRoot(host)
+    await act(async () => root.render(createElement(FinanceDeckBuilder,{...props,savedBaseline:persisted})))
+    files = host.querySelectorAll<HTMLInputElement>('input[type=file]')
+    await act(async () => { for (const [i,file] of [leadership,warehouse].entries()) { Object.defineProperty(files[i],'files',{configurable:true,value:[file]});files[i].dispatchEvent(new Event('change',{bubbles:true})) } })
+    expect(host.textContent).toContain('Saved historical inputs: 12 company month(s) and 1 class month(s)')
     await act(async () => { [...host.querySelectorAll('button')].find(b=>b.textContent==='Review class matches')!.click(); await new Promise(resolve=>setTimeout(resolve,30)) })
     const classMatch=host.querySelector<HTMLSelectElement>('select[aria-label="Match budget class Legacy Budget"]')!
     expect([...classMatch.options].map(option=>option.value)).toContain('New Actual')
