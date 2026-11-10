@@ -3,6 +3,7 @@ import { createElement, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import BprPresentation from '../components/BprPresentation'
 import SlideFrame, { slideScale } from '../components/SlideFrame'
+import StitchHtmlFrame from '../components/StitchHtmlFrame'
 
 const originalScrollTo = Element.prototype.scrollTo
 let root: Root | undefined
@@ -41,6 +42,29 @@ describe('BPR presentation', () => {
     await act(async()=>{document.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));await Promise.resolve()})
     expect(document.querySelector('iframe')?.srcdoc).toContain('First finance slide')
     expect(document.querySelector('iframe')).not.toBe(first)
+  })
+  it('offers script-free slide navigation when a Finance document is pasted into an HTML row', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    Object.defineProperty(Element.prototype,'scrollTo',{configurable:true,writable:true,value:vi.fn()})
+    const contentDocument=Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype,'contentDocument')!.get!
+    vi.spyOn(HTMLIFrameElement.prototype,'contentDocument','get').mockImplementation(function(this:HTMLIFrameElement){
+      const doc=contentDocument.call(this) as Document | null
+      if(doc&&!doc.fonts) Object.defineProperty(doc,'fonts',{configurable:true,value:{ready:Promise.resolve()}})
+      return doc
+    })
+    const html='<style>.slide{display:none}</style><section class="slide" data-finance-slide="First">First</section><section class="slide" data-finance-slide="Second">Second</section><script>throw new Error("must not run")</script>'
+    host=document.createElement('div');document.body.append(host);root=createRoot(host)
+    await act(async()=>{root!.render(createElement(StitchHtmlFrame,{title:'Pasted Finance',html}));await Promise.resolve()})
+    let frame=host.querySelector<HTMLIFrameElement>('iframe')!
+    expect(frame.srcdoc).toContain('data-finance-slide="First"')
+    expect(frame.srcdoc).not.toContain('<script')
+    expect(host.textContent).toContain('1 / 2')
+    await act(async()=>{host!.querySelector<HTMLButtonElement>('[aria-label="Next Finance slide"]')!.click();await Promise.resolve()})
+    frame=host.querySelector<HTMLIFrameElement>('iframe')!
+    expect(frame.srcdoc).toContain('data-finance-slide="Second"')
+    expect(frame.srcdoc).not.toContain('data-finance-slide="First"')
+    expect(host.textContent).toContain('2 / 2')
   })
   it('scales the authored canvas uniformly and uses width for long slides', () => {
     expect(slideScale(1920, 1080, 720)).toBe(1.5)

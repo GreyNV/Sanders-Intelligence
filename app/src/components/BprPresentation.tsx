@@ -92,7 +92,7 @@ export default function BprPresentation({ presenters, initialPresenter = 0, init
     <div ref={overlay} role="dialog" aria-modal="true" aria-label="BPR presentation" tabIndex={-1} onPointerMove={activity} onPointerDown={activity}
       style={{ position: 'fixed', inset: 0, zIndex: 10000, background: '#080b10', color: 'white', outline: 'none' }}>
       {slides.map((slide, index) => index >= position - 1 && index <= position + 1 &&
-        (!slide.id.startsWith('custom:ryan-html-deck:') || index === position) && (
+        (!(slide.id.startsWith('custom:ryan-html-deck:') || slide.id.startsWith('custom:finance-split:')) || index === position) && (
         <SlideFrame key={`${slide.presenter.id}:${slide.id}`} html={slide.html} title={`${slide.presenter.name} · ${slide.index + 1}`} active={index === position} onKeyDown={key} onActivity={activity} />
       ))}
       <nav aria-label="Presentation controls" onFocusCapture={activity} style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 12, padding: 10, borderRadius: 14, background: 'rgba(15,23,42,.85)', opacity: visible ? 1 : 0, pointerEvents: visible ? 'auto' : 'none', transition: 'opacity 200ms', whiteSpace: 'nowrap' }}>

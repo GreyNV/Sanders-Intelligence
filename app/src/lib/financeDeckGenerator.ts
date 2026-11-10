@@ -280,9 +280,28 @@ export function generateFinanceDeck(input: FinanceDeckInput): string {
 
 /** Split our generated document into script-free slides for Stitch's sandboxed frames. */
 export function splitFinanceDeckHtml(html: string): string[] {
+  if (!html.includes('data-finance-slide')) return []
   const doc=new DOMParser().parseFromString(html,'text/html')
   const slides=[...doc.querySelectorAll('section[data-finance-slide]')]
   if (!slides.length) return []
   const styles=[...doc.querySelectorAll('style')].map(s=>s.textContent??'').join('\n')
   return slides.map(slide=>`<!doctype html><html><head><meta charset="utf-8"><style>${styles}\n.slide{display:block!important;min-height:720px;padding-bottom:20px}.table-wrap{max-height:none}.deck-nav{display:none}</style></head><body>${slide.outerHTML}</body></html>`)
+}
+
+/** Use one Ryan deck, including a generated document pasted into his HTML row. */
+export function selectRyanFinanceDeckHtml(dedicated:string|undefined, candidates:{view_mode:string;html_code:string}[]):string {
+  if(dedicated?.trim()) return dedicated
+  return candidates.find(block=>block.view_mode==='html'&&splitFinanceDeckHtml(block.html_code).length>0)?.html_code??''
+}
+
+/** Expand a Finance document pasted in any owner row into individual presentation slides. */
+export function expandFinancePresentationRows(rows:{id:string;html:string}[]):{id:string;html:string;order:number}[] {
+  return rows.flatMap(row=>{
+    const slides=splitFinanceDeckHtml(row.html)
+    return slides.length?slides.map((html,index)=>({id:`custom:finance-split:${row.id}:${index}`,html})):[row]
+  }).map((row,order)=>({...row,order}))
+}
+
+export function financePresentationRowOffset(rows:{html:string}[],rowIndex:number):number {
+  return rows.slice(0,rowIndex).reduce((count,row)=>count+Math.max(1,splitFinanceDeckHtml(row.html).length),0)
 }

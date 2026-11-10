@@ -3,9 +3,10 @@ import type { KeyboardEvent } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import BprPresentation, { type PresentationPresenter } from '@/components/BprPresentation'
 import SlideFrame from '@/components/SlideFrame'
+import StitchHtmlFrame from '@/components/StitchHtmlFrame'
 import Modal from '@/components/ui/Modal'
 import FinanceDeckBuilder from '@/components/FinanceDeckBuilder'
-import { splitFinanceDeckHtml } from '@/lib/financeDeckGenerator'
+import { expandFinancePresentationRows, financePresentationRowOffset, selectRyanFinanceDeckHtml, splitFinanceDeckHtml } from '@/lib/financeDeckGenerator'
 import {
   AlertTriangle,
   ArrowDown,
@@ -223,12 +224,19 @@ export default function StitchNorthStar() {
     })
   }, [rows, selectedPillar, search])
   const htmlBlocksByKey = useMemo(() => new Map(htmlBlocks.map(block => [block.slide_key, block])), [htmlBlocks])
-  const ryanDeckHtml = htmlBlocksByKey.get(RYAN_CUSTOM_DECK_KEY)?.html_code ?? ''
+  const baseOwnerDecks = useMemo(()=>buildOwnerSlideDeck(rows, presenterOrder),[rows,presenterOrder])
+  const ryanDeckHtml = useMemo(()=>{
+    const dedicated=htmlBlocksByKey.get(RYAN_CUSTOM_DECK_KEY)?.html_code
+    // A Finance document pasted into Ryan's existing HTML row is also his deck.
+    const ryan=baseOwnerDecks.find(deck=>deck.owner.trim().toLowerCase()==='ryan')
+    const blocks=(ryan?.rows??[]).flatMap(row=>{const block=htmlBlocksByKey.get(stitchSlideHtmlKey(row));return block?[block]:[]})
+    return selectRyanFinanceDeckHtml(dedicated,blocks)
+  },[htmlBlocksByKey,baseOwnerDecks])
   const ownerDecks = useMemo(() => {
-    const decks=buildOwnerSlideDeck(rows,presenterOrder)
+    const decks=[...baseOwnerDecks]
     if(ryanDeckHtml.trim()&&!decks.some(deck=>deck.owner.trim().toLowerCase()==='ryan')) decks.push({ownerKey:'ryan',owner:'Ryan',rows:[]})
     return decks
-  }, [rows, presenterOrder, ryanDeckHtml])
+  }, [baseOwnerDecks, ryanDeckHtml])
   const selectedDeck = ownerDecks.find(deck => deck.owner === presentingOwner) ?? null
   const selectedDeckIndex = selectedDeck ? ownerDecks.findIndex(deck => deck.owner === selectedDeck.owner) : -1
   const statusCounts = useMemo(() => countStatuses(rows), [rows])
@@ -302,15 +310,14 @@ export default function StitchNorthStar() {
       const css = [...document.styleSheets].map(sheet => {
         try { return [...sheet.cssRules].map(rule => rule.cssText).join('\n') } catch { return '' }
       }).join('\n')
-      const presenters = ownerDecks.map((deck, order) => ({
-        id: deck.ownerKey, name: deck.owner, order,
-        slides: deck.owner.trim().toLowerCase()==='ryan' ? [] : deck.rows.map((row, index) => ({
-          id: stitchSlideHtmlKey(row), order: index,
-          html: htmlBlocksByKey.get(stitchSlideHtmlKey(row))?.view_mode === 'html'
-            ? htmlBlocksByKey.get(stitchSlideHtmlKey(row))!.html_code
-            : buildFieldSlideHtml(row, deck.owner, css),
-        })),
-      }))
+      const presenters = ownerDecks.map((deck, order) => {
+        const entries=deck.owner.trim().toLowerCase()==='ryan' ? [] : deck.rows.map(row=>{
+          const key=stitchSlideHtmlKey(row), block=htmlBlocksByKey.get(key)
+          const html=block?.view_mode==='html'?block.html_code:buildFieldSlideHtml(row,deck.owner,css)
+          return {id:key,html}
+        })
+        return {id:deck.ownerKey,name:deck.owner,order,slides:expandFinancePresentationRows(entries)}
+      })
       if (ryanDeckHtml.trim()) {
         let ryanPresenter = presenters.find(presenter => presenter.name.trim().toLowerCase() === 'ryan')
         if (!ryanPresenter) {
@@ -321,8 +328,15 @@ export default function StitchNorthStar() {
           ryanPresenter.slides.push({ id: `${RYAN_CUSTOM_DECK_KEY}:${index}`, order: ryanPresenter.slides.length, html })
         }
       }
+      const selected=ownerDecks[owner]
+      const presentationSlide=selected && selected.owner.trim().toLowerCase()!=='ryan'
+        ? financePresentationRowOffset(selected.rows.map(row=>{
+            const block=htmlBlocksByKey.get(stitchSlideHtmlKey(row))
+            return {html:block?.view_mode==='html'?block.html_code:''}
+          }),slide)
+        : slide
       await fullscreen
-      setPresentation({ presenters, owner, slide })
+      setPresentation({ presenters, owner, slide:presentationSlide })
     } catch (error) {
       if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
       setPresentationError(`Could not enter fullscreen: ${error instanceof Error ? error.message : 'Please try again.'}`)
@@ -1245,26 +1259,10 @@ function StitchHtmlModePanel({
               Edit HTML
             </button>
           </div>
-          <StitchHtmlFrame row={row} htmlCode={htmlCode} presentation={presentation} />
+          <StitchHtmlFrame title={`HTML view for ${row.pillar}`} html={htmlCode} presentation={presentation} />
         </div>
       )}
     </section>
-  )
-}
-
-function StitchHtmlFrame({
-  row,
-  htmlCode,
-  presentation,
-}: {
-  row: NorthStarDisplayRow
-  htmlCode: string
-  presentation: boolean
-}) {
-  return (
-    <div className={cn('relative overflow-hidden rounded-lg border border-border bg-white', presentation ? 'h-[min(72vh,760px)]' : 'h-[460px]')}>
-      <SlideFrame key={htmlCode} title={`HTML view for ${row.pillar}`} html={htmlCode} />
-    </div>
   )
 }
 

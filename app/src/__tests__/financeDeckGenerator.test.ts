@@ -1,9 +1,22 @@
 import { describe, expect, it, vi } from 'vitest'
-import { generateFinanceDeck, readFinanceDeckSavedInputs, splitFinanceDeckHtml, topFinanceChannels, type FinanceDeckInput } from '@/lib/financeDeckGenerator'
+import { expandFinancePresentationRows, financePresentationRowOffset, generateFinanceDeck, readFinanceDeckSavedInputs, selectRyanFinanceDeckHtml, splitFinanceDeckHtml, topFinanceChannels, type FinanceDeckInput } from '@/lib/financeDeckGenerator'
 import type { LeadershipToolSnapshot } from '@/types'
 import { buildPnlForecastPath } from '@/pages/csuite/StitchNorthStar.helpers'
 
 describe('Finance deck generation', () => {
+  it('uses pasted Finance HTML as Ryan’s deck and prioritizes a dedicated saved deck', () => {
+    const finance='<style>.slide{display:none}</style><section data-finance-slide="NOI">NOI</section><section data-finance-slide="Payroll">Payroll</section><script>untrusted()</script>'
+    const candidates=[{view_mode:'html',html_code:'<p>old slide</p>'},{view_mode:'html',html_code:finance}]
+    expect(selectRyanFinanceDeckHtml('',candidates)).toBe(finance)
+    expect(splitFinanceDeckHtml(selectRyanFinanceDeckHtml('',candidates))).toHaveLength(2)
+    expect(selectRyanFinanceDeckHtml('<p>saved deck</p>',candidates)).toBe('<p>saved deck</p>')
+    expect(selectRyanFinanceDeckHtml('',[{view_mode:'fields',html_code:finance}])).toBe('')
+    const rows=[{id:'before',html:'<p>Before</p>'},{id:'pasted',html:finance},{id:'after',html:'<p>After</p>'}]
+    const expanded=expandFinancePresentationRows(rows)
+    expect(expanded.map(row=>row.id)).toEqual(['before','custom:finance-split:pasted:0','custom:finance-split:pasted:1','after'])
+    expect(expanded[1].html).not.toContain('<script')
+    expect(financePresentationRowOffset(rows,2)).toBe(3)
+  })
   it('ranks channels by four completed months, retaining a missing last month as pending', () => {
     const row=(month:string,channel:string,income:number)=>({month,channel,income,grossMargin:.5,operatingMargin:.1})
     const channels=topFinanceChannels([row('2026-07-01','A',1000),row('2026-10-01','B',800),row('2026-11-01','B',5000)],'2026-11-01')
