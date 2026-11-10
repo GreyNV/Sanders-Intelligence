@@ -93,21 +93,21 @@ describe('Finance deck generation', () => {
     expect(payrollGraph.textContent).toContain('8% target')
     const departmentSlide=splitFinanceDeckHtml(generateFinanceDeck({...input,details:{...input.details,payrollDepartments:closed.map(month=>({month,department:'Finance',payroll:30}))}}))[2]
     const departmentPoint=new DOMParser().parseFromString(departmentSlide,'text/html').querySelector('svg.graph circle[fill="#234b38"] title')!
-    expect(departmentPoint.textContent).toContain('Projected payroll $80')
-    expect(departmentPoint.textContent).toContain('Finance: $30')
+    expect(departmentPoint.textContent).toContain('Finance: 3.0%')
+    expect(departmentPoint.textContent).not.toContain('$')
+    const goalPoint=new DOMParser().parseFromString(departmentSlide,'text/html').querySelector('svg.graph circle[fill="#bf7540"] title')!
+    expect(goalPoint.textContent).toContain('Finance: 2.3%')
+    expect(goalPoint.textContent).not.toContain('$')
     const cashSlides=splitFinanceDeckHtml(generateFinanceDeck({...input,details:{...input.details,cashWeeks:[
       {week:1,date:'2026-11-02',endingCash:700000,vsFloor:100000},
       {week:2,date:'2026-11-09',endingCash:500000,vsFloor:-250000},
       {week:3,date:'2026-11-16',endingCash:-10000,vsFloor:-610000},
       {week:4,date:'2026-11-23',endingCash:200000,vsFloor:null},
     ]}}))
-    const cashGraph=new DOMParser().parseFromString(cashSlides[5],'text/html').querySelector('svg.graph')!
-    expect(cashGraph.getAttribute('aria-label')).toBe('Projected weekly cash status')
-    expect(cashGraph.querySelector('circle[fill="#31804e"] title')?.textContent).toContain('GREEN')
-    expect(cashGraph.querySelector('circle[fill="#c99425"] title')?.textContent).toContain('YELLOW')
-    expect(cashGraph.querySelector('circle[fill="#b64d40"] title')?.textContent).toContain('RED')
-    expect(cashGraph.querySelector('circle[fill="#9b9c94"] title')?.textContent).toContain('PENDING')
-    expect(new DOMParser().parseFromString(cashSlides[5],'text/html').body.textContent).not.toContain('$')
+    const cashDoc=new DOMParser().parseFromString(cashSlides[5],'text/html')
+    expect(cashDoc.querySelector('svg.graph')).toBeNull()
+    expect([...cashDoc.querySelectorAll('tbody tr')].map(row=>row.querySelectorAll('td')[1]?.textContent)).toEqual(['GREEN','YELLOW','RED','PENDING'])
+    expect(cashDoc.body.textContent).not.toContain('$')
     const milestoneDetails = waterfallDocument.querySelector<HTMLDetailsElement>('details.milestone-details')!
     expect(milestoneDetails.open).toBe(false)
     expect(milestoneDetails.textContent).toContain('2026-12-31 · Finance close workflows mapped')
@@ -141,6 +141,23 @@ describe('Finance deck generation', () => {
     expect(coverage[4]).toContain('No unfavorable variances among matched accounts')
     expect(coverage[4]).toContain('Storage · Unbudgeted')
     expect(coverage[4]).toContain('1 account(s) with actuals have no matched budget')
+    const warehouseHistory=splitFinanceDeckHtml(generateFinanceDeck({...input,warehouse:[
+      {month:'2026-07-01',section:'Shipping',account:'Freight',budget:100,actual:110,variance:-10},
+      {month:'2026-08-01',section:'Shipping',account:'Freight',budget:100,actual:130,variance:-30},
+      {month:'2026-09-01',section:'Shipping',account:'Freight',budget:90,actual:95,variance:-5},
+      {month:'2026-10-01',section:'Shipping',account:'Freight',budget:100,actual:125,variance:-25},
+      {month:'2026-11-01',section:'Shipping',account:'Freight',budget:130,actual:null,variance:null},
+    ]}))[4]
+    const warehouseDoc=new DOMParser().parseFromString(warehouseHistory,'text/html')
+    const firstWarehouseTable=warehouseDoc.querySelector('table')!
+    expect([...firstWarehouseTable.querySelectorAll('th')].map(cell=>cell.textContent)).toEqual([
+      'Class / account','Status',...['Jul 26','Aug 26','Sep 26','Oct 26'].flatMap(month=>[`${month} budget`,`${month} actual`,`${month} variance`,`${month} variance %`]),
+    ])
+    expect([...firstWarehouseTable.querySelectorAll('tbody td')].map(cell=>cell.textContent)).toEqual([
+      'Shipping · Freight','Matched','$100','$110','−$10','-10.0%','$100','$130','−$30','-30.0%','$90','$95','−$5','-5.6%','$100','$125','−$25','-25.0%',
+    ])
+    expect(warehouseDoc.body.textContent).not.toContain('Nov 26')
+    expect(warehouseDoc.body.textContent).not.toContain('projected')
     const mappedHtml=generateFinanceDeck({...input,details:{...input.details,classBudgets:[
       {month:'2026-10-01',channel:'Budget name',budget:100,actual:null,variance:null},
       {month:'2026-10-01',channel:'Actual name',budget:null,actual:125,variance:null},
