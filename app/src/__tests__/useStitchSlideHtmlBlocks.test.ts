@@ -22,6 +22,7 @@ describe('saved Ryan finance inputs', () => {
     await act(async () => { await save!({ period_month:'2026-11-01', slide_key:'custom:ryan-html-deck', view_mode:'html', html_code:'deck' }) })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['stitch_slide_html_blocks', '2026-11-01'] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['stitch_slide_html_blocks', 'ryan-latest'] })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['stitch_slide_html_blocks', 'ryan-finance-milestones'] })
     await act(async () => root.unmount())
     container.remove()
     client.clear()

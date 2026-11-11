@@ -67,6 +67,18 @@ export interface FinanceDeckSavedInputs {
   workflowAdoptionPct: number | null
   workflowAdoptionDate: string | null
 }
+export type FinanceMilestoneInputs = Pick<FinanceDeckSavedInputs,'customMilestones'|'milestoneEdits'|'statuses'|'completion'|'notes'>
+
+/** Validate separately saved milestone inputs using the same rules as deck metadata. */
+export function readFinanceMilestoneInputs(json:string):FinanceMilestoneInputs|null {
+  try {
+    const data=JSON.parse(json) as Partial<FinanceMilestoneInputs>&{version?:number}
+    if(data.version!==1||!Array.isArray(data.customMilestones)) return null
+    const embedded=JSON.stringify({...data,version:1,history:[],channelHistory:[]}).replace(/</g,'\\u003c')
+    const parsed=readFinanceDeckSavedInputs(`<script type="application/json" data-finance-inputs>${embedded}</script>`)
+    return parsed?{customMilestones:parsed.customMilestones,milestoneEdits:parsed.milestoneEdits,statuses:parsed.statuses,completion:parsed.completion,notes:parsed.notes}:null
+  } catch {return null}
+}
 
 /** Read only the generator's embedded baselines and answers, not executable HTML. */
 export function readFinanceDeckSavedInputs(html: string): FinanceDeckSavedInputs | null {
@@ -102,8 +114,8 @@ const dayLabel = (s: string) => new Date(`${s}T12:00:00Z`).toLocaleDateString('e
 const prevMonth = (s: string) => { const [y,m]=s.slice(0,7).split('-').map(Number); const d=new Date(Date.UTC(y,m-2,1)); return d.toISOString().slice(0,10) }
 const statusClass = (pct: number | null) => pct === null ? 'pending' : pct >= .09 ? 'green' : 'yellow'
 const channelKey=(s:string)=>s.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
-/** Rank by total income in the four completed months; retain the last month's values separately. */
-export function topFinanceChannels(rows: FinanceChannelMonth[], period: string): (FinanceChannelMonth & { fourMonthIncome:number })[] {
+/** Sum the four completed months and retain the most recent month's results. */
+function financeChannelTotals(rows: FinanceChannelMonth[], period: string): (FinanceChannelMonth & { fourMonthIncome:number })[] {
   const last=prevMonth(period), start=prevMonth(prevMonth(prevMonth(last)))
   const grouped=new Map<string,{ name:string; income:number; last:FinanceChannelMonth|null }>()
   for(const row of rows) {
@@ -113,9 +125,18 @@ export function topFinanceChannels(rows: FinanceChannelMonth[], period: string):
     if(row.month===last) entry.last=row
     grouped.set(key,entry)
   }
-  return [...grouped.values()].filter(x=>x.income>0).sort((a,b)=>b.income-a.income).slice(0,10).map(x=>({
+  return [...grouped.values()].map(x=>({
     ...(x.last??{month:last,channel:x.name,income:null,grossMargin:null,operatingMargin:null}), fourMonthIncome:x.income,
   }))
+}
+/** Rank by total income in the four completed months. */
+export function topFinanceChannels(rows: FinanceChannelMonth[], period: string) {
+  return financeChannelTotals(rows,period).filter(row=>row.fourMonthIncome>0).sort((a,b)=>b.fourMonthIncome-a.fourMonthIncome).slice(0,10)
+}
+/** Lowest known NOI margins among channels with positive sales in the last completed month. */
+export function bottomFinanceChannels(rows: FinanceChannelMonth[], period: string) {
+  return financeChannelTotals(rows,period).filter(row=>row.income!==null&&row.income>0&&row.operatingMargin!==null&&Number.isFinite(row.operatingMargin))
+    .sort((a,b)=>a.operatingMargin!-b.operatingMargin!||a.channel.localeCompare(b.channel)).slice(0,10)
 }
 interface LineChartOptions { aria:string; first:string; second:string; reference:number|null; referenceLabel?:string; currency?:boolean; pointColors?:string[]; firstDetails?:string[]; secondDetails?:string[]; hideValues?:boolean; pointStatuses?:string[] }
 const lineChart = (a:(number|null)[],b:(number|null)[],labels:string[], options:LineChartOptions={aria:'NOI forecast and 30 percent growth scenario',first:'Current forecast',second:'30% growth goal',reference:.09,referenceLabel:'9% floor'}) => {
@@ -139,17 +160,21 @@ const budgetAvailability=(rows:BudgetPeriod[],periods:string[])=>table(['Month',
   return [short(month),fmtMoney(supplied.length?supplied.reduce((sum,row)=>sum+row.budget!,0):null),String(supplied.length)]
 }))
 const varianceTable=(periods:string[],last:string,start:string,rows:{name:string; data:BudgetPeriod[]}[],empty:string,mode:'forecast'|'actual'='forecast')=>{
-  const headers=['Class / account','Status',...periods.flatMap((month,i)=>[`${short(month)} budget`,`${short(month)} ${mode==='actual'||i===0?'actual':'projected'}`,`${short(month)} variance`,`${short(month)} variance %`])]
+  const headers=['Class / account','Status',...(mode==='actual'?['Total variance · 4 months']:[]),...periods.flatMap((month,i)=>[`${short(month)} budget`,`${short(month)} ${mode==='actual'||i===0?'actual':'projected'}`,`${short(month)} variance`,`${short(month)} variance %`])]
   const cells=rows.map(({name,data})=>{
     const recent=data.filter(row=>row.month>=start&&row.month<=last&&row.actual!==null)
     const run=recent.length?recent.reduce((sum,row)=>sum+row.actual!,0)/recent.length:null
-    return [name,'Matched',...periods.flatMap((month,i)=>{
+    const matched=periods.flatMap(month=>{const row=data.find(entry=>entry.month===month);return row?.budget!==null&&row?.budget!==undefined&&row.actual!==null?[row.budget-row.actual]:[]})
+    const total=matched.length?matched.reduce((sum,value)=>sum+value,0):null
+    const totalLabel=total===null?'Pending':`${fmtMoney(total)}${matched.length<periods.length?` · ${matched.length}/${periods.length} months`:''}`
+    return [name,'Matched',...(mode==='actual'?[totalLabel]:[]),...periods.flatMap((month,i)=>{
       const entry=data.find(row=>row.month===month),budget=entry?.budget??null,actual=mode==='actual'||i===0?(entry?.actual??null):run
       const variance=budget!==null&&actual!==null?budget-actual:null
       return [fmtMoney(budget),fmtMoney(actual),fmtMoney(variance),fmtPct(variance!==null&&budget!==null&&budget!==0?variance/budget:null)]
     })]
   })
-  return table(headers,cells,(ri,ci)=>ci>=2&&(ci-2)%4>=2&&/^[−-]/.test(cells[ri]?.[ci]??'')?'red':ci===1?'green':'',empty)
+  const startColumn=mode==='actual'?3:2
+  return table(headers,cells,(ri,ci)=>((mode==='actual'&&ci===2)||(ci>=startColumn&&(ci-startColumn)%4>=2))&&/^[−-]/.test(cells[ri]?.[ci]??'')?'red':ci===1?'green':'',empty)
 }
 const section = (title:string,kicker:string,body:string) => `<section class="slide" data-finance-slide="${esc(title)}"><div class="inner"><div class="kicker">${esc(kicker)} · FINANCE NORTH STAR <span>RYAN</span></div><h1>${esc(title)}</h1>${body}</div></section>`
 
@@ -184,20 +209,22 @@ export function generateFinanceDeck(input: FinanceDeckInput): string {
   const forecastBasis: Record<string,string> = { current_projection:'Current-month sales pace', budget:'Current-year budget × fulfillment', prior_year_budget:'Prior-year budget × fulfillment', missing:'Pending' }
   const noiSlide=deckSection('NOI · two paths','Guardrail',`<div class="topline"><div><span>LAST FULL MONTH · ${esc(short(last))}</span><strong class="${statusClass(actualNoi)}">${fmtPct(actualNoi)}</strong></div><p>NOI ${fmtMoney(noi)} · 9% floor. Green meets the floor; yellow is below it.</p></div><div class="legend"><i style="background:#234b38"></i> Current forecast · actual performance and budget fulfillment <i style="background:#bf7540"></i> 30% growth goal scenario (dashed) <i style="background:#8c8e85"></i> 9% floor (dashed)</div>${lineChart(forecast.months.map(m=>m.noiPct),growth.map(m=>m.goalNoiPct),forecast.months.map(m=>short(m.month)),{aria:'NOI forecast and 30 percent growth scenario',first:'Current forecast',second:'30% growth goal',reference:.09,referenceLabel:'9% floor',firstDetails:forecast.months.map(m=>`NOI ${fmtMoney(m.noi)}`),secondDetails:growth.map(m=>`NOI ${fmtMoney(m.goalNoi)}`)})}<p class="note">Current forecast follows the existing North Star method. Budget fulfillment uses all available completed months with matching income and budget. Cost assumptions use up to four completed months (${forecast.expenseBaseMonths.length?forecast.expenseBaseMonths.map(short).join(', '):'none available'}). Budget fulfillment: ${fmtPct(forecast.budgetFulfillmentPct)} · variable costs: ${fmtPct(forecast.variableCostPct)} of income · fixed monthly expense run rate: ${fmtMoney(forecast.monthlyExpenseRunRate>0?forecast.monthlyExpenseRunRate:null)}. The 30% goal applies to each matching prior-year Total Income, assuming returns and other income components grow proportionally; it uses the same variable-cost rate and fixed-cost run rate. Missing inputs remain pending. ${missingGoalMonths.length?`Prior-year Total Income is missing for: ${esc(missingGoalMonths.join(', '))}. `:''}${missingGoalCosts?'Goal NOI is pending because cost assumptions are unavailable. ':''}${esc(forecast.warning??'')}</p>${table(['Month','Forecast income','Forecast basis','Forecast NOI $','Forecast NOI %','Goal income','Goal NOI $','Goal NOI %'],forecast.months.map((m,i)=>[short(m.month),fmtMoney(m.forecastedSales),forecastBasis[m.salesSource]??'Pending',fmtMoney(m.noi),fmtPct(m.noiPct),fmtMoney(growth[i]?.goalSales),fmtMoney(growth[i]?.goalNoi),fmtPct(growth[i]?.goalNoiPct)]))}`)
   const channelRows=topFinanceChannels(input.details.channels,period)
+  const bottomChannels=bottomFinanceChannels(input.details.channels,period)
   const historyIndex=new Map<string,HistoricalChannelStatement>(), duplicateHistory=new Set<string>()
   for(const row of input.channelHistory){const key=`${row.month}|${channelKey(row.channel)}`;if(historyIndex.has(key))duplicateHistory.add(key);else historyIndex.set(key,row)}
   const usedHistory=new Map<string,string>()
-  for(const channel of channelRows){
+  const rankedChannels=[...new Map([...channelRows,...bottomChannels].map(channel=>[channelKey(channel.channel),channel])).values()]
+  for(const channel of rankedChannels){
     const key=channelKey(channel.channel), historyName=input.channelMappings?.[key]??channel.channel, historyKey=channelKey(historyName)
     if(input.channelHistory.some(row=>channelKey(row.channel)===historyKey)){
       const priorChannel=usedHistory.get(historyKey)
-      if(priorChannel && priorChannel!==key) throw new Error(`Historical class ${historyName} is assigned to more than one top channel. Review channel history matches.`)
+      if(priorChannel && priorChannel!==key) throw new Error(`Historical class ${historyName} is assigned to more than one channel. Review channel history matches.`)
       usedHistory.set(historyKey,key)
     }
   }
   const channelActuals=input.details.channels.filter(x=>x.month>=fourMonthStart&&x.month<period&&x.income!==null&&x.income>0)
   const prior=(m:string)=>`${Number(m.slice(0,4))-1}${m.slice(4)}`
-  const channels=deckSection('NOI by channel','Growth lever',`<p class="lead">Top 10 by revenue over the last four completed months · NOI dollars and percentage.</p>${table(['Channel','4-month revenue','Last month NOI $ / %',...forecast.months.map(m=>short(m.month)+' forecast / goal')],channelRows.map(c=>{
+  const channelTable=(list:typeof channelRows)=>table(['Channel','4-month revenue','Last month NOI $ / %',...forecast.months.map(m=>short(m.month)+' forecast / goal')],list.map(c=>{
     const recent=channelActuals.filter(x=>channelKey(x.channel)===channelKey(c.channel)&&x.grossMargin!==null&&x.operatingMargin!==null).sort((a,b)=>b.month.localeCompare(a.month)).slice(0,4)
     const total=recent.reduce((s,x)=>s+(x.income??0),0)
     const cogsRate=total?recent.reduce((s,x)=>s+(x.income??0)*(1-(x.grossMargin??0)),0)/total:null
@@ -213,7 +240,8 @@ export function generateFinanceDeck(input: FinanceDeckInput): string {
       const forecastSales=share!==null&&m.forecastedSales!==null?share*m.forecastedSales:null
       return `${formatNoi(forecastSales)} / ${formatNoi(previous!==null&&previous>0?previous*1.3:null)}`
     })]
-  }), (ri,ci)=>ci===2?statusClass(channelRows[ri]?.operatingMargin??null):'')}<p class="note">Forecast / goal: channel sales use the matching prior-year channel share of the company forecast, or prior-year channel income × 1.30 for the goal. COGS rate and fixed operating costs use up to four completed Leadership Tool months. Missing history or costs remain pending.</p>${Object.keys(input.channelMappings??{}).length?`<details class="milestone-details"><summary>Manually confirmed historical channel matches</summary>${table(['Current channel','Historical class'],Object.entries(input.channelMappings??{}))}</details>`:''}`)
+  }), (ri,ci)=>ci===2?statusClass(list[ri]?.operatingMargin??null):'')
+  const channels=deckSection('NOI by channel','Growth lever',`<p class="lead">Top 10 by revenue over the last four completed months · NOI dollars and percentage.</p>${channelTable(channelRows)}<h2>Bottom 10 NOI % · ${esc(short(last))}</h2><p class="note">Channels with positive sales and a known NOI margin in the last completed month, ranked lowest first.</p>${channelTable(bottomChannels)}<p class="note">Forecast / goal: channel sales use the matching prior-year channel share of the company forecast, or prior-year channel income × 1.30 for the goal. COGS rate and fixed operating costs use up to four completed Leadership Tool months. Missing history or costs remain pending.</p>${Object.keys(input.channelMappings??{}).length?`<details class="milestone-details"><summary>Manually confirmed historical channel matches</summary>${table(['Current channel','Historical class'],Object.entries(input.channelMappings??{}))}</details>`:''}`)
 
   const payrollPeriod=input.details.payrollTotals.find(x=>x.month===last)?.payroll??null
   const payrollRatio=payrollPeriod!==null&&income!==null&&income>0?payrollPeriod/income:null
@@ -233,10 +261,10 @@ export function generateFinanceDeck(input: FinanceDeckInput): string {
     const value=payrollMonths.size&&rows.length===payrollMonths.size&&rows.every(row=>row.payroll!==null)?rows.reduce((sum,row)=>sum+row.payroll!,0)/payrollMonths.size:null
     return {department,value}
   })
-  const payrollTooltip=(sales:number|null|undefined)=>`Department % of income: ${departmentAverages.length?departmentAverages.map(({department,value})=>`${department}: ${fmtPct(value!==null&&sales!=null&&sales>0?value/sales:null)}`).join(' · '):'Pending'}`
+  const payrollTooltip=`Department % of total payroll: ${departmentAverages.length?departmentAverages.map(({department,value})=>`${department}: ${fmtPct(value!==null&&projectedPayroll!==null&&projectedPayroll>0?value/projectedPayroll:null)}`).join(' · '):'Pending'}`
   const payrollForecast=forecast.months.map(m=>projectedPayroll!==null&&m.forecastedSales?projectedPayroll/m.forecastedSales:null)
   const payrollGoal=growth.map(m=>projectedPayroll!==null&&m.goalSales?projectedPayroll/m.goalSales:null)
-  const payroll=deckSection('Payroll · 8% of income','Guardrail',`<div class="topline"><div><span>LAST FULL MONTH · ${esc(short(last))}</span><strong class="${payrollRatio===null?'pending':payrollRatio<=.08?'green':'yellow'}">${fmtPct(payrollRatio)}</strong></div><p>Payroll divided by income · 8% target</p></div><div class="legend"><i style="background:#234b38"></i> Payroll / current forecast <i style="background:#bf7540"></i> Payroll / 30% goal (dashed) <i style="background:#8c8e85"></i> 8% target</div>${lineChart(payrollForecast,payrollGoal,forecast.months.map(m=>short(m.month)),{aria:'Projected payroll as a percentage of income',first:'Payroll / current forecast',second:'Payroll / 30% goal',reference:.08,referenceLabel:'8% target',firstDetails:forecast.months.map(m=>payrollTooltip(m.forecastedSales)),secondDetails:growth.map(m=>payrollTooltip(m.goalSales))})}${table(['Month','Forecast income','30% goal income','Projected payroll','Forecast / goal payroll %'],forecast.months.map((m,i)=>[short(m.month),fmtMoney(m.forecastedSales),fmtMoney(growth[i]?.goalSales),fmtMoney(projectedPayroll),`${fmtPct(payrollForecast[i])} / ${fmtPct(payrollGoal[i])}`]))}<p class="note">Projected payroll holds the average of ${payrollHistory.length} available month(s) from the last four completed Leadership Tool months constant against forecast and 30% goal income. Hover shows each department’s average payroll as a share of that point’s income. Missing payroll or sales data remains pending.</p>`)
+  const payroll=deckSection('Payroll · 8% of income','Guardrail',`<div class="topline"><div><span>LAST FULL MONTH · ${esc(short(last))}</span><strong class="${payrollRatio===null?'pending':payrollRatio<=.08?'green':'yellow'}">${fmtPct(payrollRatio)}</strong></div><p>Payroll divided by income · 8% target</p></div><div class="legend"><i style="background:#234b38"></i> Payroll / current forecast <i style="background:#bf7540"></i> Payroll / 30% goal (dashed) <i style="background:#8c8e85"></i> 8% target</div>${lineChart(payrollForecast,payrollGoal,forecast.months.map(m=>short(m.month)),{aria:'Projected payroll as a percentage of income',first:'Payroll / current forecast',second:'Payroll / 30% goal',reference:.08,referenceLabel:'8% target',firstDetails:forecast.months.map(()=>payrollTooltip),secondDetails:growth.map(()=>payrollTooltip)})}${table(['Month','Forecast income','30% goal income','Projected payroll','Forecast / goal payroll %'],forecast.months.map((m,i)=>[short(m.month),fmtMoney(m.forecastedSales),fmtMoney(growth[i]?.goalSales),fmtMoney(projectedPayroll),`${fmtPct(payrollForecast[i])} / ${fmtPct(payrollGoal[i])}`]))}<p class="note">Projected payroll holds the average of ${payrollHistory.length} available month(s) from the last four completed Leadership Tool months constant against forecast and 30% goal income. Hover shows each department’s average payroll as a share of total payroll. Missing payroll or sales data remains pending.</p>`)
 
   const periods=[last,...forecast.months.map(m=>m.month)]
   const classByName=new Map<string,typeof classBudgets>();for(const row of classBudgets){const k=channelKey(row.channel);classByName.set(k,[...(classByName.get(k)??[]),row])}
@@ -245,11 +273,15 @@ export function generateFinanceDeck(input: FinanceDeckInput): string {
   const classCompared=classBudgets.filter(row=>row.month===last&&row.variance!==null).length
   const classBudget=deckSection('Budget by class','Guardrail',`<p class="lead">Ten largest unfavorable expense variances · ${esc(short(last))}.</p>${varianceTable(periods,last,fourMonthStart,worst.map(row=>({name:row.channel,data:classByName.get(channelKey(row.channel))??[]})),classCompared?'No unfavorable variances among matched classes.':'No comparable class budgets and actuals for this month.')}<p class="note">Variance = budget less expenditure; negative is overspent. Future expense is the average of up to four completed months, clearly labeled projected; variance is pending without a budget or expense history. ${classCompared} class(es) have comparable actuals and budgets; ${noClassBudget.length} class(es) with actuals have no matched budget and are excluded from the ranked misses.</p><details open class="milestone-details"><summary>Available monthly class budgets</summary>${budgetAvailability(classBudgets,periods)}</details>${noClassBudget.length?`<h2>Budget missing · ${esc(short(last))}</h2>${table(['Class','Actual expenditure','Budget / variance'],noClassBudget.map(r=>[r.channel,fmtMoney(r.actual),'Pending']))}`:''}${Object.keys(input.classMappings??{}).length?`<details class="milestone-details"><summary>Manually confirmed budget class matches</summary>${table(['Budget class','Actual class'],Object.entries(input.classMappings??{}))}</details>`:''}`)
   const group=new Map<string,WarehouseVariance[]>();for(const row of input.warehouse){const k=`${row.section}|${row.account}`;group.set(k,[...(group.get(k)??[]),row])}
-  const whWorst=[...group.values()].map(rows=>rows.find(r=>r.month===last)).filter((r):r is WarehouseVariance=>Boolean(r&&r.variance!==null&&r.variance<0)).sort((a,b)=>(a.variance??0)-(b.variance??0)).slice(0,10)
+  const warehousePeriods=[fourMonthStart,prevMonth(prevMonth(last)),prevMonth(last),last]
+  const whWorst=[...group.values()].map(rows=>{
+    const matches=rows.filter(row=>warehousePeriods.includes(row.month)&&row.budget!==null&&row.actual!==null)
+    return {rows,total:matches.reduce((sum,row)=>sum+row.budget!-row.actual!,0),count:matches.length}
+  }).filter(entry=>entry.count>0&&entry.total<0).sort((a,b)=>a.total-b.total).slice(0,10)
   const whCompared=input.warehouse.filter(row=>row.month===last&&row.variance!==null).length
   const whNoBudget=input.warehouse.filter(row=>row.month===last&&row.actual!==null&&row.budget===null).sort((a,b)=>(b.actual??0)-(a.actual??0))
-  const warehousePeriods=[fourMonthStart,prevMonth(prevMonth(last)),prevMonth(last),last]
-  const warehouse=deckSection('Warehouse budget','Guardrail',`<p class="lead">Ten largest unfavorable account variances · ranked by ${esc(short(last))}; showing the last four completed months.</p>${varianceTable(warehousePeriods,last,fourMonthStart,whWorst.map(row=>({name:`${row.section} · ${row.account}`,data:group.get(`${row.section}|${row.account}`)??[]})),whCompared?'No unfavorable variances among matched accounts.':'No comparable warehouse budgets and actuals for this month.','actual')}<p class="note">Variance = budget less actual expenditure; negative is overspent. Missing budgets or actuals remain pending. ${whCompared} account(s) have comparable actuals and budgets in ${esc(short(last))}; ${whNoBudget.length} account(s) with actuals have no matched budget and are excluded from the ranked misses.</p><details open class="milestone-details"><summary>Available monthly warehouse budgets</summary>${budgetAvailability(input.warehouse,warehousePeriods)}</details>${whNoBudget.length?`<h2>Budget missing · ${esc(short(last))}</h2>${table(['Account','Actual expenditure','Budget / variance'],whNoBudget.map(r=>[`${r.section} · ${r.account}`,fmtMoney(r.actual),'Pending']))}`:''}`)
+  const whPeriodCompared=input.warehouse.some(row=>warehousePeriods.includes(row.month)&&row.budget!==null&&row.actual!==null)
+  const warehouse=deckSection('Warehouse budget','Guardrail',`<p class="lead">Ten largest unfavorable account variances · ranked by the last four completed months.</p>${varianceTable(warehousePeriods,last,fourMonthStart,whWorst.map(({rows})=>({name:`${rows[0].section} · ${rows[0].account}`,data:rows})),whPeriodCompared?'No unfavorable variances among matched accounts.':'No comparable warehouse budgets and actuals for this period.','actual')}<p class="note">Total variance sums budget less actual expenditure for the four months; negative is overspent. Partial totals show their month count and use only months with both budget and actual. ${whCompared} account(s) have comparable actuals and budgets in ${esc(short(last))}; ${whNoBudget.length} account(s) with actuals have no matched budget and are excluded from the ranked misses.</p><details open class="milestone-details"><summary>Available monthly warehouse budgets</summary>${budgetAvailability(input.warehouse,warehousePeriods)}</details>${whNoBudget.length?`<h2>Budget missing · ${esc(short(last))}</h2>${table(['Account','Actual expenditure','Budget / variance'],whNoBudget.map(r=>[`${r.section} · ${r.account}`,fmtMoney(r.actual),'Pending']))}`:''}`)
   const cashStatuses=input.details.cashWeeks.map(w=>cashFloorStatus(w.endingCash,w.vsFloor))
   const cash=deckSection('New product launches · cash','Growth lever',`<p class="lead">Weekly cash status · Leadership Tool 13-week forecast.</p><div class="legend"><i style="background:#31804e"></i> At / above floor <i style="background:#c99425"></i> Below floor <i style="background:#b64d40"></i> Negative cash <i style="background:#9b9c94"></i> Pending</div>${table(['Week','Status'],input.details.cashWeeks.map((w,i)=>[w.date??`Week ${w.week}`,cashStatuses[i].toUpperCase()]),(ri,ci)=>ci===1?cashStatuses[ri]:'')}<p class="note">Status uses ending cash and the supplied column L difference. Green is at or above the floor; yellow is below the floor with nonnegative cash; red is negative cash. This is a company cash forecast, not a product-level launch schedule.</p>`)
   const channelKnown=channelRows.filter(row=>row.operatingMargin!==null)

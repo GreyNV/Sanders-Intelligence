@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { parseWarehouseBudgetFile } from '@/lib/financeWarehouseBudget'
 import { normalizeFinanceClassName, readFinanceLeadershipWorkbook, type FinanceClassMappings } from '@/lib/financeLeadershipDetails'
 import { assertUniqueHistoricalMonths, parseHistoricalCompanyStatement, parseHistoricalClassStatement, readHistoricalCsv, type HistoricalChannelStatement } from '@/lib/financeHistoricalStatements'
-import { FINANCE_MILESTONES, generateFinanceDeck, readFinanceDeckSavedInputs, topFinanceChannels, validFinanceMilestoneDate, type FinanceDeckInput, type FinanceMilestone, type FinanceMilestoneEdits, type MilestoneStatus, type MilestoneCompletion } from '@/lib/financeDeckGenerator'
+import { FINANCE_MILESTONES, bottomFinanceChannels, generateFinanceDeck, readFinanceDeckSavedInputs, topFinanceChannels, validFinanceMilestoneDate, type FinanceDeckInput, type FinanceMilestone, type FinanceMilestoneInputs, type FinanceMilestoneEdits, type MilestoneStatus, type MilestoneCompletion } from '@/lib/financeDeckGenerator'
 import type { LeadershipToolSnapshot } from '@/types'
 
 function today() {
@@ -20,7 +20,7 @@ function monthFromFilename(name: string): string | null {
   return `${m[2]}-${String(month).padStart(2,'0')}-01`
 }
 
-export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonthProjectedSales, savedHtml, periodMonth, savedBaseline, onSaveBaseline }: {
+export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonthProjectedSales, savedHtml, periodMonth, savedBaseline, onSaveBaseline, savedMilestones, onSaveMilestones }: {
   onGenerated: (html: string) => void
   onCancel: () => void
   currentMonthProjectedSales?: number | null
@@ -28,6 +28,8 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
   periodMonth: string
   savedBaseline?: { history: FinanceDeckInput['history']; channelHistory: HistoricalChannelStatement[] } | null
   onSaveBaseline?: (baseline: { history: FinanceDeckInput['history']; channelHistory: HistoricalChannelStatement[] }) => Promise<void>
+  savedMilestones?: FinanceMilestoneInputs | null
+  onSaveMilestones?: (inputs:FinanceMilestoneInputs) => Promise<void>
 }) {
   const [saved] = useState(() => readFinanceDeckSavedInputs(savedHtml))
   const [baseline, setBaseline] = useState(() => ({
@@ -44,20 +46,57 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
   const periodEnd = endOfMonth(periodMonth)
   const [asOf, setAsOf] = useState(() => today().slice(0, 7) === periodMonth.slice(0, 7) ? today() : periodEnd)
   const [questions, setQuestions] = useState(false)
-  const [statuses, setStatuses] = useState<Record<string, MilestoneStatus>>(saved?.statuses ?? {})
-  const [notes, setNotes] = useState<Record<string, string>>(saved?.notes ?? {})
-  const [customMilestones, setCustomMilestones] = useState<FinanceMilestone[]>(saved?.customMilestones ?? [])
+  const [statuses, setStatuses] = useState<Record<string, MilestoneStatus>>(savedMilestones?.statuses ?? saved?.statuses ?? {})
+  const [notes, setNotes] = useState<Record<string, string>>(savedMilestones?.notes ?? saved?.notes ?? {})
+  const [customMilestones, setCustomMilestones] = useState<FinanceMilestone[]>(savedMilestones?.customMilestones ?? saved?.customMilestones ?? [])
   const [newMilestoneLane, setNewMilestoneLane] = useState<FinanceMilestone['lane']>('Guardrail')
   const [newMilestoneLabel, setNewMilestoneLabel] = useState('')
   const [newMilestoneDate, setNewMilestoneDate] = useState('')
-  const [milestoneEdits, setMilestoneEdits] = useState<FinanceMilestoneEdits>(saved?.milestoneEdits ?? {})
-  const [completion, setCompletion] = useState<Record<string, MilestoneCompletion>>(saved?.completion ?? {})
+  const [milestoneEdits, setMilestoneEdits] = useState<FinanceMilestoneEdits>(savedMilestones?.milestoneEdits ?? saved?.milestoneEdits ?? {})
+  const [completion, setCompletion] = useState<Record<string, MilestoneCompletion>>(savedMilestones?.completion ?? saved?.completion ?? {})
   const [classMappings, setClassMappings] = useState<FinanceClassMappings>(saved?.classMappings ?? {})
   const [channelMappings, setChannelMappings] = useState<Record<string,string>>(saved?.channelMappings ?? {})
   const [workflowAdoption, setWorkflowAdoption] = useState(saved?.workflowAdoptionPct == null ? '' : String(saved.workflowAdoptionPct))
   const [workflowAdoptionDate, setWorkflowAdoptionDate] = useState(saved?.workflowAdoptionDate ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [milestoneSaveError,setMilestoneSaveError]=useState('')
+  const [milestoneSaving,setMilestoneSaving]=useState(false)
+  const milestoneSnapshot=JSON.stringify({customMilestones,milestoneEdits,statuses,completion,notes})
+  const latestMilestoneSnapshot=useRef(milestoneSnapshot)
+  latestMilestoneSnapshot.current=milestoneSnapshot
+  // Migrate legacy custom milestones, but do not create an empty record merely by opening the builder.
+  const savedMilestoneSnapshot=useRef(savedMilestones||!customMilestones.length?milestoneSnapshot:'')
+  const milestoneSaveHandler=useRef(onSaveMilestones)
+  milestoneSaveHandler.current=onSaveMilestones
+  const milestoneSaveQueue=useRef<Promise<void>>(Promise.resolve())
+  const milestonePendingWrites=useRef(0)
+  const milestoneSaveGeneration=useRef(0)
+  function persistMilestones(snapshot:string):Promise<void> {
+    const save=milestoneSaveHandler.current
+    if(!save||(snapshot===savedMilestoneSnapshot.current&&milestonePendingWrites.current===0))return Promise.resolve()
+    milestonePendingWrites.current++
+    const queued=milestoneSaveQueue.current.catch(()=>{}).then(async()=>{
+      if(snapshot===savedMilestoneSnapshot.current)return
+      await save(JSON.parse(snapshot) as FinanceMilestoneInputs)
+      savedMilestoneSnapshot.current=snapshot
+    }).finally(()=>{milestonePendingWrites.current--})
+    milestoneSaveQueue.current=queued
+    return queued
+  }
+  useEffect(()=>{
+    if(!onSaveMilestones||(milestoneSnapshot===savedMilestoneSnapshot.current&&milestonePendingWrites.current===0))return
+    const generation=++milestoneSaveGeneration.current
+    const timer=setTimeout(()=>{
+      setMilestoneSaving(true);setMilestoneSaveError('')
+      void persistMilestones(milestoneSnapshot).catch(e=>setMilestoneSaveError(e instanceof Error?e.message:'Could not save milestones.')).finally(()=>{if(generation===milestoneSaveGeneration.current)setMilestoneSaving(false)})
+    },400)
+    return ()=>clearTimeout(timer)
+  },[milestoneSnapshot,onSaveMilestones])
+  useEffect(()=>()=>{
+    // Preserve the latest edits even if the modal is closed before debounce fires.
+    void persistMilestones(latestMilestoneSnapshot.current).catch(()=>{})
+  },[])
   const validAsOf = /^\d{4}-\d{2}-\d{2}$/.test(asOf) && asOf >= periodStart && asOf <= periodEnd
   const workflowAdoptionPct = workflowAdoption.trim() === '' ? null : Number(workflowAdoption)
   const validWorkflowAdoption = workflowAdoptionPct === null || (Number.isFinite(workflowAdoptionPct) && workflowAdoptionPct >= 0 && workflowAdoptionPct <= 100 && /^\d{4}-\d{2}-\d{2}$/.test(workflowAdoptionDate) && workflowAdoptionDate <= asOf)
@@ -67,7 +106,8 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
   const comparisonRows=inspected?.data.details.classBudgets.filter(row=>row.month===comparisonMonth)??[]
   const unmatchedBudgets=comparisonRows.filter(row=>row.budget!==null&&row.actual===null).sort((a,b)=>a.channel.localeCompare(b.channel))
   const unmatchedActuals=comparisonRows.filter(row=>row.actual!==null&&row.budget===null).sort((a,b)=>a.channel.localeCompare(b.channel))
-  const topChannels=topFinanceChannels(inspected?.data.details.channels??[],`${asOf.slice(0,7)}-01`)
+  const channelSource=inspected?.data.details.channels??[], channelPeriod=`${asOf.slice(0,7)}-01`
+  const topChannels=[...new Map([...topFinanceChannels(channelSource,channelPeriod),...bottomFinanceChannels(channelSource,channelPeriod)].map(channel=>[normalizeFinanceClassName(channel.channel),channel])).values()]
   const historyNames=[...new Map((channelReview??[]).map(row=>[normalizeFinanceClassName(row.channel),row.channel])).values()].sort((a,b)=>a.localeCompare(b))
   const priorMonths=new Set(validAsOf?Array.from({length:12},(_,i)=>new Date(Date.UTC(year-1,monthNumber-1+i,1)).toISOString().slice(0,10)):[])
   const historyCoverage=(name:string)=>new Set((channelReview??[]).filter(row=>normalizeFinanceClassName(row.channel)===normalizeFinanceClassName(name)&&priorMonths.has(row.month)&&row.income!==null).map(row=>row.month)).size
@@ -142,6 +182,7 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
         channelReview!==null ? Promise.resolve(channelReview) : loadChannelHistory(),
       ])
       assertUniqueHistoricalMonths(historyRows)
+      await persistMilestones(milestoneSnapshot)
       const snapshot: LeadershipToolSnapshot = { id:'local-preview', snapshot_key:'current', filename:leadership.name, uploaded_by:null, uploaded_at:new Date().toISOString(), ...leadershipData.parsed }
       const input: FinanceDeckInput = { snapshot, details:leadershipData.details, warehouse:warehouseRows, history:historyRows, channelHistory:channelRows, statuses, notes, customMilestones, milestoneEdits, completion, classMappings, channelMappings, workflowAdoptionPct, workflowAdoptionDate:workflowAdoptionPct === null ? null : workflowAdoptionDate, asOf, currentMonthProjectedSales: asOf === today() ? currentMonthProjectedSales : null }
       onGenerated(generateFinanceDeck(input))
@@ -174,7 +215,7 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
       return <label key={key} className="block text-sm">Current channel: <strong>{channel.channel}</strong> <span className="text-xs text-text2">· {coverage}/12 prior-year months available</span><select aria-label={`Match channel history ${channel.channel}`} className="input mt-1 w-full text-sm" value={selected} onChange={e=>{const value=e.target.value;setChannelMappings(old=>{const next={...old};if(value)next[key]=value;else delete next[key];return next})}}><option value="">Use exact name</option>{selected&&!historyNames.includes(selected)&&<option value={selected}>{selected} · saved match unavailable</option>}{historyNames.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
     })}</div>}
     <div><button type="button" className="btn-secondary" onClick={() => setQuestions(v => !v)}>{questions ? 'Hide milestone questions' : 'Answer milestone questions'}</button></div>
-    {questions && <div className="max-h-[42vh] space-y-3 overflow-y-auto rounded-lg border border-border p-3">
+    {questions && <fieldset disabled={busy} className="max-h-[42vh] space-y-3 overflow-y-auto rounded-lg border border-border p-3">
       <label className="block border-b border-border pb-3 text-sm font-semibold">Current finance workflow adoption (%)
         <input aria-label="Current finance workflow adoption percentage" type="number" min="0" max="100" step="any" className="input ml-2 w-28 text-sm" value={workflowAdoption} onChange={e => { setWorkflowAdoption(e.target.value); setWorkflowAdoptionDate(e.target.value ? asOf : '') }} />
         <span className="block text-xs font-normal text-text2">Enter the percentage of finance tasks on workflows. Leave blank if unknown; milestone colors are selected separately.</span>
@@ -182,6 +223,7 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
       {workflowAdoptionPct !== null && <label className="block text-sm font-semibold">Adoption reported as of <input type="date" aria-label="Workflow adoption date" max={asOf} className="input ml-2 text-sm" value={workflowAdoptionDate} onChange={e => setWorkflowAdoptionDate(e.target.value)} /></label>}
       {!validWorkflowAdoption && <p role="alert" className="text-xs text-danger">Enter an adoption percentage from 0 to 100 and a reporting date no later than the deck’s as-of date.</p>}
       <p className="text-xs text-text2">Enter status and completion separately. A milestone marked unfinished turns red after its due date; unconfirmed completion is never assumed to be unfinished. Changing the date or description resets both fields. Dates outside November 2026–October 2027 appear in the milestone details.</p>
+      {onSaveMilestones && <p className="text-xs text-text2" aria-live="polite">{milestoneSaving?'Saving milestone changes…':milestoneSaveError?'Milestone changes could not be saved. Try generating again.':'Milestone changes save automatically.'}</p>}
       <div className="grid gap-2 rounded-lg bg-surface2 p-3 md:grid-cols-[140px_1fr_150px_auto]">
         <select aria-label="New milestone category" className="input text-sm" value={newMilestoneLane} onChange={e=>setNewMilestoneLane(e.target.value as FinanceMilestone['lane'])}><option>Guardrail</option><option>Growth lever</option><option>Execution</option></select>
         <input aria-label="New milestone description" className="input text-sm" maxLength={80} placeholder="Milestone description" value={newMilestoneLabel} onChange={e=>setNewMilestoneLabel(e.target.value)} />
@@ -192,10 +234,11 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
       <div className="space-y-1 text-sm"><div className="text-xs text-text2">{m.lane} {m.id.startsWith('custom-')&&<button type="button" className="underline" aria-label={`Remove ${m.label}`} onClick={()=>{setCustomMilestones(old=>old.filter(item=>item.id!==m.id));setMilestoneEdits(old=>{const next={...old};delete next[m.id];return next})}}>Remove</button>}</div><input className="input w-full text-sm" aria-label={`${m.label} description`} maxLength={80} value={milestoneEdits[m.id]?.label ?? m.label} onChange={e => {const label=e.target.value;setMilestoneEdits(old=>({...old,[m.id]:{date:old[m.id]?.date??m.date,label}}));setStatuses(old=>({...old,[m.id]:'pending'}));setCompletion(old=>({...old,[m.id]:'unknown'}))}} /><input type="date" className="input w-full text-sm" aria-label={`${m.label} date`} value={milestoneEdits[m.id]?.date ?? m.date} onChange={e => {const date=e.target.value;setMilestoneEdits(old=>({...old,[m.id]:{label:old[m.id]?.label??m.label,date}}));setStatuses(old=>({...old,[m.id]:'pending'}));setCompletion(old=>({...old,[m.id]:'unknown'}))}} /></div>
       <select aria-label={`${m.label} status`} className="input text-sm" value={statuses[m.id] ?? 'pending'} onChange={e => setStatuses(old => ({ ...old, [m.id]:e.target.value as MilestoneStatus }))}><option value="pending">Pending</option><option value="green">Green</option><option value="yellow">Yellow</option><option value="red">Red</option></select>
       <div className="space-y-1"><select aria-label={`${m.label} completion`} className="input w-full text-sm" value={completion[m.id] ?? 'unknown'} onChange={e => setCompletion(old=>({...old,[m.id]:e.target.value as MilestoneCompletion}))}><option value="unknown">Completion unconfirmed</option><option value="unfinished">Unfinished</option><option value="achieved">Action and outcome achieved by due date</option></select><input className="input w-full text-sm" aria-label={`${m.label} note`} placeholder="Outcome / evidence" value={notes[m.id] ?? ''} onChange={e => setNotes(old => ({ ...old, [m.id]:e.target.value }))} /></div>
-    </div>)}</div>}
+    </div>)}</fieldset>}
     {!validMilestones && <p role="alert" className="text-xs text-danger">Every edited milestone needs a valid date and a description of at most 80 characters.</p>}
     <p className="text-xs text-text2">Unanswered milestones remain pending. The workbooks do not establish when these actions were completed. NOI, payroll and cash indicators are calculated separately; cash uses the Leadership Tool’s column L and ending cash.</p>
     {error && <div role="alert" className="rounded-lg bg-danger/10 p-3 text-sm text-danger">{error}</div>}
+    {milestoneSaveError && <div role="alert" className="rounded-lg bg-danger/10 p-3 text-sm text-danger">Could not save milestones: {milestoneSaveError}</div>}
     <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button><button type="button" className="btn-primary" disabled={!leadership || !warehouse || !validAsOf || !validWorkflowAdoption || !validMilestones || (!history && !baseline.history.length) || busy} onClick={() => void generate()}>{busy ? 'Saving or preparing…' : 'Generate HTML'}</button></div>
   </div>
 }

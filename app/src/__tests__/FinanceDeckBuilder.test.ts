@@ -2,7 +2,7 @@ import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import FinanceDeckBuilder from '@/components/FinanceDeckBuilder'
-import { generateFinanceDeck } from '@/lib/financeDeckGenerator'
+import { generateFinanceDeck, type FinanceMilestoneInputs } from '@/lib/financeDeckGenerator'
 import { parseHistoricalClassStatement } from '@/lib/financeHistoricalStatements'
 import { readFinanceLeadershipWorkbook } from '@/lib/financeLeadershipDetails'
 import type { RyanFinanceBaseline } from '@/hooks/useStitchSlideHtmlBlocks'
@@ -55,6 +55,62 @@ describe('Finance deck workflow', () => {
     await act(async()=>{[...container.querySelectorAll('button')].find(b=>b.textContent==='Generate HTML')!.click()})
     const calls=vi.mocked(generateFinanceDeck).mock.calls
     expect(calls[calls.length-1]?.[0].customMilestones).toMatchObject([{label:'Review cash reporting',date:'2027-01-10',lane:'Execution'}])
+    await act(async()=>root.unmount())
+  })
+  it('saves custom milestone answers even when the builder closes before generating a deck', async () => {
+    const container=document.createElement('div');document.body.append(container)
+    let root=createRoot(container), stored:FinanceMilestoneInputs|null=null
+    const save=vi.fn(async(inputs:FinanceMilestoneInputs)=>{stored=JSON.parse(JSON.stringify(inputs)) as FinanceMilestoneInputs})
+    const props={savedHtml:'',periodMonth:'2026-11-01',onGenerated:vi.fn(),onCancel:()=>{},onSaveMilestones:save}
+    await act(async()=>root.render(createElement(FinanceDeckBuilder,props)))
+    await act(async()=>{[...container.querySelectorAll('button')].find(b=>b.textContent==='Answer milestone questions')!.click()})
+    const label=container.querySelector<HTMLInputElement>('input[aria-label="New milestone description"]')!
+    const date=container.querySelector<HTMLInputElement>('input[aria-label="New milestone date"]')!
+    await act(async()=>{
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(label,'Review shipping contract');label.dispatchEvent(new Event('input',{bubbles:true}))
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(date,'2027-02-15');date.dispatchEvent(new Event('input',{bubbles:true}));date.dispatchEvent(new Event('change',{bubbles:true}))
+    })
+    await act(async()=>{[...container.querySelectorAll('button')].find(b=>b.textContent==='Add milestone')!.click()})
+    const description=container.querySelector<HTMLInputElement>('input[aria-label="Review shipping contract description"]')!
+    await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(description,'Approve shipping contract');description.dispatchEvent(new Event('input',{bubbles:true}))})
+    const status=container.querySelector<HTMLSelectElement>('select[aria-label="Review shipping contract status"]')!
+    const note=container.querySelector<HTMLInputElement>('input[aria-label="Review shipping contract note"]')!
+    await act(async()=>{status.value='yellow';status.dispatchEvent(new Event('change',{bubbles:true}));Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(note,'In review');note.dispatchEvent(new Event('input',{bubbles:true}))})
+    await act(async()=>{root.unmount();await new Promise(resolve=>setTimeout(resolve,0))})
+    expect(stored).not.toBeNull()
+    expect(stored).toMatchObject({customMilestones:[{label:'Review shipping contract',date:'2027-02-15',lane:'Guardrail'}]})
+    root=createRoot(container)
+    await act(async()=>root.render(createElement(FinanceDeckBuilder,{...props,savedMilestones:stored})))
+    await act(async()=>{[...container.querySelectorAll('button')].find(b=>b.textContent==='Answer milestone questions')!.click()})
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="Review shipping contract description"]')?.value).toBe('Approve shipping contract')
+    expect(container.querySelector<HTMLSelectElement>('select[aria-label="Review shipping contract status"]')?.value).toBe('yellow')
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="Review shipping contract note"]')?.value).toBe('In review')
+    await act(async()=>root.unmount())
+  })
+  it('migrates custom milestones from an older saved deck into the separate milestone store', async () => {
+    const container=document.createElement('div');document.body.append(container)
+    const root=createRoot(container),save=vi.fn(async(_inputs:FinanceMilestoneInputs)=>{})
+    const custom={id:'custom-existing',date:'2027-03-01',lane:'Growth lever',label:'Review shipping sites'}
+    const saved=`<script type="application/json" data-finance-inputs>${JSON.stringify({version:1,history:[],channelHistory:[],customMilestones:[custom],statuses:{'custom-existing':'yellow'},notes:{'custom-existing':'In progress'}})}</script>`
+    await act(async()=>{root.render(createElement(FinanceDeckBuilder,{savedHtml:saved,periodMonth:'2026-11-01',onGenerated:vi.fn(),onCancel:()=>{},onSaveMilestones:save}));await new Promise(resolve=>setTimeout(resolve,450))})
+    // Flush the debounce after React has committed the mounted effects.
+    await act(async()=>{await new Promise(resolve=>setTimeout(resolve,450))})
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({customMilestones:[custom],statuses:{'custom-existing':'yellow'},notes:{'custom-existing':'In progress'}}))
+    await act(async()=>root.unmount())
+  })
+  it('does not generate a deck if saving milestones fails', async () => {
+    const container=document.createElement('div');document.body.append(container)
+    const root=createRoot(container),done=vi.fn()
+    const saved=`<script type="application/json" data-finance-inputs>${JSON.stringify({version:1,history:[{month:'2025-11-01',income:100}],channelHistory:[],statuses:{},notes:{}})}</script>`
+    await act(async()=>root.render(createElement(FinanceDeckBuilder,{savedHtml:saved,periodMonth:'2026-11-01',onGenerated:done,onCancel:()=>{},onSaveMilestones:async()=>{throw new Error('Storage unavailable')}})))
+    const files=container.querySelectorAll<HTMLInputElement>('input[type=file]')
+    await act(async()=>{for(const [i,name] of ['leadership.xlsm','warehouse.xlsm'].entries()){Object.defineProperty(files[i],'files',{configurable:true,value:[new File(['x'],name)]});files[i].dispatchEvent(new Event('change',{bubbles:true}))}})
+    await act(async()=>{[...container.querySelectorAll('button')].find(button=>button.textContent==='Answer milestone questions')!.click()})
+    const status=container.querySelector<HTMLSelectElement>('select[aria-label="Finance close workflows mapped status"]')!
+    await act(async()=>{status.value='yellow';status.dispatchEvent(new Event('change',{bubbles:true}))})
+    await act(async()=>{[...container.querySelectorAll('button')].find(button=>button.textContent==='Generate HTML')!.click()})
+    expect(done).not.toHaveBeenCalled()
+    expect(container.textContent).toContain('Storage unavailable')
     await act(async()=>root.unmount())
   })
   it('saves class history independently while preserving the company baseline', async () => {

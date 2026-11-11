@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
-import { expandFinancePresentationRows, financePresentationRowOffset, generateFinanceDeck, readFinanceDeckSavedInputs, selectRyanFinanceDeckHtml, splitFinanceDeckHtml, topFinanceChannels, type FinanceDeckInput } from '@/lib/financeDeckGenerator'
+import { bottomFinanceChannels, expandFinancePresentationRows, financePresentationRowOffset, generateFinanceDeck, readFinanceDeckSavedInputs, readFinanceMilestoneInputs, selectRyanFinanceDeckHtml, splitFinanceDeckHtml, topFinanceChannels, type FinanceDeckInput } from '@/lib/financeDeckGenerator'
 import type { LeadershipToolSnapshot } from '@/types'
 import { buildPnlForecastPath } from '@/pages/csuite/StitchNorthStar.helpers'
 
 describe('Finance deck generation', () => {
+  it('restores separately saved manual milestones without executing embedded content', () => {
+    const input={version:1,customMilestones:[{id:'custom-abc',date:'2027-02-01',lane:'Execution',label:'Close review'}],milestoneEdits:{},statuses:{'custom-abc':'yellow'},completion:{'custom-abc':'unfinished'},notes:{'custom-abc':'</script><script>unsafe()</script>'}}
+    expect(readFinanceMilestoneInputs(JSON.stringify(input))).toMatchObject({customMilestones:input.customMilestones,statuses:input.statuses,notes:input.notes})
+    expect(readFinanceMilestoneInputs('invalid')).toBeNull()
+  })
   it('uses pasted Finance HTML as Ryan’s deck and prioritizes a dedicated saved deck', () => {
     const finance='<style>.slide{display:none}</style><section data-finance-slide="NOI">NOI</section><section data-finance-slide="Payroll">Payroll</section><script>untrusted()</script>'
     const candidates=[{view_mode:'html',html_code:'<p>old slide</p>'},{view_mode:'html',html_code:finance}]
@@ -23,6 +28,16 @@ describe('Finance deck generation', () => {
     expect(channels.map(c=>c.channel)).toEqual(['A','B'])
     expect(channels[0]).toMatchObject({fourMonthIncome:1000,income:null,operatingMargin:null})
     expect(channels[1]).toMatchObject({fourMonthIncome:800,income:800})
+  })
+  it('ranks the lowest known NOI margins only for channels with sales in the last completed month', () => {
+    const rows=[
+      {month:'2026-10-01',channel:'Weak',income:10,grossMargin:.3,operatingMargin:-.2},
+      {month:'2026-10-01',channel:'Good',income:100,grossMargin:.4,operatingMargin:.1},
+      {month:'2026-10-01',channel:'No sales',income:0,grossMargin:.3,operatingMargin:-.9},
+      {month:'2026-10-01',channel:'Unknown',income:10,grossMargin:.3,operatingMargin:null},
+      {month:'2026-09-01',channel:'Old only',income:100,grossMargin:.3,operatingMargin:-.8},
+    ]
+    expect(bottomFinanceChannels(rows,'2026-11-01').map(row=>row.channel)).toEqual(['Weak','Good'])
   })
   it('generates distinct forecast and 30% goal lines and seven sandbox-ready slides', () => {
     const closed=['2026-07-01','2026-08-01','2026-09-01','2026-10-01']
@@ -59,6 +74,14 @@ describe('Finance deck generation', () => {
     expect(slides[0]).toContain('Budget fulfillment: 100.0%')
     expect(slides[0]).toContain('Budget fulfillment uses all available completed months with matching income and budget.')
     expect(slides[0]).toContain('Cost assumptions use up to four completed months (Jul 26, Aug 26, Sep 26, Oct 26).')
+    const channelRanking=splitFinanceDeckHtml(generateFinanceDeck({...input,details:{...input.details,channels:[
+      {month:'2026-10-01',channel:'Strong',income:1000,grossMargin:.5,operatingMargin:.2},
+      {month:'2026-10-01',channel:'Weak',income:10,grossMargin:.2,operatingMargin:-.5},
+      {month:'2026-10-01',channel:'No revenue',income:0,grossMargin:.2,operatingMargin:-.9},
+    ]}}))[1]
+    const channelTables=new DOMParser().parseFromString(channelRanking,'text/html').querySelectorAll('table')
+    expect([...channelTables[1].querySelectorAll('tbody tr')].map(row=>row.querySelector('td')?.textContent)).toEqual(['Weak','Strong'])
+    expect(channelRanking).toContain('Bottom 10 NOI % · Oct 26')
     const lowMarginSnapshot={...snapshot,pnl:{accounts:snapshot.pnl.accounts.map(account=>account.account==='COGS'?{...account,periods:periods(950)}:account)}}
     const lowMarginForecast=buildPnlForecastPath(lowMarginSnapshot,.09,'2026-11-01',{expenseAnchorMonth:'2026-11-01',allowBelowFloorForecast:true})
     expect(lowMarginForecast.months[0].noiPct).toBeCloseTo(-.35)
@@ -93,10 +116,10 @@ describe('Finance deck generation', () => {
     expect(payrollGraph.textContent).toContain('8% target')
     const departmentSlide=splitFinanceDeckHtml(generateFinanceDeck({...input,details:{...input.details,payrollDepartments:closed.map(month=>({month,department:'Finance',payroll:30}))}}))[2]
     const departmentPoint=new DOMParser().parseFromString(departmentSlide,'text/html').querySelector('svg.graph circle[fill="#234b38"] title')!
-    expect(departmentPoint.textContent).toContain('Finance: 3.0%')
+    expect(departmentPoint.textContent).toContain('Finance: 37.5%')
     expect(departmentPoint.textContent).not.toContain('$')
     const goalPoint=new DOMParser().parseFromString(departmentSlide,'text/html').querySelector('svg.graph circle[fill="#bf7540"] title')!
-    expect(goalPoint.textContent).toContain('Finance: 2.3%')
+    expect(goalPoint.textContent).toContain('Finance: 37.5%')
     expect(goalPoint.textContent).not.toContain('$')
     const cashSlides=splitFinanceDeckHtml(generateFinanceDeck({...input,details:{...input.details,cashWeeks:[
       {week:1,date:'2026-11-02',endingCash:700000,vsFloor:100000},
@@ -151,13 +174,22 @@ describe('Finance deck generation', () => {
     const warehouseDoc=new DOMParser().parseFromString(warehouseHistory,'text/html')
     const firstWarehouseTable=warehouseDoc.querySelector('table')!
     expect([...firstWarehouseTable.querySelectorAll('th')].map(cell=>cell.textContent)).toEqual([
-      'Class / account','Status',...['Jul 26','Aug 26','Sep 26','Oct 26'].flatMap(month=>[`${month} budget`,`${month} actual`,`${month} variance`,`${month} variance %`]),
+      'Class / account','Status','Total variance · 4 months',...['Jul 26','Aug 26','Sep 26','Oct 26'].flatMap(month=>[`${month} budget`,`${month} actual`,`${month} variance`,`${month} variance %`]),
     ])
     expect([...firstWarehouseTable.querySelectorAll('tbody td')].map(cell=>cell.textContent)).toEqual([
-      'Shipping · Freight','Matched','$100','$110','−$10','-10.0%','$100','$130','−$30','-30.0%','$90','$95','−$5','-5.6%','$100','$125','−$25','-25.0%',
+      'Shipping · Freight','Matched','−$70','$100','$110','−$10','-10.0%','$100','$130','−$30','-30.0%','$90','$95','−$5','-5.6%','$100','$125','−$25','-25.0%',
     ])
     expect(warehouseDoc.body.textContent).not.toContain('Nov 26')
     expect(warehouseDoc.body.textContent).not.toContain('projected')
+    const sortedWarehouse=splitFinanceDeckHtml(generateFinanceDeck({...input,warehouse:[
+      {month:'2026-07-01',section:'WH',account:'Large cumulative',budget:100,actual:220,variance:-120},
+      {month:'2026-10-01',section:'WH',account:'Large cumulative',budget:100,actual:90,variance:10},
+      {month:'2026-10-01',section:'WH',account:'Small partial',budget:100,actual:130,variance:-30},
+      {month:'2026-10-01',section:'WH',account:'Favorable',budget:100,actual:80,variance:20},
+    ]}))[4]
+    const ranked=[...new DOMParser().parseFromString(sortedWarehouse,'text/html').querySelectorAll('table:first-of-type tbody tr')].map(row=>[...row.querySelectorAll('td')].slice(0,3).map(cell=>cell.textContent))
+    expect(ranked.slice(0,2)).toEqual([['WH · Large cumulative','Matched','−$110 · 2/4 months'],['WH · Small partial','Matched','−$30 · 1/4 months']])
+    expect(ranked.flat()).not.toContain('WH · Favorable')
     const mappedHtml=generateFinanceDeck({...input,details:{...input.details,classBudgets:[
       {month:'2026-10-01',channel:'Budget name',budget:100,actual:null,variance:null},
       {month:'2026-10-01',channel:'Actual name',budget:null,actual:125,variance:null},

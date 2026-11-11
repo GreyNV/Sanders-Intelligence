@@ -40,7 +40,7 @@ import {
   useUpsertStitchAutoRowOverride,
 } from '@/hooks/useStitchAutoRowOverrides'
 import { useStitchPresenterOrder, useUpdateStitchPresenterOrder } from '@/hooks/useStitchPresenterOrder'
-import { RYAN_FINANCE_BASELINE_KEY, RYAN_FINANCE_BASELINE_PERIOD, useLatestRyanFinanceDeck, useRyanFinanceBaseline, useStitchSlideHtmlBlocks, useUpsertStitchSlideHtmlBlock } from '@/hooks/useStitchSlideHtmlBlocks'
+import { RYAN_FINANCE_BASELINE_KEY, RYAN_FINANCE_BASELINE_PERIOD, RYAN_FINANCE_MILESTONES_KEY, useLatestRyanFinanceDeck, useRyanFinanceBaseline, useRyanFinanceMilestones, useStitchSlideHtmlBlocks, useUpsertStitchSlideHtmlBlock } from '@/hooks/useStitchSlideHtmlBlocks'
 import { cn, fmtCurrency, fmtNumber } from '@/lib/utils'
 import type { NorthStarStatus, StitchSlideHtmlBlock, StitchSlideHtmlViewMode } from '@/types'
 import {
@@ -144,6 +144,7 @@ export default function StitchNorthStar() {
   const { data: htmlBlocks = [], isLoading: htmlLoading, error: htmlError } = useStitchSlideHtmlBlocks(selectedMonth)
   const { data: previousRyanDeck = null, isLoading: previousRyanDeckLoading, error: previousRyanDeckError } = useLatestRyanFinanceDeck(selectedMonth)
   const { data: financeBaseline = null, isLoading: financeBaselineLoading, error: financeBaselineError } = useRyanFinanceBaseline()
+  const { data: financeMilestones = null, isLoading: financeMilestonesLoading, error: financeMilestonesError } = useRyanFinanceMilestones()
   const { data: presenterOrder = [], isLoading: presenterOrderLoading, error: presenterOrderError } = useStitchPresenterOrder()
   const updateRow = useUpdateNorthStarRow()
   const updateProgress = useUpdateNorthStarProgress()
@@ -565,7 +566,7 @@ export default function StitchNorthStar() {
               </div>
               <div className="flex items-center gap-2">
                 {isAdmin && (
-                  <button type="button" className="btn-secondary text-xs" disabled={(previousRyanDeckLoading && !ryanDeckHtml) || financeBaselineLoading} onClick={() => setFinanceBuilderOpen(true)}>
+                  <button type="button" className="btn-secondary text-xs" disabled={(previousRyanDeckLoading && !ryanDeckHtml) || financeBaselineLoading || financeMilestonesLoading} onClick={() => setFinanceBuilderOpen(true)}>
                     <Sparkles size={14} /> Generate Finance deck
                   </button>
                 )}
@@ -683,10 +684,12 @@ export default function StitchNorthStar() {
         width="max-w-5xl"
       >
         {previousRyanDeckError && !ryanDeckHtml && <p role="alert" className="mb-3 text-sm text-warning">Could not load prior Finance inputs. Upload the historical statements again for this run.</p>}
-        {financeBaselineError ? <p role="alert" className="mb-3 text-sm text-danger">Could not load saved historical statements. Refresh the page and try again before replacing them.</p> : <FinanceDeckBuilder
+        {financeBaselineError || financeMilestonesError ? <p role="alert" className="mb-3 text-sm text-danger">Could not load saved Finance inputs. Refresh the page and try again before replacing them.</p> : <FinanceDeckBuilder
           savedHtml={ryanDeckHtml || previousRyanDeck?.html_code || ''}
           savedBaseline={financeBaseline}
           onSaveBaseline={async baseline=>{await upsertHtmlBlock.mutateAsync({period_month:RYAN_FINANCE_BASELINE_PERIOD,slide_key:RYAN_FINANCE_BASELINE_KEY,view_mode:'fields',html_code:JSON.stringify(baseline)})}}
+          savedMilestones={financeMilestones}
+          onSaveMilestones={async milestones=>{await upsertHtmlBlock.mutateAsync({period_month:RYAN_FINANCE_BASELINE_PERIOD,slide_key:RYAN_FINANCE_MILESTONES_KEY,view_mode:'fields',html_code:JSON.stringify({version:1,...milestones})})}}
           periodMonth={selectedMonth}
           currentMonthProjectedSales={selectedMonth === currentMonth ? displayedMonthlyMetrics.projectedMonthEnd : null}
           onCancel={() => setFinanceBuilderOpen(false)}

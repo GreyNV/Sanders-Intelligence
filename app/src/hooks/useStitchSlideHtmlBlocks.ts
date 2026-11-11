@@ -3,10 +3,28 @@ import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
 import type { StitchSlideHtmlBlock, StitchSlideHtmlViewMode } from '@/types'
 import type { HistoricalChannelStatement, HistoricalStatementMonth } from '@/lib/financeHistoricalStatements'
+import { readFinanceMilestoneInputs, type FinanceMilestoneInputs } from '@/lib/financeDeckGenerator'
 
 export const RYAN_FINANCE_BASELINE_PERIOD = '2000-01-01'
 export const RYAN_FINANCE_BASELINE_KEY = 'internal:ryan-finance-baseline'
+export const RYAN_FINANCE_MILESTONES_KEY = 'internal:ryan-finance-milestones'
 export interface RyanFinanceBaseline { history: HistoricalStatementMonth[]; channelHistory: HistoricalChannelStatement[] }
+
+export function useRyanFinanceMilestones() {
+  return useQuery({
+    queryKey:['stitch_slide_html_blocks','ryan-finance-milestones'],
+    queryFn:async ():Promise<FinanceMilestoneInputs|null>=>{
+      const {data,error}=await supabase.from('stitch_slide_html_blocks').select('html_code')
+        .eq('period_month',RYAN_FINANCE_BASELINE_PERIOD).eq('slide_key',RYAN_FINANCE_MILESTONES_KEY).maybeSingle()
+      if(error){if(isMissingRelationError(error))return null;throw error}
+      if(!data?.html_code)return null
+      const result=readFinanceMilestoneInputs(data.html_code)
+      if(!result)throw new Error('Saved Finance milestones could not be read.')
+      return result
+    },
+    staleTime:5*60*1000,
+  })
+}
 
 /** Historical source rows are stored independently of any generated deck. */
 export function useRyanFinanceBaseline() {
@@ -108,6 +126,7 @@ export function useUpsertStitchSlideHtmlBlock() {
         qc.invalidateQueries({ queryKey: ['stitch_slide_html_blocks', payload.period_month] }),
         qc.invalidateQueries({ queryKey: ['stitch_slide_html_blocks', 'ryan-latest'] }),
         qc.invalidateQueries({ queryKey: ['stitch_slide_html_blocks', 'ryan-finance-baseline'] }),
+        qc.invalidateQueries({ queryKey: ['stitch_slide_html_blocks', 'ryan-finance-milestones'] }),
       ])
     },
   })
