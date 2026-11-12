@@ -24,7 +24,7 @@ describe('Finance deck generation', () => {
   })
   it('ranks channels by four completed months, retaining a missing last month as pending', () => {
     const row=(month:string,channel:string,income:number)=>({month,channel,income,grossMargin:.5,operatingMargin:.1})
-    const channels=topFinanceChannels([row('2026-07-01','A',1000),row('2026-10-01','B',800),row('2026-11-01','B',5000)],'2026-11-01')
+    const channels=topFinanceChannels([row('2026-07-01','A',1000),row('2026-10-01','B',800),row('2026-11-01','B',5000),row('2026-10-01','No Income Account',9000)],'2026-11-01')
     expect(channels.map(c=>c.channel)).toEqual(['A','B'])
     expect(channels[0]).toMatchObject({fourMonthIncome:1000,income:null,operatingMargin:null})
     expect(channels[1]).toMatchObject({fourMonthIncome:800,income:800})
@@ -32,12 +32,29 @@ describe('Finance deck generation', () => {
   it('ranks the lowest known NOI margins only for channels with sales in the last completed month', () => {
     const rows=[
       {month:'2026-10-01',channel:'Weak',income:10,grossMargin:.3,operatingMargin:-.2},
+      {month:'2026-10-01',channel:'No Income Account',income:10,grossMargin:.3,operatingMargin:-9},
       {month:'2026-10-01',channel:'Good',income:100,grossMargin:.4,operatingMargin:.1},
       {month:'2026-10-01',channel:'No sales',income:0,grossMargin:.3,operatingMargin:-.9},
       {month:'2026-10-01',channel:'Unknown',income:10,grossMargin:.3,operatingMargin:null},
       {month:'2026-09-01',channel:'Old only',income:100,grossMargin:.3,operatingMargin:-.8},
     ]
     expect(bottomFinanceChannels(rows,'2026-11-01').map(row=>row.channel)).toEqual(['Weak','Good'])
+  })
+  it('uses four earlier closed months for delayed channels, rolling forward and excluding the open month', () => {
+    const rows=['Kohl’s','TikTok','Target','Other'].flatMap(channel=>[
+      {month:'2026-06-01',channel,income:50,grossMargin:.5,operatingMargin:.05},
+      {month:'2026-07-01',channel,income:100,grossMargin:.5,operatingMargin:.1},
+      {month:'2026-08-01',channel,income:200,grossMargin:.5,operatingMargin:.2},
+      {month:'2026-09-01',channel,income:300,grossMargin:.5,operatingMargin:.3},
+      {month:'2026-10-01',channel,income:9000,grossMargin:.01,operatingMargin:-.9},
+    ])
+    const november=topFinanceChannels(rows,'2026-11-01')
+    for(const channel of ['Kohl’s','TikTok','Target']) expect(november.find(row=>row.channel===channel)).toMatchObject({month:'2026-09-01',fourMonthIncome:650,income:300,operatingMargin:.3})
+    expect(november.find(row=>row.channel==='Other')).toMatchObject({month:'2026-10-01',fourMonthIncome:9600,operatingMargin:-.9})
+    expect(bottomFinanceChannels(rows,'2026-11-01')[0].channel).toBe('Other')
+    expect(topFinanceChannels(rows,'2026-12-01').find(row=>row.channel==='Target')).toMatchObject({month:'2026-10-01',fourMonthIncome:9600,operatingMargin:-.9})
+    const missing=topFinanceChannels(rows.filter(row=>row.channel!=='Target'||row.month!=='2026-09-01'),'2026-11-01').find(row=>row.channel==='Target')
+    expect(missing).toMatchObject({month:'2026-09-01',income:null,operatingMargin:null,fourMonthIncome:350})
   })
   it('generates distinct forecast and 30% goal lines and seven sandbox-ready slides', () => {
     const closed=['2026-07-01','2026-08-01','2026-09-01','2026-10-01']
@@ -81,7 +98,17 @@ describe('Finance deck generation', () => {
     ]}}))[1]
     const channelTables=new DOMParser().parseFromString(channelRanking,'text/html').querySelectorAll('table')
     expect([...channelTables[1].querySelectorAll('tbody tr')].map(row=>row.querySelector('td')?.textContent)).toEqual(['Weak','Strong'])
-    expect(channelRanking).toContain('Bottom 10 NOI % · Oct 26')
+    expect(channelRanking).toContain('Bottom 10 NOI % · latest eligible month')
+    const delayedRows=['2026-06-01','2026-07-01','2026-08-01','2026-09-01'].map(month=>({month,channel:'Target',income:1000,grossMargin:.6,operatingMargin:.2}))
+    const delayedHistory=history.map(row=>({...row,channel:'Target',income:500}))
+    const delayedSlide=(latestMargin:number)=>splitFinanceDeckHtml(generateFinanceDeck({...input,details:{...input.details,channels:[...delayedRows,{month:'2026-10-01',channel:'Target',income:9000,grossMargin:.1,operatingMargin:latestMargin}]},channelHistory:delayedHistory}))[1]
+    expect(delayedSlide(-.9)).toBe(delayedSlide(.9))
+    expect(delayedSlide(-.9)).toContain('$4,000 · Jun 26–Sep 26')
+    expect(delayedSlide(-.9)).toContain('Sep 26 · $200 / 20.0%')
+    expect(delayedSlide(-.9)).toContain('−$100 (-20.0%) / −$10 (-1.5%)')
+    const partialSlide=splitFinanceDeckHtml(generateFinanceDeck({...input,details:{...input.details,channels:[delayedRows[0]]},channelHistory:delayedHistory}))[1]
+    expect(partialSlide).toContain('$1,000 · Jun 26–Sep 26 · 1/4 months')
+    expect(partialSlide).toContain('Sep 26 · Pending / Pending')
     const lowMarginSnapshot={...snapshot,pnl:{accounts:snapshot.pnl.accounts.map(account=>account.account==='COGS'?{...account,periods:periods(950)}:account)}}
     const lowMarginForecast=buildPnlForecastPath(lowMarginSnapshot,.09,'2026-11-01',{expenseAnchorMonth:'2026-11-01',allowBelowFloorForecast:true})
     expect(lowMarginForecast.months[0].noiPct).toBeCloseTo(-.35)
