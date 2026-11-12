@@ -83,21 +83,28 @@ describe('Finance deck generation', () => {
     expect(graph.querySelector('clipPath#plot-reveal rect')?.getAttribute('width')).toBe('1160')
     expect(slides[0]).toContain('@media(prefers-reduced-motion:reduce){*{animation:none!important}}')
     expect(graph.querySelectorAll('line[stroke="#e2dfd5"]')).toHaveLength(5)
-    expect(graph.querySelector('circle[fill="#234b38"] title')?.textContent).toBe('Nov 26 · Current forecast: 20.0% · NOI $200')
-    expect(graph.querySelector('circle[fill="#bf7540"] title')?.textContent).toBe('Nov 26 · 30% growth goal: 29.2% · NOI $380')
+    expect([...graph.querySelectorAll('circle[fill="#234b38"] title')].map(node=>node.textContent)).toContain('Nov 26 · Current forecast: 20.0% · NOI $200')
+    expect([...graph.querySelectorAll('circle[fill="#bf7540"] title')].map(node=>node.textContent)).toContain('Nov 26 · 30% growth goal: 29.2% · NOI $380')
     expect(graph.querySelector('circle[fill="#3476b1"] title')?.textContent).toBe('Jul 26 · Actual NOI: 20.0% · NOI $200')
     const savedChart=readFinanceDeckSavedInputs(html)!.chartHistory
     expect(savedChart.find(row=>row.month==='2026-11-01')).toMatchObject({forecastNoiPct:.2,actualNoiPct:null})
-    const accountsWithNovember=snapshot.pnl.accounts.map(account=>({ ...account, periods:[...account.periods,{month:'2026-11-01',current_year:account.account==='Income'?1200:account.account==='Grand Total'?180:account.account==='COGS'?480:400,last_year:0,difference_pct:null}]}))
+    const accountsWithNovember=snapshot.pnl.accounts.map(account=>({ ...account, periods:[...account.periods,{month:'2026-11-01',current_year:account.account==='Income'?1200:account.account==='Grand Total'?180:account.account==='COGS'?700:400,last_year:0,difference_pct:null}]}))
     const nextInput={...input,asOf:'2026-12-06',snapshot:{...snapshot,pnl:{accounts:accountsWithNovember}},details:{...input.details,payrollTotals:[...input.details.payrollTotals,{month:'2026-11-01',payroll:120}]},chartHistory:savedChart}
     const nextHtml=generateFinanceDeck(nextInput)
     const nextChart=readFinanceDeckSavedInputs(nextHtml)!.chartHistory
     const november=nextChart.find(row=>row.month==='2026-11-01')!
-    expect(november).toMatchObject({forecastNoiPct:.2,forecastPayrollPct:.08,actualNoi:180,actualNoiPct:.15,actualPayroll:120,actualPayrollPct:.1})
-    expect(november.goalNoiPct).toBeCloseTo(savedChart.find(row=>row.month==='2026-11-01')!.goalNoiPct!)
+    const latestPastForecast=buildPnlForecastPath(nextInput.snapshot,.09,'2026-11-01',{expenseAnchorMonth:'2026-12-01',allowBelowFloorForecast:true}).months[0]
+    expect(november).toMatchObject({forecastIncome:latestPastForecast.forecastedSales,forecastNoi:latestPastForecast.noi,actualNoi:180,actualNoiPct:.15,actualPayroll:120,actualPayrollPct:.1})
+    expect(november.forecastNoiPct).toBeCloseTo(latestPastForecast.noiPct!)
+    expect(november.forecastPayrollPct).toBeCloseTo(90/latestPastForecast.forecastedSales!)
+    expect(november.goalNoiPct).not.toBeCloseTo(savedChart.find(row=>row.month==='2026-11-01')!.goalNoiPct!)
     const nextSlides=splitFinanceDeckHtml(nextHtml)
     expect(nextSlides[0]).toContain('Nov 26 · Actual NOI: 15.0% · NOI $180')
     expect(nextSlides[2]).toContain('Nov 26 · Actual payroll / income: 10.0%')
+    expect(nextSlides[0]).toContain('Forecasts and goals for all displayed months are recalculated')
+    const missingPastBudget={...nextInput.snapshot,budget:{sales:nextInput.snapshot.budget.sales.filter(row=>row.month!=='2026-11-01'&&row.month!=='2025-11-01')}}
+    const pendingPast=readFinanceDeckSavedInputs(generateFinanceDeck({...nextInput,snapshot:missingPastBudget}))!.chartHistory.find(row=>row.month==='2026-11-01')!
+    expect(pendingPast).toMatchObject({forecastIncome:null,forecastNoiPct:null,actualNoiPct:.15})
     const afterMissing=generateFinanceDeck({...nextInput,asOf:'2027-01-06',snapshot,details:input.details,chartHistory:nextChart})
     expect(readFinanceDeckSavedInputs(afterMissing)!.chartHistory.find(row=>row.month==='2026-11-01')).toMatchObject({forecastNoiPct:.2,actualNoiPct:.15,actualPayrollPct:.1})
     const legacyDocument=new DOMParser().parseFromString(html,'text/html')
