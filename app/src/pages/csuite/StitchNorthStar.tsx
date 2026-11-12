@@ -683,8 +683,7 @@ export default function StitchNorthStar() {
         title="Generate Ryan’s Finance deck"
         width="max-w-5xl"
       >
-        {previousRyanDeckError && !ryanDeckHtml && <p role="alert" className="mb-3 text-sm text-warning">Could not load prior Finance inputs. Upload the historical statements again for this run.</p>}
-        {financeBaselineError || financeMilestonesError ? <p role="alert" className="mb-3 text-sm text-danger">Could not load saved Finance inputs. Refresh the page and try again before replacing them.</p> : <FinanceDeckBuilder
+        {(financeBaselineError || financeMilestonesError || (previousRyanDeckError && !ryanDeckHtml)) ? <p role="alert" className="mb-3 text-sm text-danger">Could not load the saved Finance inputs or prior deck. Refresh the page and try again to preserve the chart history.</p> : <FinanceDeckBuilder
           savedHtml={ryanDeckHtml || previousRyanDeck?.html_code || ''}
           savedBaseline={financeBaseline}
           onSaveBaseline={async baseline=>{await upsertHtmlBlock.mutateAsync({period_month:RYAN_FINANCE_BASELINE_PERIOD,slide_key:RYAN_FINANCE_BASELINE_KEY,view_mode:'fields',html_code:JSON.stringify(baseline)})}}

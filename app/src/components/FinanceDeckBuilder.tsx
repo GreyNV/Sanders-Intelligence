@@ -184,7 +184,7 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
       assertUniqueHistoricalMonths(historyRows)
       await persistMilestones(milestoneSnapshot)
       const snapshot: LeadershipToolSnapshot = { id:'local-preview', snapshot_key:'current', filename:leadership.name, uploaded_by:null, uploaded_at:new Date().toISOString(), ...leadershipData.parsed }
-      const input: FinanceDeckInput = { snapshot, details:leadershipData.details, warehouse:warehouseRows, history:historyRows, channelHistory:channelRows, statuses, notes, customMilestones, milestoneEdits, completion, classMappings, channelMappings, workflowAdoptionPct, workflowAdoptionDate:workflowAdoptionPct === null ? null : workflowAdoptionDate, asOf, currentMonthProjectedSales: asOf === today() ? currentMonthProjectedSales : null }
+      const input: FinanceDeckInput = { snapshot, details:leadershipData.details, warehouse:warehouseRows, history:historyRows, channelHistory:channelRows, statuses, notes, customMilestones, milestoneEdits, completion, classMappings, channelMappings, workflowAdoptionPct, workflowAdoptionDate:workflowAdoptionPct === null ? null : workflowAdoptionDate, asOf, chartHistory:saved?.chartHistory, currentMonthProjectedSales: asOf === today() ? currentMonthProjectedSales : null }
       onGenerated(generateFinanceDeck(input))
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not read the supplied files.') }
     finally { setBusy(false) }

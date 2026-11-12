@@ -85,8 +85,28 @@ describe('Finance deck generation', () => {
     expect(graph.querySelectorAll('line[stroke="#e2dfd5"]')).toHaveLength(5)
     expect(graph.querySelector('circle[fill="#234b38"] title')?.textContent).toBe('Nov 26 · Current forecast: 20.0% · NOI $200')
     expect(graph.querySelector('circle[fill="#bf7540"] title')?.textContent).toBe('Nov 26 · 30% growth goal: 29.2% · NOI $380')
+    expect(graph.querySelector('circle[fill="#3476b1"] title')?.textContent).toBe('Jul 26 · Actual NOI: 20.0% · NOI $200')
+    const savedChart=readFinanceDeckSavedInputs(html)!.chartHistory
+    expect(savedChart.find(row=>row.month==='2026-11-01')).toMatchObject({forecastNoiPct:.2,actualNoiPct:null})
+    const accountsWithNovember=snapshot.pnl.accounts.map(account=>({ ...account, periods:[...account.periods,{month:'2026-11-01',current_year:account.account==='Income'?1200:account.account==='Grand Total'?180:account.account==='COGS'?480:400,last_year:0,difference_pct:null}]}))
+    const nextInput={...input,asOf:'2026-12-06',snapshot:{...snapshot,pnl:{accounts:accountsWithNovember}},details:{...input.details,payrollTotals:[...input.details.payrollTotals,{month:'2026-11-01',payroll:120}]},chartHistory:savedChart}
+    const nextHtml=generateFinanceDeck(nextInput)
+    const nextChart=readFinanceDeckSavedInputs(nextHtml)!.chartHistory
+    const november=nextChart.find(row=>row.month==='2026-11-01')!
+    expect(november).toMatchObject({forecastNoiPct:.2,forecastPayrollPct:.08,actualNoi:180,actualNoiPct:.15,actualPayroll:120,actualPayrollPct:.1})
+    expect(november.goalNoiPct).toBeCloseTo(savedChart.find(row=>row.month==='2026-11-01')!.goalNoiPct!)
+    const nextSlides=splitFinanceDeckHtml(nextHtml)
+    expect(nextSlides[0]).toContain('Nov 26 · Actual NOI: 15.0% · NOI $180')
+    expect(nextSlides[2]).toContain('Nov 26 · Actual payroll / income: 10.0%')
+    const afterMissing=generateFinanceDeck({...nextInput,asOf:'2027-01-06',snapshot,details:input.details,chartHistory:nextChart})
+    expect(readFinanceDeckSavedInputs(afterMissing)!.chartHistory.find(row=>row.month==='2026-11-01')).toMatchObject({forecastNoiPct:.2,actualNoiPct:.15,actualPayrollPct:.1})
+    const legacyDocument=new DOMParser().parseFromString(html,'text/html')
+    const metadata=legacyDocument.querySelector('script[data-finance-inputs]')!
+    const legacyInputs=JSON.parse(metadata.textContent!);delete legacyInputs.chartHistory;metadata.textContent=JSON.stringify(legacyInputs).replace(/</g,'\\u003c')
+    const legacyHistory=readFinanceDeckSavedInputs(legacyDocument.documentElement.outerHTML)!.chartHistory
+    expect(legacyHistory.find(row=>row.month==='2026-11-01')).toMatchObject({forecastNoiPct:.2,forecastPayrollPct:.08,actualNoiPct:null})
     expect(slides.every(slide=>slide.includes('As of 2026-11-06 · Leadership Tool: test'))).toBe(true)
-    expect(slides[0]).toContain('30% growth goal scenario')
+    expect(slides[0]).toContain('30% growth goal')
     expect(slides[0]).toContain('Current-year budget × fulfillment')
     expect(slides[0]).toContain('Budget fulfillment: 100.0%')
     expect(slides[0]).toContain('Budget fulfillment uses all available completed months with matching income and budget.')
@@ -123,7 +143,7 @@ describe('Finance deck generation', () => {
     expect(withPace).not.toContain('Current-month sales pace')
     expect(withPace).toContain('Current-year budget × fulfillment')
     const paceTable=new DOMParser().parseFromString(withPace,'text/html').querySelector('table')!
-    const firstTwoRows=[...paceTable.querySelectorAll('tbody tr')].slice(0,2).map(row=>[...row.querySelectorAll('td')].slice(0,3).map(cell=>cell.textContent))
+    const firstTwoRows=[...paceTable.querySelectorAll('tbody tr')].filter(row=>['Nov 26','Dec 26'].includes(row.querySelector('td')?.textContent??'')).map(row=>[...row.querySelectorAll('td')].slice(0,3).map(cell=>cell.textContent))
     expect(firstTwoRows).toEqual([['Nov 26','$1,000','Current-year budget × fulfillment'],['Dec 26','$1,000','Current-year budget × fulfillment']])
     const fallbackSnapshot = { ...snapshot, budget: { ...snapshot.budget, sales: [...snapshot.budget.sales.filter(row=>row.month!=='2026-11-01'), { month:'2025-11-01', budgeted_sales:900 }] } }
     const withFallback = splitFinanceDeckHtml(generateFinanceDeck({ ...input, snapshot:fallbackSnapshot }))[0]
@@ -137,7 +157,7 @@ describe('Finance deck generation', () => {
     expect(slides[6]).toContain('.waterfall g:hover text,.waterfall g:focus text')
     expect(waterfallDocument.querySelector('svg.waterfall g')?.getAttribute('tabindex')).toBe('0')
     const payrollGraph=new DOMParser().parseFromString(slides[2],'text/html').querySelector('svg.graph')!
-    expect(payrollGraph.getAttribute('aria-label')).toBe('Projected payroll as a percentage of income')
+    expect(payrollGraph.getAttribute('aria-label')).toBe('Actual and projected payroll as a percentage of income')
     expect(payrollGraph.querySelector('polyline[stroke="#234b38"]')).not.toBeNull()
     expect(payrollGraph.querySelector('polyline[stroke="#bf7540"]')).not.toBeNull()
     expect(payrollGraph.textContent).toContain('8% target')
@@ -148,6 +168,10 @@ describe('Finance deck generation', () => {
     const goalPoint=new DOMParser().parseFromString(departmentSlide,'text/html').querySelector('svg.graph circle[fill="#bf7540"] title')!
     expect(goalPoint.textContent).toContain('Finance: 37.5%')
     expect(goalPoint.textContent).not.toContain('$')
+    const actualPoint=new DOMParser().parseFromString(departmentSlide,'text/html').querySelector('svg.graph circle[fill="#3476b1"] title')!
+    expect(actualPoint.textContent).toContain('Finance: 37.5%')
+    const departmentSaved=readFinanceDeckSavedInputs(generateFinanceDeck({...input,details:{...input.details,payrollDepartments:closed.map(month=>({month,department:'Finance',payroll:30}))}}))!.chartHistory
+    expect(departmentSaved.find(row=>row.month==='2026-11-01')?.payrollDetails).toContain('Finance: 37.5%')
     const cashSlides=splitFinanceDeckHtml(generateFinanceDeck({...input,details:{...input.details,cashWeeks:[
       {week:1,date:'2026-11-02',endingCash:700000,vsFloor:100000},
       {week:2,date:'2026-11-09',endingCash:500000,vsFloor:-250000},

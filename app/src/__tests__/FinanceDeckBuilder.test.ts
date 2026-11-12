@@ -19,6 +19,19 @@ vi.mock('@/lib/financeDeckGenerator', async importOriginal => {
 
 describe('Finance deck workflow', () => {
   afterEach(() => { document.body.innerHTML=''; vi.clearAllMocks() })
+  it('passes chart history from the saved deck into the next generation', async () => {
+    const chartMonth={month:'2026-11-01',forecastIncome:1000,forecastNoi:200,forecastNoiPct:.2,goalIncome:1300,goalNoi:300,goalNoiPct:300/1300,projectedPayroll:80,forecastPayrollPct:.08,goalPayrollPct:80/1300,actualIncome:null,actualNoi:null,actualNoiPct:null,actualPayroll:null,actualPayrollPct:null,payrollDetails:null}
+    const savedHtml=`<script type="application/json" data-finance-inputs>${JSON.stringify({version:1,history:[{month:'2025-11-01',income:100}],channelHistory:[],chartHistory:[chartMonth]})}</script>`
+    const container=document.createElement('div');document.body.append(container)
+    const root=createRoot(container)
+    await act(async()=>root.render(createElement(FinanceDeckBuilder,{savedHtml,periodMonth:'2026-12-01',onGenerated:vi.fn(),onCancel:()=>{}})))
+    const inputs=container.querySelectorAll<HTMLInputElement>('input[type=file]')
+    await act(async()=>{for(const [i,name] of ['leadership.xlsm','warehouse.xlsm'].entries()){Object.defineProperty(inputs[i],'files',{configurable:true,value:[new File(['x'],name)]});inputs[i].dispatchEvent(new Event('change',{bubbles:true}))}})
+    await act(async()=>{[...container.querySelectorAll('button')].find(b=>b.textContent==='Generate HTML')!.click()})
+    const calls=vi.mocked(generateFinanceDeck).mock.calls
+    expect(calls[calls.length-1]?.[0].chartHistory).toEqual([chartMonth])
+    await act(async()=>root.unmount())
+  })
   it('saves a historical upload immediately and reuses it on a later visit', async () => {
     const container=document.createElement('div');document.body.append(container)
     const root=createRoot(container), save=vi.fn(async(_baseline:RyanFinanceBaseline)=>{})
