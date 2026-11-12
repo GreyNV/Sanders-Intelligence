@@ -175,15 +175,15 @@ const budgetAvailability=(rows:BudgetPeriod[],periods:string[])=>table(['Month',
   return [short(month),fmtMoney(supplied.length?supplied.reduce((sum,row)=>sum+row.budget!,0):null),String(supplied.length)]
 }))
 const varianceTable=(periods:string[],last:string,start:string,rows:{name:string; data:BudgetPeriod[]}[],empty:string,mode:'forecast'|'actual'='forecast')=>{
-  const headers=['Class / account','Status',...(mode==='actual'?['Total variance · 4 months']:[]),...periods.flatMap((month,i)=>[`${short(month)} budget`,`${short(month)} ${mode==='actual'||i===0?'actual':'projected'}`,`${short(month)} variance`,`${short(month)} variance %`])]
+  const headers=['Class / account','Status',...(mode==='actual'?['Total variance · 4 months']:[]),...periods.flatMap(month=>[`${short(month)} budget`,`${short(month)} ${mode==='actual'||month<=last?'actual':'projected'}`,`${short(month)} variance`,`${short(month)} variance %`])]
   const cells=rows.map(({name,data})=>{
     const recent=data.filter(row=>row.month>=start&&row.month<=last&&row.actual!==null)
     const run=recent.length?recent.reduce((sum,row)=>sum+row.actual!,0)/recent.length:null
     const matched=periods.flatMap(month=>{const row=data.find(entry=>entry.month===month);return row?.budget!==null&&row?.budget!==undefined&&row.actual!==null?[row.budget-row.actual]:[]})
     const total=matched.length?matched.reduce((sum,value)=>sum+value,0):null
     const totalLabel=total===null?'Pending':`${fmtMoney(total)}${matched.length<periods.length?` · ${matched.length}/${periods.length} months`:''}`
-    return [name,'Matched',...(mode==='actual'?[totalLabel]:[]),...periods.flatMap((month,i)=>{
-      const entry=data.find(row=>row.month===month),budget=entry?.budget??null,actual=mode==='actual'||i===0?(entry?.actual??null):run
+    return [name,'Matched',...(mode==='actual'?[totalLabel]:[]),...periods.flatMap(month=>{
+      const entry=data.find(row=>row.month===month),budget=entry?.budget??null,actual=mode==='actual'||month<=last?(entry?.actual??null):run
       const variance=budget!==null&&actual!==null?budget-actual:null
       return [fmtMoney(budget),fmtMoney(actual),fmtMoney(variance),fmtPct(variance!==null&&budget!==null&&budget!==0?variance/budget:null)]
     })]
@@ -194,7 +194,7 @@ const varianceTable=(periods:string[],last:string,start:string,rows:{name:string
 const section = (title:string,kicker:string,body:string) => `<section class="slide" data-finance-slide="${esc(title)}"><div class="inner"><div class="kicker">${esc(kicker)} · FINANCE NORTH STAR <span>RYAN</span></div><h1>${esc(title)}</h1>${body}</div></section>`
 
 export function generateFinanceDeck(input: FinanceDeckInput): string {
-  const deckSection=(title:string,kicker:string,body:string) => section(title,kicker,`<div class="source-meta">As of ${esc(input.asOf)} · Leadership Tool: ${esc(input.snapshot.filename)}</div>${body}`)
+  const deckSection=(title:string,kicker:string,body:string) => section(title,kicker,`<div class="source-meta">As of ${esc(input.asOf)} · Leadership Tool: ${esc(input.snapshot.filename)} · Blank or older values may be retained from earlier uploads.</div>${body}`)
   const classBudgets=applyFinanceClassMappings(input.details.classBudgets,input.classMappings??{})
   const custom=input.customMilestones??[]
   const seen=new Set(FINANCE_MILESTONES.map(m=>m.id))
@@ -214,6 +214,7 @@ export function generateFinanceDeck(input: FinanceDeckInput): string {
   const workflowAdoptionDate = workflowAdoptionValue !== null && typeof input.workflowAdoptionDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.workflowAdoptionDate) && input.workflowAdoptionDate <= input.asOf ? input.workflowAdoptionDate : null
   const workflowAdoption = workflowAdoptionValue === null ? 'Pending' : `${workflowAdoptionValue}%${workflowAdoptionDate ? ` · ${workflowAdoptionDate}` : ' · date unknown'}`
   const period=`${input.asOf.slice(0,7)}-01`, last=prevMonth(period), fourMonthStart=prevMonth(prevMonth(prevMonth(prevMonth(period))))
+  const pastFourMonths=[fourMonthStart,nextMonth(fourMonthStart),prevMonth(last),last]
   const forecast=buildPnlForecastPath(input.snapshot,.09,period,{expenseAnchorMonth:period,allowBelowFloorForecast:true})
   const growth=buildGrowthScenario(forecast.months.map(m=>m.month),input.history,forecast.variableCostPct,forecast.monthlyExpenseRunRate>0?forecast.monthlyExpenseRunRate:null)
   const missingGoalMonths=growth.filter(m=>m.goalSales===null).map(m=>short(m.month))
@@ -233,9 +234,11 @@ export function generateFinanceDeck(input: FinanceDeckInput): string {
   const payrollTooltip=`Department % of total payroll: ${departmentAverages.length?departmentAverages.map(({department,value})=>`${department}: ${fmtPct(value!==null&&projectedPayroll!==null&&projectedPayroll>0?value/projectedPayroll:null)}`).join(' · '):'Pending'}`
   const emptyChartMonth=(month:string):FinanceChartMonth=>({month,forecastIncome:null,forecastNoi:null,forecastNoiPct:null,goalIncome:null,goalNoi:null,goalNoiPct:null,projectedPayroll:null,forecastPayrollPct:null,goalPayrollPct:null,actualIncome:null,actualNoi:null,actualNoiPct:null,actualPayroll:null,actualPayrollPct:null,payrollDetails:null})
   const chartByMonth=new Map(readFinanceChartMonths(input.chartHistory).filter(row=>row.month<period).map(row=>[row.month,{...row}]))
-  const earliest=[fourMonthStart,...chartByMonth.keys()].sort()[0]
   const incomeRows=input.snapshot.pnl.accounts.find(x=>x.account==='Income')?.periods??[]
   const noiRows=input.snapshot.pnl.accounts.find(x=>x.account==='Grand Total'||x.account==='NOI')?.periods??[]
+  // Include available plan-era source months even if a prior HTML deck was not saved.
+  const archivedMonths=[...incomeRows,...input.details.payrollTotals].map(row=>row.month).filter(month=>month>='2026-07-01'&&month<period)
+  const earliest=[fourMonthStart,...chartByMonth.keys(),...archivedMonths].sort()[0]
   const forecastSources=new Map<string,string>()
   for(let month=earliest;month<period;month=nextMonth(month)) {
     const row=chartByMonth.get(month)??emptyChartMonth(month)
@@ -288,7 +291,7 @@ export function generateFinanceDeck(input: FinanceDeckInput): string {
   }
   const channelActuals=input.details.channels.filter(x=>{const {start,last:channelLast}=channelWindow(x.channel,period);return x.month>=start&&x.month<=channelLast&&x.income!==null&&x.income>0})
   const prior=(m:string)=>`${Number(m.slice(0,4))-1}${m.slice(4)}`
-  const channelTable=(list:typeof channelRows)=>table(['Channel','Revenue · period','Latest closed NOI $ / %',...forecast.months.map(m=>short(m.month)+' forecast / goal')],list.map(c=>{
+  const channelTable=(list:typeof channelRows)=>table(['Channel','Revenue · period','Latest closed NOI $ / %',...pastFourMonths.map(month=>short(month)+' actual NOI $ / %'),...forecast.months.map(m=>short(m.month)+' forecast / goal')],list.map(c=>{
     const recent=channelActuals.filter(x=>channelKey(x.channel)===channelKey(c.channel)&&x.grossMargin!==null&&x.operatingMargin!==null).sort((a,b)=>b.month.localeCompare(a.month)).slice(0,4)
     const total=recent.reduce((s,x)=>s+(x.income??0),0)
     const cogsRate=total?recent.reduce((s,x)=>s+(x.income??0)*(1-(x.grossMargin??0)),0)/total:null
@@ -297,7 +300,12 @@ export function generateFinanceDeck(input: FinanceDeckInput): string {
     const formatNoi=(sales:number|null)=>{const amount=result(sales);return amount===null?'Pending':`${fmtMoney(amount)} (${fmtPct(amount/sales!)})`}
     const window=channelWindow(c.channel,period)
     const expectedMonths=4
-    return [c.channel,`${fmtMoney(c.fourMonthIncome)} · ${short(window.start)}–${short(window.last)}${c.availableMonths<expectedMonths?` · ${c.availableMonths}/${expectedMonths} months`:''}`,`${short(c.month)} · ${fmtMoney(c.income!==null&&c.operatingMargin!==null?c.income*c.operatingMargin:null)} / ${fmtPct(c.operatingMargin)}`,...forecast.months.map(m=>{
+    return [c.channel,`${fmtMoney(c.fourMonthIncome)} · ${short(window.start)}–${short(window.last)}${c.availableMonths<expectedMonths?` · ${c.availableMonths}/${expectedMonths} months`:''}`,`${short(c.month)} · ${fmtMoney(c.income!==null&&c.operatingMargin!==null?c.income*c.operatingMargin:null)} / ${fmtPct(c.operatingMargin)}`,...pastFourMonths.map(month=>{
+      if(month>window.last)return 'Pending · not closed'
+      const actual=input.details.channels.find(row=>row.month===month&&channelKey(row.channel)===channelKey(c.channel))
+      const known=actual?.income!==null&&actual?.income!==undefined&&actual.income>0&&actual.operatingMargin!==null
+      return `${fmtMoney(known?actual.income!*actual.operatingMargin!:null)} / ${fmtPct(known?actual.operatingMargin:null)}`
+    }),...forecast.months.map(m=>{
       const historyName=input.channelMappings?.[channelKey(c.channel)]??c.channel, historyKey=`${prior(m.month)}|${channelKey(historyName)}`
       if(duplicateHistory.has(historyKey)) throw new Error(`More than one historical class matches ${historyName} in ${prior(m.month)}. Review the class statements.`)
       const previous=historyIndex.get(historyKey)?.income??null
@@ -320,7 +328,7 @@ export function generateFinanceDeck(input: FinanceDeckInput): string {
   const cashStatus=cashFloorStatus(cashForAsOf?.endingCash??null,cashForAsOf?.vsFloor??null)
   const payroll=deckSection('Payroll · 8% of income','Guardrail',`<div class="topline"><div><span>LAST FULL MONTH · ${esc(short(last))}</span><strong class="${payrollRatio===null?'pending':payrollRatio<=.08?'green':'yellow'}">${fmtPct(payrollRatio)}</strong></div><p>Payroll divided by income · 8% target</p></div><div class="legend"><i style="background:#234b38"></i> Payroll / current forecast <i style="background:#bf7540"></i> Payroll / 30% goal (dashed) <i style="background:#3476b1"></i> Actual payroll / income <i style="background:#8c8e85"></i> 8% target</div>${lineChart(chartMonths.map(m=>m.forecastPayrollPct),chartMonths.map(m=>m.goalPayrollPct),chartMonths.map(m=>short(m.month)),{aria:'Actual and projected payroll as a percentage of income',first:'Payroll / current forecast',second:'Payroll / 30% goal',reference:.08,referenceLabel:'8% target',firstDetails:chartMonths.map(m=>m.payrollDetails??'Saved forecast'),secondDetails:chartMonths.map(m=>m.payrollDetails??'Saved forecast'),actuals:{values:chartMonths.map(m=>m.actualPayrollPct),name:'Actual payroll / income',details:chartMonths.map(actualPayrollDetails)}})}${table(['Month','Forecast income','30% goal income','Projected payroll','Forecast / goal payroll %','Actual payroll $ / %'],chartMonths.map(m=>[short(m.month),fmtMoney(m.forecastIncome),fmtMoney(m.goalIncome),fmtMoney(m.projectedPayroll),`${fmtPct(m.forecastPayrollPct)} / ${fmtPct(m.goalPayrollPct)}`,`${fmtMoney(m.actualPayroll)} / ${fmtPct(m.actualPayrollPct)}`]))}<p class="note">Forecasts and goals for all displayed months are recalculated using the latest inputs. Projected payroll holds the average of ${payrollHistory.length} available month(s) from the last four completed Leadership Tool months constant against forecast and 30% goal income. Hover over forecasts for each department’s share of total payroll. Missing actuals or forecasts remain pending.</p>` )
 
-  const periods=[last,...forecast.months.map(m=>m.month)]
+  const periods=[...pastFourMonths,...forecast.months.map(m=>m.month)]
   const classByName=new Map<string,typeof classBudgets>();for(const row of classBudgets){const k=channelKey(row.channel);classByName.set(k,[...(classByName.get(k)??[]),row])}
   const worst=[...classByName.values()].map(rows=>rows.find(r=>r.month===last)).filter((r):r is NonNullable<typeof r>=>Boolean(r&&r.variance!==null&&r.variance<0)).sort((a,b)=>(a.variance??0)-(b.variance??0)).slice(0,10)
   const noClassBudget=[...classByName.values()].map(rows=>rows.find(r=>r.month===last)).filter((r):r is NonNullable<typeof r>=>Boolean(r&&r.actual!==null&&r.budget===null)).sort((a,b)=>(b.actual??0)-(a.actual??0))

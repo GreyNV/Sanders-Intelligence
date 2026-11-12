@@ -158,10 +158,9 @@ export function parseFinanceLeadershipWorkbookSheets(sheets: Record<string, Matr
   if (header > 0) {
     const offset = normalize(sheet[header][0]) === 'account' ? 0 : 6
     const months = sheet[header-1], missing = new Map<string, Set<string>>()
-    const tracked = new Set(['income','cogs','expense','grand total','noi'])
     for (const row of sheet.slice(header+1)) {
       const account = normalize(row[offset])
-      if (!tracked.has(account)) continue
+      if (!account) continue
       for (let i=offset+1; i<row.length; i+=3) {
         const period = month(months[i]) ?? month(months[i-1])
         if (period && number(row[i]) === null) {
@@ -178,10 +177,21 @@ export function parseFinanceLeadershipWorkbookSheets(sheets: Record<string, Matr
   return { parsed, details: parseFinanceLeadershipDetails(sheets) }
 }
 
-export async function readFinanceLeadershipWorkbook(file: File): Promise<{ parsed: ParsedLeadershipTool; details: FinanceLeadershipDetails }> {
+export async function readFinanceLeadershipWorkbook(file: File, options:{allowMissingFinanceSheets?:boolean}={}): Promise<{ parsed: ParsedLeadershipTool; details: FinanceLeadershipDetails }> {
   const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false })
   const sheets = Object.fromEntries(['Monthly view by Class', 'dataPnL', 'BgtData', 'Summary_13wks', 'Payroll', 'PnL'].filter(name => workbook.Sheets[name]).map(name => [name,
     XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, raw: true, defval: null }) as Matrix,
   ]))
-  return parseFinanceLeadershipWorkbookSheets(sheets)
+  const financeSheets=['Monthly view by Class','dataPnL','BgtData']
+  const missing=financeSheets.filter(name=>!sheets[name])
+  if(options.allowMissingFinanceSheets&&missing.length){
+    // The general Leadership upload also accepts workbooks without Finance-only sheets.
+    // Preserve the available history and clearly report which parts could not be updated.
+    if(!sheets['Monthly view by Class'])sheets['Monthly view by Class']=[[],['Parent Class']]
+    if(!sheets.dataPnL)sheets.dataPnL=[['Period','Account','Class','AmountCY','AmountLY','Parent Class','Section','IsTotalRow']]
+    if(!sheets.BgtData)sheets.BgtData=[['Class','Month','Section','Budget Amount']]
+  }
+  const result=parseFinanceLeadershipWorkbookSheets(sheets)
+  if(missing.length)result.parsed.source_meta.finance_missing_sheets=missing
+  return result
 }

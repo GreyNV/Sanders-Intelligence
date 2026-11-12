@@ -107,6 +107,8 @@ describe('Finance deck generation', () => {
     expect(pendingPast).toMatchObject({forecastIncome:null,forecastNoiPct:null,actualNoiPct:.15})
     const afterMissing=generateFinanceDeck({...nextInput,asOf:'2027-01-06',snapshot,details:input.details,chartHistory:nextChart})
     expect(readFinanceDeckSavedInputs(afterMissing)!.chartHistory.find(row=>row.month==='2026-11-01')).toMatchObject({forecastNoiPct:.2,actualNoiPct:.15,actualPayrollPct:.1})
+    const noPriorDeck=splitFinanceDeckHtml(generateFinanceDeck({...input,asOf:'2027-03-06'}))[0]
+    expect(noPriorDeck).toContain('Jul 26 · Actual NOI: 20.0%')
     const legacyDocument=new DOMParser().parseFromString(html,'text/html')
     const metadata=legacyDocument.querySelector('script[data-finance-inputs]')!
     const legacyInputs=JSON.parse(metadata.textContent!);delete legacyInputs.chartHistory;metadata.textContent=JSON.stringify(legacyInputs).replace(/</g,'\\u003c')
@@ -125,6 +127,10 @@ describe('Finance deck generation', () => {
     ]}}))[1]
     const channelTables=new DOMParser().parseFromString(channelRanking,'text/html').querySelectorAll('table')
     expect([...channelTables[1].querySelectorAll('tbody tr')].map(row=>row.querySelector('td')?.textContent)).toEqual(['Weak','Strong'])
+    const channelHeaders=[...channelTables[0].querySelectorAll('th')].map(cell=>cell.textContent)
+    const strongCells=[...channelTables[0].querySelector('tbody tr')!.querySelectorAll('td')].map(cell=>cell.textContent)
+    expect(strongCells[channelHeaders.indexOf('Oct 26 actual NOI $ / %')]).toBe('$200 / 20.0%')
+    expect(strongCells[channelHeaders.indexOf('Sep 26 actual NOI $ / %')]).toBe('Pending / Pending')
     expect(channelRanking).toContain('Bottom 10 NOI % · latest eligible month')
     const delayedRows=['2026-06-01','2026-07-01','2026-08-01','2026-09-01'].map(month=>({month,channel:'Target',income:1000,grossMargin:.6,operatingMargin:.2}))
     const delayedHistory=history.map(row=>({...row,channel:'Target',income:500}))
@@ -132,6 +138,8 @@ describe('Finance deck generation', () => {
     expect(delayedSlide(-.9)).toBe(delayedSlide(.9))
     expect(delayedSlide(-.9)).toContain('$4,000 · Jun 26–Sep 26')
     expect(delayedSlide(-.9)).toContain('Sep 26 · $200 / 20.0%')
+    expect(delayedSlide(-.9)).toContain('Oct 26 actual NOI $ / %')
+    expect(delayedSlide(-.9)).toContain('Pending · not closed')
     expect(delayedSlide(-.9)).toContain('−$100 (-20.0%) / −$10 (-1.5%)')
     const partialSlide=splitFinanceDeckHtml(generateFinanceDeck({...input,details:{...input.details,channels:[delayedRows[0]]},channelHistory:delayedHistory}))[1]
     expect(partialSlide).toContain('$1,000 · Jun 26–Sep 26 · 1/4 months')
@@ -204,11 +212,22 @@ describe('Finance deck generation', () => {
     expect(slides[3]).toContain('No comparable class budgets and actuals')
     expect(slides[4]).toContain('No comparable warehouse budgets and actuals')
     const budgetSlide=splitFinanceDeckHtml(generateFinanceDeck({...input,details:{...input.details,classBudgets:[
+      {month:'2026-07-01',channel:'Shop',budget:90,actual:95,variance:-5},
+      {month:'2026-08-01',channel:'Shop',budget:95,actual:100,variance:-5},
+      {month:'2026-09-01',channel:'Shop',budget:100,actual:105,variance:-5},
       {month:'2026-10-01',channel:'Shop',budget:100,actual:125,variance:-25},
       {month:'2026-11-01',channel:'Shop',budget:110,actual:null,variance:null},
       {month:'2026-12-01',channel:'Shop',budget:120,actual:null,variance:null},
     ]}}))[3]
     expect(budgetSlide).toContain('Nov 26 budget')
+    for(const month of ['Jul 26','Aug 26','Sep 26','Oct 26']) expect(budgetSlide).toContain(`${month} actual`)
+    expect(budgetSlide).toContain('Nov 26 projected')
+    const budgetDoc=new DOMParser().parseFromString(budgetSlide,'text/html')
+    const budgetHeaders=[...budgetDoc.querySelectorAll('table:first-of-type th')].map(cell=>cell.textContent)
+    const budgetCells=[...budgetDoc.querySelectorAll('table:first-of-type tbody tr:first-child td')].map(cell=>cell.textContent)
+    expect(budgetCells[budgetHeaders.indexOf('Jul 26 actual')]).toBe('$95')
+    expect(budgetCells[budgetHeaders.indexOf('Oct 26 actual')]).toBe('$125')
+    expect(budgetCells[budgetHeaders.indexOf('Nov 26 projected')]).toBe('$106')
     expect(budgetSlide).toContain('Dec 26 budget')
     expect(budgetSlide).toContain('$110')
     expect(budgetSlide).toContain('$120')

@@ -4,6 +4,7 @@ import { normalizeFinanceClassName, readFinanceLeadershipWorkbook, type FinanceC
 import { assertUniqueHistoricalMonths, parseHistoricalCompanyStatement, parseHistoricalClassStatement, readHistoricalCsv, type HistoricalChannelStatement } from '@/lib/financeHistoricalStatements'
 import { FINANCE_MILESTONES, bottomFinanceChannels, generateFinanceDeck, readFinanceDeckSavedInputs, topFinanceChannels, validFinanceMilestoneDate, type FinanceDeckInput, type FinanceMilestone, type FinanceMilestoneInputs, type FinanceMilestoneEdits, type MilestoneStatus, type MilestoneCompletion } from '@/lib/financeDeckGenerator'
 import type { LeadershipToolSnapshot } from '@/types'
+import type { FinanceLeadershipHistory } from '@/lib/financeLeadershipHistory'
 
 function today() {
   const d = new Date()
@@ -20,7 +21,7 @@ function monthFromFilename(name: string): string | null {
   return `${m[2]}-${String(month).padStart(2,'0')}-01`
 }
 
-export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonthProjectedSales, savedHtml, periodMonth, savedBaseline, onSaveBaseline, savedMilestones, onSaveMilestones }: {
+export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonthProjectedSales, savedHtml, periodMonth, savedBaseline, onSaveBaseline, savedMilestones, onSaveMilestones, savedLeadership, onSaveLeadership }: {
   onGenerated: (html: string) => void
   onCancel: () => void
   currentMonthProjectedSales?: number | null
@@ -30,6 +31,8 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
   onSaveBaseline?: (baseline: { history: FinanceDeckInput['history']; channelHistory: HistoricalChannelStatement[] }) => Promise<void>
   savedMilestones?: FinanceMilestoneInputs | null
   onSaveMilestones?: (inputs:FinanceMilestoneInputs) => Promise<void>
+  savedLeadership?: FinanceLeadershipHistory | null
+  onSaveLeadership?: (inputs:{filename:string;parsed:FinanceLeadershipHistory['parsed'];details:FinanceLeadershipHistory['details']}) => Promise<FinanceLeadershipHistory>
 }) {
   const [saved] = useState(() => readFinanceDeckSavedInputs(savedHtml))
   const [baseline, setBaseline] = useState(() => ({
@@ -37,7 +40,8 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
     channelHistory:savedBaseline?.channelHistory.length ? savedBaseline.channelHistory : saved?.channelHistory??[],
   }))
   const [leadership, setLeadership] = useState<File | null>(null)
-  const [inspected, setInspected] = useState<{file:File; data:Awaited<ReturnType<typeof readFinanceLeadershipWorkbook>>} | null>(null)
+  const [leadershipHistory,setLeadershipHistory]=useState<FinanceLeadershipHistory|null>(savedLeadership??null)
+  const [inspected, setInspected] = useState<{file:File|null; data:Awaited<ReturnType<typeof readFinanceLeadershipWorkbook>>} | null>(null)
   const [warehouse, setWarehouse] = useState<File | null>(null)
   const [history, setHistory] = useState<File | null>(null)
   const [classes, setClasses] = useState<File[]>([])
@@ -112,6 +116,25 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
   const priorMonths=new Set(validAsOf?Array.from({length:12},(_,i)=>new Date(Date.UTC(year-1,monthNumber-1+i,1)).toISOString().slice(0,10)):[])
   const historyCoverage=(name:string)=>new Set((channelReview??[]).filter(row=>normalizeFinanceClassName(row.channel)===normalizeFinanceClassName(name)&&priorMonths.has(row.month)&&row.income!==null).map(row=>row.month)).size
 
+  async function saveLeadershipUpload(file:File) {
+    if(!onSaveLeadership){setLeadership(file);setInspected(null);setChannelReview(null);setError('');return}
+    setBusy(true);setError('')
+    try {
+      const data=await readFinanceLeadershipWorkbook(file)
+      const saved=await onSaveLeadership({filename:file.name,...data})
+      setLeadershipHistory(saved);setLeadership(file)
+      setInspected({file,data:{parsed:saved.parsed,details:saved.details}});setChannelReview(null)
+    } catch(e) {setError(e instanceof Error?`Could not save Leadership Tool data: ${e.message}`:'Could not save Leadership Tool data.')}
+    finally {setBusy(false)}
+  }
+
+  async function leadershipForDeck() {
+    if(inspected&&inspected.file===leadership)return inspected.data
+    if(leadership)return readFinanceLeadershipWorkbook(leadership)
+    if(leadershipHistory)return {parsed:leadershipHistory.parsed,details:leadershipHistory.details}
+    throw new Error('Upload a Leadership Tool before generating the deck.')
+  }
+
   async function saveUploadedBaseline(companyFile:File|null, classFiles:File[]) {
     if (!onSaveBaseline) { if(companyFile) setHistory(companyFile); if(classFiles.length) setClasses(classFiles); return }
     setBusy(true); setError('')
@@ -155,35 +178,35 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
   }
 
   async function inspectClassMatches() {
-    if (!leadership) return
+    if (!leadership && !leadershipHistory) return
     setBusy(true);setError('')
-    try { setInspected({file:leadership,data:await readFinanceLeadershipWorkbook(leadership)}) }
+    try { const data=await leadershipForDeck();setInspected({file:leadership,data}) }
     catch (e) { setError(e instanceof Error ? e.message : 'Could not read the Leadership Tool.') }
     finally { setBusy(false) }
   }
 
   async function inspectChannelMatches() {
-    if(!leadership)return
+    if(!leadership&&!leadershipHistory)return
     setBusy(true);setError('')
     try {
-      const [data,history]=await Promise.all([inspected?.file===leadership?Promise.resolve(inspected.data):readFinanceLeadershipWorkbook(leadership),loadChannelHistory()])
+      const [data,history]=await Promise.all([leadershipForDeck(),loadChannelHistory()])
       setInspected({file:leadership,data});setChannelReview(history)
     } catch(e) {setError(e instanceof Error?e.message:'Could not review channel history.')}
     finally {setBusy(false)}
   }
 
   async function generate() {
-    if (!leadership || !warehouse || !validAsOf || !validWorkflowAdoption || !validMilestones || (!history && !baseline.history.length)) return
+    if ((!leadership&&!leadershipHistory) || !warehouse || !validAsOf || !validWorkflowAdoption || !validMilestones || (!history && !baseline.history.length)) return
     setBusy(true); setError('')
     try {
       const [leadershipData, warehouseRows, historyRows, channelRows] = await Promise.all([
-        inspected?.file===leadership ? Promise.resolve(inspected.data) : readFinanceLeadershipWorkbook(leadership), parseWarehouseBudgetFile(warehouse),
+        leadershipForDeck(), parseWarehouseBudgetFile(warehouse),
         history ? readHistoricalCsv(history).then(parseHistoricalCompanyStatement) : Promise.resolve(baseline.history),
         channelReview!==null ? Promise.resolve(channelReview) : loadChannelHistory(),
       ])
       assertUniqueHistoricalMonths(historyRows)
       await persistMilestones(milestoneSnapshot)
-      const snapshot: LeadershipToolSnapshot = { id:'local-preview', snapshot_key:'current', filename:leadership.name, uploaded_by:null, uploaded_at:new Date().toISOString(), ...leadershipData.parsed }
+      const snapshot: LeadershipToolSnapshot = { id:'local-preview', snapshot_key:'current', filename:leadership?.name??leadershipHistory!.filename, uploaded_by:null, uploaded_at:new Date().toISOString(), ...leadershipData.parsed }
       const input: FinanceDeckInput = { snapshot, details:leadershipData.details, warehouse:warehouseRows, history:historyRows, channelHistory:channelRows, statuses, notes, customMilestones, milestoneEdits, completion, classMappings, channelMappings, workflowAdoptionPct, workflowAdoptionDate:workflowAdoptionPct === null ? null : workflowAdoptionDate, asOf, chartHistory:saved?.chartHistory, currentMonthProjectedSales: asOf === today() ? currentMonthProjectedSales : null }
       onGenerated(generateFinanceDeck(input))
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not read the supplied files.') }
@@ -193,22 +216,24 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
   return <div className="space-y-5">
     <p className="text-sm text-text2">Files are read in your browser to prepare HTML for Ryan’s deck. The historical income statement supplies the matching prior-year months for the 30% growth line. Choose workbook versions that match the as-of date.</p>
     <div className="grid gap-4 md:grid-cols-2">
-      <label className="text-sm font-semibold">Leadership Tool <span className="text-danger">*</span><input type="file" accept=".xlsx,.xlsm" className="input mt-1 w-full text-xs" onChange={e => {setLeadership(e.target.files?.[0] ?? null);setInspected(null);setChannelReview(null);setError('')}} /></label>
+      <label className="text-sm font-semibold">Leadership Tool <span className="text-danger">*</span><input type="file" accept=".xlsx,.xlsm" disabled={busy} className="input mt-1 w-full text-xs" onChange={e => {const file=e.target.files?.[0];if(file)void saveLeadershipUpload(file);e.target.value=''}} /></label>
       <label className="text-sm font-semibold">Warehouse Budget <span className="text-danger">*</span><input type="file" accept=".xlsx,.xlsm" className="input mt-1 w-full text-xs" onChange={e => setWarehouse(e.target.files?.[0] ?? null)} /></label>
       <label className="text-sm font-semibold">Prior-year company income statement <span className="font-normal text-text2">· required once for the 30% line</span><input type="file" accept=".csv" disabled={busy} className="input mt-1 w-full text-xs" onChange={e => {const file=e.target.files?.[0]??null;if(file) void saveUploadedBaseline(file,[])}} /></label>
       <label className="text-sm font-semibold">Prior-year class statements <span className="font-normal text-text2">· optional, one file per month</span><input type="file" accept=".csv" multiple disabled={busy} className="input mt-1 w-full text-xs" onChange={e => {const files=Array.from(e.target.files??[]);if(files.length) void saveUploadedBaseline(null,files);setChannelReview(null)}} /></label>
       <label className="text-sm font-semibold">As of date<input type="date" className="input mt-1 w-full" min={periodStart} max={periodEnd} value={asOf} onChange={e => setAsOf(e.target.value)} /></label>
     </div>
+    {leadershipHistory && <p className="text-xs text-text2">Saved Leadership Tool: {leadershipHistory.filename}. New values replace matching saved values; older months and values left blank remain available.</p>}
+    {leadershipHistory && Array.isArray(leadershipHistory.parsed.source_meta.finance_missing_sheets) && leadershipHistory.parsed.source_meta.finance_missing_sheets.length>0 && <p role="status" className="text-xs text-warning">The latest Leadership upload did not include these Finance sheets: {leadershipHistory.parsed.source_meta.finance_missing_sheets.join(', ')}. Previously saved values remain available; missing data is pending.</p>}
     {!validAsOf && <p role="alert" className="text-xs text-danger">Choose a date in the month selected in Stitch North Star.</p>}
     {!history && !baseline.history.length && <p className="rounded-lg bg-warning/10 p-3 text-xs text-text2">The 30% scenario remains pending until the prior-year company income statement is selected.</p>}
     {baseline.history.length || baseline.channelHistory.length ? <p className="text-xs text-text2">Saved historical inputs: {baseline.history.length} company month(s) and {new Set(baseline.channelHistory.map(row=>row.month)).size} class month(s). A company CSV replaces its baseline; class CSVs replace only the months supplied.</p> : null}
-    <div><button type="button" className="btn-secondary" disabled={!leadership || busy || !validAsOf} onClick={() => void inspectClassMatches()}>Review class matches</button></div>
+    <div><button type="button" className="btn-secondary" disabled={(!leadership&&!leadershipHistory) || busy || !validAsOf} onClick={() => void inspectClassMatches()}>Review class matches</button></div>
     {Object.keys(classMappings).length>0 && <div className="rounded-lg border border-border p-3 text-xs"><strong>Saved manual matches</strong>{Object.entries(classMappings).map(([source,target])=><div key={source} className="mt-2 flex items-center justify-between gap-3"><span>{source} → {target}</span><button type="button" className="btn-secondary text-xs" aria-label={`Remove match ${source}`} onClick={()=>setClassMappings(old=>{const next={...old};delete next[source];return next})}>Remove</button></div>)}</div>}
     {inspected && <div className="space-y-3 rounded-lg border border-border p-3"><p className="text-xs text-text2">Before manual matches, {comparisonMonth.slice(0,7)} has {unmatchedActuals.length} actual class(es) without a matched budget and {unmatchedBudgets.length} budget class(es) without a matched actual. Match only names you know refer to the same class; the match applies across all months. Missing budgets stay pending.</p>{unmatchedActuals.length>0 && <details className="text-xs text-text2"><summary className="cursor-pointer font-semibold">Actual classes without a matched budget</summary><ul className="mt-2 list-disc pl-5">{unmatchedActuals.map(row=><li key={row.channel}>{row.channel}</li>)}</ul></details>}{unmatchedBudgets.map(source=>{
       const key=normalizeFinanceClassName(source.channel), selected=classMappings[key]??''
       return <label key={key} className="block text-sm">Budget class: <strong>{source.channel}</strong><select aria-label={`Match budget class ${source.channel}`} className="input mt-1 w-full text-sm" value={selected} onChange={e=>{const value=e.target.value;setClassMappings(old=>{const next={...old};if(value)next[key]=value;else delete next[key];return next})}}><option value="">Keep unmatched</option>{selected&&!unmatchedActuals.some(row=>row.channel===selected)&&<option value={selected}>{selected} · saved match</option>}{unmatchedActuals.map(target=><option key={target.channel} value={target.channel}>{target.channel}</option>)}</select></label>
     })}</div>}
-    <div><button type="button" className="btn-secondary" disabled={!leadership || busy || !validAsOf} onClick={() => void inspectChannelMatches()}>Review channel history matches</button></div>
+    <div><button type="button" className="btn-secondary" disabled={(!leadership&&!leadershipHistory) || busy || !validAsOf} onClick={() => void inspectChannelMatches()}>Review channel history matches</button></div>
     {Object.keys(channelMappings).length>0 && <div className="rounded-lg border border-border p-3 text-xs"><strong>Saved historical channel matches</strong>{Object.entries(channelMappings).map(([source,target])=><div key={source} className="mt-2 flex items-center justify-between gap-3"><span>{source} → {target}</span><button type="button" className="btn-secondary text-xs" aria-label={`Remove channel history match ${source}`} onClick={()=>setChannelMappings(old=>{const next={...old};delete next[source];return next})}>Remove</button></div>)}</div>}
     {channelReview!==null && <div className="space-y-3 rounded-lg border border-border p-3"><p className="text-xs text-text2">Channel forecasts use prior-year class statements. Select a historical class only when you know it represents the current channel. Matches apply across all months; unavailable history remains pending.</p>{!channelReview.length?<p className="text-xs text-text2">No historical class statements are available. Upload the prior-year class CSVs to review matches.</p>:topChannels.filter(channel=>historyCoverage(channelMappings[normalizeFinanceClassName(channel.channel)]??channel.channel)<12||Boolean(channelMappings[normalizeFinanceClassName(channel.channel)])).map(channel=>{
       const key=normalizeFinanceClassName(channel.channel), selected=channelMappings[key]??'', coverage=historyCoverage(selected||channel.channel)
@@ -239,6 +264,6 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
     <p className="text-xs text-text2">Unanswered milestones remain pending. The workbooks do not establish when these actions were completed. NOI, payroll and cash indicators are calculated separately; cash uses the Leadership Tool’s column L and ending cash.</p>
     {error && <div role="alert" className="rounded-lg bg-danger/10 p-3 text-sm text-danger">{error}</div>}
     {milestoneSaveError && <div role="alert" className="rounded-lg bg-danger/10 p-3 text-sm text-danger">Could not save milestones: {milestoneSaveError}</div>}
-    <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button><button type="button" className="btn-primary" disabled={!leadership || !warehouse || !validAsOf || !validWorkflowAdoption || !validMilestones || (!history && !baseline.history.length) || busy} onClick={() => void generate()}>{busy ? 'Saving or preparing…' : 'Generate HTML'}</button></div>
+    <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button><button type="button" className="btn-primary" disabled={(!leadership&&!leadershipHistory) || !warehouse || !validAsOf || !validWorkflowAdoption || !validMilestones || (!history && !baseline.history.length) || busy} onClick={() => void generate()}>{busy ? 'Saving or preparing…' : 'Generate HTML'}</button></div>
   </div>
 }

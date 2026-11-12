@@ -1,8 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import { applyFinanceClassMappings, parseFinanceLeadershipDetails, parseFinanceLeadershipWorkbookSheets } from '@/lib/financeLeadershipDetails'
+import * as XLSX from 'xlsx'
+import { applyFinanceClassMappings, parseFinanceLeadershipDetails, parseFinanceLeadershipWorkbookSheets, readFinanceLeadershipWorkbook } from '@/lib/financeLeadershipDetails'
 import { buildPnlForecastPath } from '@/pages/csuite/StitchNorthStar.helpers'
 
 describe('Leadership Tool finance details', () => {
+  it('preserves the general upload for a workbook without optional Finance sheets and reports the missing data', async () => {
+    const workbook=XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook,XLSX.utils.aoa_to_sheet([['','2026-10-01'],['Account','Current','Prior','Difference'],['Income',1000,900,null]]),'PnL')
+    XLSX.utils.book_append_sheet(workbook,XLSX.utils.aoa_to_sheet([['','2026-10-01'],['Department','Current','Prior','Difference'],['Grand Total',80,70,null]]),'Payroll')
+    XLSX.utils.book_append_sheet(workbook,XLSX.utils.aoa_to_sheet([['Week #']]),'Summary_13wks')
+    const bytes=XLSX.write(workbook,{bookType:'xlsx',type:'array'}) as ArrayBuffer
+    const file=new File([],'partial.xlsx')
+    Object.defineProperty(file,'arrayBuffer',{value:async()=>bytes})
+    await expect(readFinanceLeadershipWorkbook(file)).rejects.toThrow('requires Monthly view by Class')
+    const result=await readFinanceLeadershipWorkbook(file,{allowMissingFinanceSheets:true})
+    expect(result.parsed.source_meta.finance_missing_sheets).toEqual(['Monthly view by Class','dataPnL','BgtData'])
+    expect(result.parsed.pnl.accounts.find(account=>account.account==='Income')?.periods[0].current_year).toBe(1000)
+    expect(result.details.channels).toEqual([])
+    expect(result.details.payrollTotals[0]).toEqual({month:'2026-10-01',payroll:80})
+  })
   it('reads channel operating margin, signed expense variance and cash column L', () => {
     const sheets={
       'Monthly view by Class': [['', '2026-10-01'], ['Parent Class','Total Income','Profit Margin Current Year, %','','','','Operating Margin Current Year, %'], ['Shop',1000,.6,null,null,null,.1]],

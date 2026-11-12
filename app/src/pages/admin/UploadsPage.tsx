@@ -6,6 +6,8 @@ import { PageLoader } from '@/components/ui/LoadingSpinner'
 import LoadingSpinner from '@/components/ui/LoadingSpinner'
 import { fmtDate, fmtNumber } from '@/lib/utils'
 import { parseLeadershipToolFile } from '@/lib/leadershipToolParser'
+import { readFinanceLeadershipWorkbook } from '@/lib/financeLeadershipDetails'
+import { useSaveRyanFinanceLeadership } from '@/hooks/useStitchSlideHtmlBlocks'
 import { Upload, CheckCircle, XCircle, Clock, AlertTriangle, Download, FileSpreadsheet } from 'lucide-react'
 import { InventoryRecord } from '@/types'
 import SalesReportUpload from '@/components/admin/SalesReportUpload'
@@ -37,6 +39,7 @@ export default function UploadsPage() {
   const { data: leadershipSnapshot = null } = useLeadershipSnapshot()
   const uploadCSV = useUploadCSV()
   const replaceLeadershipSnapshot = useReplaceLeadershipSnapshot()
+  const saveFinanceLeadership = useSaveRyanFinanceLeadership()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const leadershipInputRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver]         = useState(false)
@@ -45,6 +48,8 @@ export default function UploadsPage() {
   const [downloading, setDownloading]   = useState<string | null>(null) // upload id being downloaded
   const [leadershipError, setLeadershipError] = useState<string | null>(null)
   const [leadershipSuccess, setLeadershipSuccess] = useState(false)
+  const [leadershipParsing, setLeadershipParsing] = useState(false)
+  const [leadershipWarning, setLeadershipWarning] = useState('')
 
   async function handleDownload(uploadId: string, filename: string, uploadedAt: string) {
     setDownloading(uploadId)
@@ -82,13 +87,20 @@ export default function UploadsPage() {
 
     setLeadershipError(null)
     setLeadershipSuccess(false)
+    setLeadershipWarning('')
+    setLeadershipParsing(true)
 
     try {
-      const parsed = await parseLeadershipToolFile(file)
+      const [parsed,finance] = await Promise.all([parseLeadershipToolFile(file),readFinanceLeadershipWorkbook(file,{allowMissingFinanceSheets:true})])
+      await saveFinanceLeadership.mutateAsync({filename:file.name,...finance})
       await replaceLeadershipSnapshot.mutateAsync({ filename: file.name, parsed })
+      const missing=finance.parsed.source_meta.finance_missing_sheets
+      if(Array.isArray(missing)&&missing.length)setLeadershipWarning(`Finance data from these missing sheets was not updated: ${missing.join(', ')}. Previously saved values remain available.`)
       setLeadershipSuccess(true)
     } catch (err) {
       setLeadershipError(err instanceof Error ? err.message : 'Leadership workbook upload failed')
+    } finally {
+      setLeadershipParsing(false)
     }
   }
 
@@ -171,7 +183,7 @@ export default function UploadsPage() {
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h2 className="text-[14px] font-semibold text-text1">Leadership Tool</h2>
-            <p className="mt-1 text-sm text-text2">Upload the weekly leadership workbook to replace the current finance snapshot.</p>
+            <p className="mt-1 text-sm text-text2">Upload the weekly leadership workbook to refresh the current snapshot and save Finance history.</p>
           </div>
           <FileSpreadsheet size={20} className="text-accent" />
         </div>
@@ -180,9 +192,9 @@ export default function UploadsPage() {
           type="button"
           className="btn-secondary"
           onClick={() => leadershipInputRef.current?.click()}
-          disabled={replaceLeadershipSnapshot.isPending}
+          disabled={leadershipParsing || replaceLeadershipSnapshot.isPending || saveFinanceLeadership.isPending}
         >
-          {replaceLeadershipSnapshot.isPending ? <LoadingSpinner size="sm" /> : <Upload size={14} />}
+          {leadershipParsing || replaceLeadershipSnapshot.isPending || saveFinanceLeadership.isPending ? <LoadingSpinner size="sm" /> : <Upload size={14} />}
           Upload Leadership Tool
         </button>
 
@@ -206,9 +218,11 @@ export default function UploadsPage() {
 
         {leadershipSuccess && (
           <div className="mt-4 flex items-center gap-2 rounded-xl border border-success/20 bg-success/10 px-4 py-3 text-sm text-success">
-            <CheckCircle size={15} /> Leadership snapshot refreshed.
+            <CheckCircle size={15} /> Leadership snapshot and Finance history refreshed.
           </div>
         )}
+
+        {leadershipWarning && <p role="status" className="mt-3 text-xs text-warning">{leadershipWarning}</p>}
 
         {leadershipError && (
           <div className="mt-4 flex items-center gap-2 rounded-xl border border-danger/20 bg-danger/10 px-4 py-3 text-sm text-danger">

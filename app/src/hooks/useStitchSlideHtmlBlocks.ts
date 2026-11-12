@@ -4,11 +4,54 @@ import { supabase } from '@/lib/supabase'
 import type { StitchSlideHtmlBlock, StitchSlideHtmlViewMode } from '@/types'
 import type { HistoricalChannelStatement, HistoricalStatementMonth } from '@/lib/financeHistoricalStatements'
 import { readFinanceMilestoneInputs, type FinanceMilestoneInputs } from '@/lib/financeDeckGenerator'
+import { mergeFinanceLeadershipHistory, readFinanceLeadershipHistory, type FinanceLeadershipHistory } from '@/lib/financeLeadershipHistory'
+import type { ParsedLeadershipTool } from '@/lib/leadershipToolParser'
+import type { FinanceLeadershipDetails } from '@/lib/financeLeadershipDetails'
 
 export const RYAN_FINANCE_BASELINE_PERIOD = '2000-01-01'
 export const RYAN_FINANCE_BASELINE_KEY = 'internal:ryan-finance-baseline'
 export const RYAN_FINANCE_MILESTONES_KEY = 'internal:ryan-finance-milestones'
+export const RYAN_FINANCE_LEADERSHIP_KEY = 'internal:ryan-finance-leadership-history'
 export interface RyanFinanceBaseline { history: HistoricalStatementMonth[]; channelHistory: HistoricalChannelStatement[] }
+
+async function fetchFinanceLeadershipRecord():Promise<{history:FinanceLeadershipHistory;updatedAt:string}|null> {
+  const {data,error}=await supabase.from('stitch_slide_html_blocks').select('html_code,updated_at')
+    .eq('period_month',RYAN_FINANCE_BASELINE_PERIOD).eq('slide_key',RYAN_FINANCE_LEADERSHIP_KEY).maybeSingle()
+  if(error)throw error
+  if(!data)return null
+  if(!data.html_code)throw new Error('Saved Finance Leadership history is empty. Refresh and try again.')
+  const history=readFinanceLeadershipHistory(data.html_code)
+  if(!history||typeof data.updated_at!=='string')throw new Error('Saved Finance Leadership history could not be read. Refresh and try again.')
+  return {history,updatedAt:data.updated_at}
+}
+
+export function useRyanFinanceLeadership() {
+  return useQuery({queryKey:['stitch_slide_html_blocks','ryan-finance-leadership'],queryFn:async()=>(await fetchFinanceLeadershipRecord())?.history??null,staleTime:5*60*1000})
+}
+
+/** Fetch again before each upload, then merge overlapping values and save the result. */
+export function useSaveRyanFinanceLeadership() {
+  const qc=useQueryClient(), {profile}=useAuth()
+  return useMutation({
+    mutationFn:async (incoming:{filename:string;parsed:ParsedLeadershipTool;details:FinanceLeadershipDetails})=>{
+      if(!profile?.is_active||profile.role!=='admin')throw new Error('Admin role required')
+      // Compare the database version so concurrent uploads cannot silently erase history.
+      for(let attempt=0;attempt<3;attempt++){
+        const existing=await fetchFinanceLeadershipRecord()
+        const savedTime=existing?Date.parse(existing.updatedAt):0
+        const history=mergeFinanceLeadershipHistory(existing?.history??null,incoming,new Date(Math.max(Date.now(),Number.isFinite(savedTime)?savedTime+1:0)).toISOString())
+        const payload={period_month:RYAN_FINANCE_BASELINE_PERIOD,slide_key:RYAN_FINANCE_LEADERSHIP_KEY,view_mode:'fields',html_code:JSON.stringify(history),updated_by:profile.id,updated_at:history.uploadedAt}
+        const result=existing
+          ? await supabase.from('stitch_slide_html_blocks').update(payload).eq('period_month',RYAN_FINANCE_BASELINE_PERIOD).eq('slide_key',RYAN_FINANCE_LEADERSHIP_KEY).eq('updated_at',existing.updatedAt).select('id').maybeSingle()
+          : await supabase.from('stitch_slide_html_blocks').insert(payload).select('id').maybeSingle()
+        if(result.error){if(!existing&&result.error.code==='23505')continue;throw result.error}
+        if(result.data)return history
+      }
+      throw new Error('Finance history changed during upload. Please retry the upload.')
+    },
+    onSuccess:history=>{qc.setQueryData(['stitch_slide_html_blocks','ryan-finance-leadership'],history)},
+  })
+}
 
 export function useRyanFinanceMilestones() {
   return useQuery({
