@@ -53,6 +53,7 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
   const [statuses, setStatuses] = useState<Record<string, MilestoneStatus>>(savedMilestones?.statuses ?? saved?.statuses ?? {})
   const [notes, setNotes] = useState<Record<string, string>>(savedMilestones?.notes ?? saved?.notes ?? {})
   const [customMilestones, setCustomMilestones] = useState<FinanceMilestone[]>(savedMilestones?.customMilestones ?? saved?.customMilestones ?? [])
+  const [removedMilestoneIds,setRemovedMilestoneIds]=useState<string[]>(savedMilestones?.removedMilestoneIds ?? saved?.removedMilestoneIds ?? [])
   const [newMilestoneLane, setNewMilestoneLane] = useState<FinanceMilestone['lane']>('Guardrail')
   const [newMilestoneLabel, setNewMilestoneLabel] = useState('')
   const [newMilestoneDate, setNewMilestoneDate] = useState('')
@@ -66,11 +67,11 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
   const [error, setError] = useState('')
   const [milestoneSaveError,setMilestoneSaveError]=useState('')
   const [milestoneSaving,setMilestoneSaving]=useState(false)
-  const milestoneSnapshot=JSON.stringify({customMilestones,milestoneEdits,statuses,completion,notes})
+  const milestoneSnapshot=JSON.stringify({customMilestones,removedMilestoneIds,milestoneEdits,statuses,completion,notes})
   const latestMilestoneSnapshot=useRef(milestoneSnapshot)
   latestMilestoneSnapshot.current=milestoneSnapshot
-  // Migrate legacy custom milestones, but do not create an empty record merely by opening the builder.
-  const savedMilestoneSnapshot=useRef(savedMilestones||!customMilestones.length?milestoneSnapshot:'')
+  // Migrate saved deck milestone changes, but do not create an empty record merely by opening the builder.
+  const savedMilestoneSnapshot=useRef(savedMilestones||(!customMilestones.length&&!removedMilestoneIds.length)?milestoneSnapshot:'')
   const milestoneSaveHandler=useRef(onSaveMilestones)
   milestoneSaveHandler.current=onSaveMilestones
   const milestoneSaveQueue=useRef<Promise<void>>(Promise.resolve())
@@ -104,7 +105,7 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
   const validAsOf = /^\d{4}-\d{2}-\d{2}$/.test(asOf) && asOf >= periodStart && asOf <= periodEnd
   const workflowAdoptionPct = workflowAdoption.trim() === '' ? null : Number(workflowAdoption)
   const validWorkflowAdoption = workflowAdoptionPct === null || (Number.isFinite(workflowAdoptionPct) && workflowAdoptionPct >= 0 && workflowAdoptionPct <= 100 && /^\d{4}-\d{2}-\d{2}$/.test(workflowAdoptionDate) && workflowAdoptionDate <= asOf)
-  const validMilestones = Object.values(milestoneEdits).every(edit => validFinanceMilestoneDate(edit.date) && edit.label.trim().length>0 && edit.label.length<=80)
+  const validMilestones = Object.entries(milestoneEdits).every(([id,edit]) => removedMilestoneIds.includes(id) || (validFinanceMilestoneDate(edit.date) && edit.label.trim().length>0 && edit.label.length<=80))
   const [year,monthNumber]=asOf.slice(0,7).split('-').map(Number)
   const comparisonMonth=validAsOf?new Date(Date.UTC(year,monthNumber-2,1)).toISOString().slice(0,10):''
   const comparisonRows=inspected?.data.details.classBudgets.filter(row=>row.month===comparisonMonth)??[]
@@ -207,10 +208,20 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
       assertUniqueHistoricalMonths(historyRows)
       await persistMilestones(milestoneSnapshot)
       const snapshot: LeadershipToolSnapshot = { id:'local-preview', snapshot_key:'current', filename:leadership?.name??leadershipHistory!.filename, uploaded_by:null, uploaded_at:new Date().toISOString(), ...leadershipData.parsed }
-      const input: FinanceDeckInput = { snapshot, details:leadershipData.details, warehouse:warehouseRows, history:historyRows, channelHistory:channelRows, statuses, notes, customMilestones, milestoneEdits, completion, classMappings, channelMappings, workflowAdoptionPct, workflowAdoptionDate:workflowAdoptionPct === null ? null : workflowAdoptionDate, asOf, chartHistory:saved?.chartHistory, currentMonthProjectedSales: asOf === today() ? currentMonthProjectedSales : null }
+      const input: FinanceDeckInput = { snapshot, details:leadershipData.details, warehouse:warehouseRows, history:historyRows, channelHistory:channelRows, statuses, notes, customMilestones, removedMilestoneIds, milestoneEdits, completion, classMappings, channelMappings, workflowAdoptionPct, workflowAdoptionDate:workflowAdoptionPct === null ? null : workflowAdoptionDate, asOf, chartHistory:saved?.chartHistory, currentMonthProjectedSales: asOf === today() ? currentMonthProjectedSales : null }
       onGenerated(generateFinanceDeck(input))
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not read the supplied files.') }
     finally { setBusy(false) }
+  }
+
+  function removeMilestone(m:FinanceMilestone) {
+    if(m.id.startsWith('custom-')){
+      setCustomMilestones(old=>old.filter(item=>item.id!==m.id))
+      setMilestoneEdits(old=>{const next={...old};delete next[m.id];return next})
+      setStatuses(old=>{const next={...old};delete next[m.id];return next})
+      setCompletion(old=>{const next={...old};delete next[m.id];return next})
+      setNotes(old=>{const next={...old};delete next[m.id];return next})
+    } else setRemovedMilestoneIds(old=>old.includes(m.id)?old:[...old,m.id])
   }
 
   return <div className="space-y-5">
@@ -255,8 +266,9 @@ export default function FinanceDeckBuilder({ onGenerated, onCancel, currentMonth
         <input aria-label="New milestone date" className="input text-sm" type="date" value={newMilestoneDate} onChange={e=>setNewMilestoneDate(e.target.value)} />
         <button type="button" className="btn-secondary text-xs" disabled={!newMilestoneLabel.trim()||!validFinanceMilestoneDate(newMilestoneDate)} onClick={()=>{setCustomMilestones(old=>[...old,{id:`custom-${crypto.randomUUID()}`,lane:newMilestoneLane,label:newMilestoneLabel.trim(),date:newMilestoneDate}]);setNewMilestoneLabel('');setNewMilestoneDate('')}}>Add milestone</button>
       </div>
-      {[...FINANCE_MILESTONES,...customMilestones].map(m => <div key={m.id} className="grid gap-2 border-b border-border pb-3 md:grid-cols-[1fr_125px_1fr]">
-      <div className="space-y-1 text-sm"><div className="text-xs text-text2">{m.lane} {m.id.startsWith('custom-')&&<button type="button" className="underline" aria-label={`Remove ${m.label}`} onClick={()=>{setCustomMilestones(old=>old.filter(item=>item.id!==m.id));setMilestoneEdits(old=>{const next={...old};delete next[m.id];return next})}}>Remove</button>}</div><input className="input w-full text-sm" aria-label={`${m.label} description`} maxLength={80} value={milestoneEdits[m.id]?.label ?? m.label} onChange={e => {const label=e.target.value;setMilestoneEdits(old=>({...old,[m.id]:{date:old[m.id]?.date??m.date,label}}));setStatuses(old=>({...old,[m.id]:'pending'}));setCompletion(old=>({...old,[m.id]:'unknown'}))}} /><input type="date" className="input w-full text-sm" aria-label={`${m.label} date`} value={milestoneEdits[m.id]?.date ?? m.date} onChange={e => {const date=e.target.value;setMilestoneEdits(old=>({...old,[m.id]:{label:old[m.id]?.label??m.label,date}}));setStatuses(old=>({...old,[m.id]:'pending'}));setCompletion(old=>({...old,[m.id]:'unknown'}))}} /></div>
+      {removedMilestoneIds.length>0 && <details className="rounded-lg border border-border p-2 text-xs"><summary className="cursor-pointer font-semibold">Removed milestones ({removedMilestoneIds.length})</summary>{FINANCE_MILESTONES.filter(m=>removedMilestoneIds.includes(m.id)).map(m=><div key={m.id} className="mt-2 flex items-center justify-between gap-2"><span>{milestoneEdits[m.id]?.label??m.label}</span><button type="button" className="underline" aria-label={`Restore ${m.label}`} onClick={()=>setRemovedMilestoneIds(old=>old.filter(id=>id!==m.id))}>Restore</button></div>)}</details>}
+      {[...FINANCE_MILESTONES.filter(m=>!removedMilestoneIds.includes(m.id)),...customMilestones].map(m => <div key={m.id} className="grid gap-2 border-b border-border pb-3 md:grid-cols-[1fr_125px_1fr]">
+      <div className="space-y-1 text-sm"><div className="text-xs text-text2">{m.lane} <button type="button" className="underline" aria-label={`Remove ${m.label}`} onClick={()=>removeMilestone(m)}>Remove</button></div><input className="input w-full text-sm" aria-label={`${m.label} description`} maxLength={80} value={milestoneEdits[m.id]?.label ?? m.label} onChange={e => {const label=e.target.value;setMilestoneEdits(old=>({...old,[m.id]:{date:old[m.id]?.date??m.date,label}}));setStatuses(old=>({...old,[m.id]:'pending'}));setCompletion(old=>({...old,[m.id]:'unknown'}))}} /><input type="date" className="input w-full text-sm" aria-label={`${m.label} date`} value={milestoneEdits[m.id]?.date ?? m.date} onChange={e => {const date=e.target.value;setMilestoneEdits(old=>({...old,[m.id]:{label:old[m.id]?.label??m.label,date}}));setStatuses(old=>({...old,[m.id]:'pending'}));setCompletion(old=>({...old,[m.id]:'unknown'}))}} /></div>
       <select aria-label={`${m.label} status`} className="input text-sm" value={statuses[m.id] ?? 'pending'} onChange={e => setStatuses(old => ({ ...old, [m.id]:e.target.value as MilestoneStatus }))}><option value="pending">Pending</option><option value="green">Green</option><option value="yellow">Yellow</option><option value="red">Red</option></select>
       <div className="space-y-1"><select aria-label={`${m.label} completion`} className="input w-full text-sm" value={completion[m.id] ?? 'unknown'} onChange={e => setCompletion(old=>({...old,[m.id]:e.target.value as MilestoneCompletion}))}><option value="unknown">Completion unconfirmed</option><option value="unfinished">Unfinished</option><option value="achieved">Action and outcome achieved by due date</option></select><input className="input w-full text-sm" aria-label={`${m.label} note`} placeholder="Outcome / evidence" value={notes[m.id] ?? ''} onChange={e => setNotes(old => ({ ...old, [m.id]:e.target.value }))} /></div>
     </div>)}</fieldset>}

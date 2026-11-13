@@ -74,6 +74,23 @@ describe('Finance deck generation', () => {
     expect(html).toContain('Finance plan · 12 months')
     const slides=splitFinanceDeckHtml(html)
     expect(slides).toHaveLength(7)
+    for(const index of [0,2]){
+      const table=new DOMParser().parseFromString(slides[index],'text/html').querySelector('table')!
+      const headers=[...table.querySelectorAll('th')].map(cell=>cell.textContent)
+      const row=[...table.querySelectorAll('tbody tr')].find(item=>item.querySelector('td')?.textContent==='Oct 26')!
+      expect([...row.querySelectorAll('td')][headers.indexOf('Actual sales')].textContent).toBe('$1,000')
+      expect(headers.indexOf('Actual sales')).toBe(headers.length-2)
+    }
+    const incompleteSnapshot={...snapshot,pnl:{accounts:snapshot.pnl.accounts.map(account=>account.account==='Grand Total'?{...account,periods:account.periods.filter(row=>row.month!=='2026-09-01')}:account)}}
+    const incompleteSlides=splitFinanceDeckHtml(generateFinanceDeck({...input,snapshot:incompleteSnapshot,details:{...input.details,payrollTotals:input.details.payrollTotals.filter(row=>row.month!=='2026-09-01')}}))
+    for(const index of [0,2]){
+      const table=new DOMParser().parseFromString(incompleteSlides[index],'text/html').querySelector('table')!
+      const headers=[...table.querySelectorAll('th')].map(cell=>cell.textContent)
+      const row=[...table.querySelectorAll('tbody tr')].find(item=>item.querySelector('td')?.textContent==='Sep 26')!
+      const cells=[...row.querySelectorAll('td')]
+      expect(cells[headers.indexOf('Actual sales')].textContent).toBe('$1,000')
+      expect(cells[cells.length-1].textContent).toBe('Pending / Pending')
+    }
     const graph=new DOMParser().parseFromString(slides[0],'text/html').querySelector('svg.graph')!
     // Stitch strips scripts, so chart reveal must be a complete CSS animation
     // with a full-size fallback when motion is disabled.
@@ -313,6 +330,10 @@ describe('Finance deck generation', () => {
     const customHtml=generateFinanceDeck({...input,customMilestones:[custom],statuses:{...input.statuses,[custom.id]:'yellow'}})
     expect(splitFinanceDeckHtml(customHtml)[6]).toContain('Review close process')
     expect(readFinanceDeckSavedInputs(customHtml)?.customMilestones).toEqual([custom])
+    const removedHtml=generateFinanceDeck({...input,removedMilestoneIds:['close']})
+    expect(splitFinanceDeckHtml(removedHtml)[6]).not.toContain('Finance close workflows mapped')
+    expect(readFinanceDeckSavedInputs(removedHtml)?.removedMilestoneIds).toEqual(['close'])
+    expect(readFinanceMilestoneInputs(JSON.stringify({version:1,customMilestones:[],removedMilestoneIds:['close','unknown']}))?.removedMilestoneIds).toEqual(['close'])
     expect(readFinanceDeckSavedInputs(customHtml)?.statuses[custom.id]).toBe('yellow')
     expect(()=>generateFinanceDeck({...input,milestoneEdits:{warehouse1:{date:'2027-02-30',label:'Invalid'}}})).toThrow('valid date')
     const overdueInput={...input,milestoneEdits:{close:{date:'2026-11-05',label:'Close playbook'}},completion:{close:'unfinished' as const}}

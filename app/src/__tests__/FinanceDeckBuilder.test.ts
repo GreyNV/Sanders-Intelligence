@@ -20,6 +20,28 @@ vi.mock('@/lib/financeDeckGenerator', async importOriginal => {
 
 describe('Finance deck workflow', () => {
   afterEach(() => { document.body.innerHTML=''; vi.clearAllMocks() })
+  it('persists removal of a built-in milestone across visits and allows restoring it', async () => {
+    const container=document.createElement('div');document.body.append(container)
+    let stored:FinanceMilestoneInputs|null=null
+    const save=vi.fn(async(inputs:FinanceMilestoneInputs)=>{stored=JSON.parse(JSON.stringify(inputs)) as FinanceMilestoneInputs})
+    const props={savedHtml:'',periodMonth:'2026-11-01',onGenerated:vi.fn(),onCancel:()=>{},onSaveMilestones:save}
+    let root=createRoot(container)
+    await act(async()=>root.render(createElement(FinanceDeckBuilder,props)))
+    await act(async()=>{[...container.querySelectorAll('button')].find(b=>b.textContent==='Answer milestone questions')!.click()})
+    await act(async()=>{container.querySelector<HTMLButtonElement>('button[aria-label="Remove Finance close workflows mapped"]')!.click()})
+    expect(container.querySelector('input[aria-label="Finance close workflows mapped description"]')).toBeNull()
+    await act(async()=>{root.unmount();await new Promise(resolve=>setTimeout(resolve,0))})
+    expect(stored).toMatchObject({removedMilestoneIds:['close']})
+    root=createRoot(container)
+    await act(async()=>root.render(createElement(FinanceDeckBuilder,{...props,savedMilestones:stored})))
+    await act(async()=>{[...container.querySelectorAll('button')].find(b=>b.textContent==='Answer milestone questions')!.click()})
+    expect(container.querySelector('input[aria-label="Finance close workflows mapped description"]')).toBeNull()
+    await act(async()=>{container.querySelector<HTMLButtonElement>('button[aria-label="Restore Finance close workflows mapped"]')!.click()})
+    expect(container.querySelector('input[aria-label="Finance close workflows mapped description"]')).not.toBeNull()
+    await act(async()=>{root.unmount();await new Promise(resolve=>setTimeout(resolve,0))})
+    expect(stored).toMatchObject({removedMilestoneIds:[]})
+    container.remove()
+  })
   it('saves a Leadership upload immediately and generates later using saved data', async () => {
     const data={parsed:{cashflow:{current_cash_balance:null,minimum_cash_floor:null,weeks:[]},payroll:{departments:[]},pnl:{accounts:[]},budget:{sales:[]},sales_simulation:{noi_benchmark_pct:.09,latest_income:0,latest_noi:0,latest_noi_pct:null,sales_needed_for_benchmark:null},source_meta:{}},details:{channels:[],classBudgets:[],cashWeeks:[],payrollTotals:[],payrollDepartments:[]}}
     vi.mocked(readFinanceLeadershipWorkbook).mockResolvedValueOnce(data)
